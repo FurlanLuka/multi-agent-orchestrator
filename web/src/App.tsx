@@ -19,7 +19,6 @@ import {
   Collapse,
   List,
   ActionIcon,
-  Tooltip,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -32,8 +31,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconEye,
-  IconLayoutSidebar,
-  IconLayoutSidebarFilled,
   IconCircle,
   IconClock,
   IconLoader,
@@ -90,7 +87,6 @@ function App() {
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Toggle task expansion
   const toggleTaskExpanded = (taskId: string) => {
@@ -127,9 +123,8 @@ function App() {
       <AppShell
         header={{ height: 64 }}
         navbar={{
-          width: sidebarCollapsed ? 0 : 300,
+          width: 300,
           breakpoint: 'sm',
-          collapsed: { mobile: sidebarCollapsed, desktop: sidebarCollapsed }
         }}
         padding="md"
         styles={{
@@ -148,16 +143,6 @@ function App() {
         >
           <Group justify="space-between" h="100%">
             <Group gap="sm">
-              <Tooltip label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="lg"
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                >
-                  {sidebarCollapsed ? <IconLayoutSidebar size={20} /> : <IconLayoutSidebarFilled size={20} />}
-                </ActionIcon>
-              </Tooltip>
               <ThemeIcon size="lg" radius="md" variant="gradient" gradient={{ from: 'blue', to: 'cyan' }}>
                 <IconRocket size={20} />
               </ThemeIcon>
@@ -308,23 +293,32 @@ function App() {
                     radius="lg"
                     p={0}
                     h="calc(100vh - 120px)"
-                    withBorder
-                    style={{ overflow: 'hidden' }}
+                    style={{
+                      overflow: 'hidden',
+                      border: '1px solid var(--mantine-color-gray-2)',
+                      background: 'linear-gradient(135deg, white 0%, var(--mantine-color-gray-0) 100%)',
+                    }}
                   >
                     {/* Chat Header */}
-                    <Group justify="space-between" p="md" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)' }}>
-                      <Group gap="sm">
-                        <Text fw={700} size="lg" tt="uppercase">Planning Agent</Text>
+                    <Group justify="space-between" p="md" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)', backgroundColor: 'white' }}>
+                      <Group gap="xs">
+                        <ThemeIcon size="sm" radius="md" variant="light" color="blue">
+                          <IconMessageCircle size={14} />
+                        </ThemeIcon>
+                        <Text size="xs" tt="uppercase" fw={600} c="dimmed">
+                          Planning Agent
+                        </Text>
                       </Group>
                       <Badge
                         color={streamingMessages.some(m => m.status === 'streaming') ? 'blue' : 'gray'}
-                        variant="filled"
-                        size="lg"
+                        variant="light"
+                        size="sm"
+                        radius="md"
                       >
                         {streamingMessages.some(m => m.status === 'streaming') ? 'Thinking...' : 'Ready'}
                       </Badge>
                     </Group>
-                    <Box h="calc(100% - 65px)">
+                    <Box h="calc(100% - 57px)">
                       <AssistantChat
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
