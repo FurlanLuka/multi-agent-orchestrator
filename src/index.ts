@@ -75,9 +75,8 @@ async function main() {
 
   processManager.on('ready', ({ project, type }) => {
     console.log(`[Orchestrator] ${project} ${type} is ready`);
-    if (type === 'devServer') {
-      statusMonitor.updateStatus(project, 'IDLE', 'Dev server ready');
-    }
+    // Don't set status to IDLE here - that's reserved for when the full task is complete
+    // Dev server ready just means the server is up, not that work is done
   });
 
   processManager.on('exit', ({ project, type, code, uptime }) => {
@@ -509,6 +508,11 @@ After fixing, the E2E tests will be re-run automatically.`;
     // Handle plan approval
     socket.on('approvePlan', (plan: Plan) => {
       sessionManager.setPlan(plan);
+      // Send updated session to UI so session.plan is set
+      const updatedSession = sessionManager.getCurrentSession();
+      if (updatedSession) {
+        (ui.io as any).emitSession(updatedSession);
+      }
       chatHandler.systemMessage('Plan approved! Ready to start execution.');
     });
 
@@ -518,6 +522,11 @@ After fixing, the E2E tests will be re-run automatically.`;
       if (!session || !session.plan) {
         chatHandler.systemMessage('No session or plan available');
         return;
+      }
+
+      // Reset statuses for all projects to PENDING before starting
+      for (const project of session.projects) {
+        statusMonitor.initializeProject(project);
       }
 
       // Start the state machine

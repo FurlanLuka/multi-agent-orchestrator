@@ -1,0 +1,29 @@
+{
+  "feature": "Remove incomplete/unused code",
+  "description": "Clean up incomplete 'like' functionality that was partially implemented but never connected to the UI in PostDetail component, and ensure backend endpoint is also removed if frontend doesn't use it.",
+  "tasks": [
+    {
+      "project": "example_frontend",
+      "task": "Remove unused like functionality from PostDetail.tsx. Remove the following code: (1) useState hooks for 'likeCount' and 'isLiking' on lines 14-15, (2) the entire 'handleLike' async function on lines 17-32, (3) the 'post.likes' import/usage. The like button and count are not rendered in the JSX so only the dead code needs to be removed. Keep the rest of the component intact (delete confirmation dialog, edit button, back navigation).",
+      "dependencies": []
+    },
+    {
+      "project": "example_backend",
+      "task": "Remove the unused POST /posts/:id/like endpoint. In blog.controller.ts, remove the @Post(':id/like') decorated method 'likePost' on lines 36-39. In blog.service.ts, remove the 'likePost' method on lines 84-91. Optionally, if 'likes' field is not needed elsewhere, it can remain in the Post interface for future use or be removed entirely from the interface (lines 7) and from the default posts data (lines 18, 24, 30).",
+      "dependencies": []
+    }
+  ],
+  "testPlan": {
+    "example_frontend": [
+      "Verify PostDetail component renders without errors after removing like code",
+      "Verify edit and delete functionality still works",
+      "Verify no TypeScript compilation errors (npm run build)"
+    ],
+    "example_backend": [
+      "Verify npm run start:dev starts without errors",
+      "Verify GET /posts still returns posts (may include 'likes' field if kept)",
+      "Verify POST /posts/:id/like returns 404 (endpoint removed)",
+      "Verify other CRUD operations (create, update, delete) still work"
+    ]
+  }
+}
