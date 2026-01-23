@@ -2,13 +2,27 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent } from '../types';
+
+// Full stream-json message types from Claude CLI
+interface StreamJsonContentBlock {
+  type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
+  text?: string;
+  thinking?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  tool_use_id?: string;
+  content?: string;
+  is_error?: boolean;
+}
 
 interface StreamJsonMessage {
   type: 'system' | 'assistant' | 'result' | 'error';
   subtype?: string;
   message?: {
-    content?: Array<{ type: string; text?: string }>;
+    id?: string;
+    content?: StreamJsonContentBlock[];
   };
   result?: string;
   is_error?: boolean;
@@ -107,6 +121,16 @@ User: ${newMessage}`;
       let lineCount = 0;
       let partialLine = ''; // Buffer for incomplete lines
 
+      // Generate unique message ID for this response
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Emit message start for streaming UI
+      const startEvent: ChatStreamEvent = {
+        type: 'message_start',
+        messageId
+      };
+      this.emit('stream', startEvent);
+
       // Process stdout data as it arrives
       proc.stdout.on('data', (chunk: Buffer) => {
         const text = partialLine + chunk.toString();
@@ -131,13 +155,42 @@ User: ${newMessage}`;
                 break;
 
               case 'assistant':
-                // Extract text content from assistant message
+                // Extract and emit all content blocks
                 if (msg.message?.content) {
                   for (const block of msg.message.content) {
+                    // Convert to our ContentBlock type
+                    let contentBlock: ContentBlock | null = null;
+
                     if (block.type === 'text' && block.text) {
                       responseBuffer += block.text;
+                      contentBlock = { type: 'text', text: block.text };
                       this.emit('output', block.text);
-                      // Note: Chat emission moved to exit handler to emit complete response
+                    } else if (block.type === 'tool_use' && block.id && block.name) {
+                      contentBlock = {
+                        type: 'tool_use',
+                        id: block.id,
+                        name: block.name,
+                        input: block.input || {}
+                      };
+                    } else if (block.type === 'tool_result' && block.tool_use_id) {
+                      contentBlock = {
+                        type: 'tool_result',
+                        tool_use_id: block.tool_use_id,
+                        content: block.content || '',
+                        is_error: block.is_error
+                      };
+                    } else if (block.type === 'thinking' && block.thinking) {
+                      contentBlock = { type: 'thinking', thinking: block.thinking };
+                    }
+
+                    // Emit content block for streaming UI
+                    if (contentBlock) {
+                      const blockEvent: ChatStreamEvent = {
+                        type: 'content_block',
+                        messageId,
+                        block: contentBlock
+                      };
+                      this.emit('stream', blockEvent);
                     }
                   }
                 }
@@ -151,6 +204,12 @@ User: ${newMessage}`;
 
               case 'error':
                 console.error('[PlanningAgent] Error from Claude:', msg);
+                const errorEvent: ChatStreamEvent = {
+                  type: 'error',
+                  messageId,
+                  error: 'Claude error'
+                };
+                this.emit('stream', errorEvent);
                 break;
             }
           } catch (err) {
@@ -170,6 +229,12 @@ User: ${newMessage}`;
       proc.on('error', (err) => {
         console.error('[PlanningAgent] Process error:', err);
         this.currentProcess = null;
+        const errorEvent: ChatStreamEvent = {
+          type: 'error',
+          messageId,
+          error: err.message
+        };
+        this.emit('stream', errorEvent);
         reject(err);
       });
 
@@ -193,12 +258,26 @@ User: ${newMessage}`;
         const finalResult = resultText || responseBuffer;
         if (code === 0 || finalResult) {
           this.processOutput(finalResult);
-          // Emit complete response as single chat message
+
+          // Emit message complete for streaming UI
+          const completeEvent: ChatStreamEvent = {
+            type: 'message_complete',
+            messageId
+          };
+          this.emit('stream', completeEvent);
+
+          // Also emit legacy chat event for backwards compatibility
           if (finalResult.trim()) {
             this.emit('chat', finalResult);
           }
           resolve(finalResult);
         } else {
+          const errorEvent: ChatStreamEvent = {
+            type: 'error',
+            messageId,
+            error: `Process exited with code ${code}`
+          };
+          this.emit('stream', errorEvent);
           reject(new Error(`Process exited with code ${code}`));
         }
       });
@@ -406,6 +485,74 @@ IMPORTANT: Return ONLY the JSON object, no other text.`;
     } catch (err) {
       console.error('[PlanningAgent] Error analyzing event:', err);
       return '{"type": "noop"}';
+    }
+  }
+
+  /**
+   * Analyzes E2E test results and determines if tests passed or need fixes
+   * Returns: { passed: boolean, analysis: string, fixPrompt?: string }
+   */
+  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[]): Promise<{
+    passed: boolean;
+    analysis: string;
+    fixPrompt?: string;
+  }> {
+    const prompt = `Analyze the E2E test results for project "${project}".
+
+Test scenarios that were being verified:
+${testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+E2E Test Output:
+\`\`\`
+${e2eOutput.slice(-5000)}
+\`\`\`
+
+Analyze the output and determine:
+1. Did ALL tests pass? Look for test failure indicators like "FAIL", "Error", "AssertionError", "expected", "timeout", etc.
+2. If tests failed, what specifically failed and why?
+
+IMPORTANT: Respond with ONLY a JSON object in this exact format:
+{
+  "passed": true or false,
+  "analysis": "Brief summary of test results",
+  "fixPrompt": "If tests failed, specific instructions for the agent to fix the issues. Include exact error messages and what needs to change. Omit this field if tests passed."
+}`;
+
+    try {
+      const result = await this.sendChat(prompt);
+
+      // Extract JSON from response
+      const jsonMatch = result.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*?\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            passed: !!parsed.passed,
+            analysis: parsed.analysis || 'No analysis provided',
+            fixPrompt: parsed.fixPrompt
+          };
+        } catch {
+          // Fall through to default
+        }
+      }
+
+      // If we can't parse, assume failure and use the raw response
+      console.warn('[PlanningAgent] Could not parse E2E analysis JSON, checking for failure patterns');
+      const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+      return {
+        passed: !hasFailure,
+        analysis: result.slice(0, 500),
+        fixPrompt: hasFailure ? result : undefined
+      };
+    } catch (err) {
+      console.error('[PlanningAgent] Error analyzing E2E result:', err);
+      // On error, check output for obvious failures
+      const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+      return {
+        passed: !hasFailure,
+        analysis: 'Could not analyze E2E results',
+        fixPrompt: hasFailure ? 'Please review the test failures and fix the issues.' : undefined
+      };
     }
   }
 

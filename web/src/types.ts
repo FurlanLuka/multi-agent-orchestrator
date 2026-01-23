@@ -1,12 +1,14 @@
 // Agent status states
 export type AgentStatus =
-  | 'IDLE'
+  | 'PENDING'       // Initialized but execution not started
+  | 'IDLE'          // Execution complete, no active work
   | 'WORKING'
   | 'DEBUGGING'
   | 'FATAL_DEBUGGING'
   | 'FATAL_RECOVERY'
   | 'READY'
   | 'E2E'
+  | 'E2E_FIXING'    // Fixing issues found in E2E tests
   | 'BLOCKED';
 
 // Session
@@ -48,11 +50,59 @@ export interface LogEntry {
   timestamp: number;
 }
 
-// Chat message
+// Chat message (legacy - simple text)
 export interface ChatMessage {
   from: 'user' | 'planning' | 'system';
   message: string;
   timestamp: number;
+}
+
+// Streaming content blocks (for agentic UI)
+export interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+export interface ToolUseContentBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResultContentBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string;
+  is_error?: boolean;
+}
+
+export interface ThinkingContentBlock {
+  type: 'thinking';
+  thinking: string;
+}
+
+export type ContentBlock =
+  | TextContentBlock
+  | ToolUseContentBlock
+  | ToolResultContentBlock
+  | ThinkingContentBlock;
+
+// Streaming message for assistant-ui
+export interface StreamingMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: ContentBlock[];
+  status: 'pending' | 'streaming' | 'complete' | 'error';
+  createdAt: number;
+}
+
+// Chat stream event from server
+export interface ChatStreamEvent {
+  type: 'message_start' | 'content_block' | 'message_complete' | 'error';
+  messageId: string;
+  block?: ContentBlock;
+  error?: string;
 }
 
 // Approval request

@@ -103,6 +103,7 @@ export class ActionExecutor extends EventEmitter {
 
   /**
    * Sends an E2E test prompt to an agent
+   * Note: Does NOT automatically transition to IDLE - the result needs to be analyzed first
    */
   private async executeSendE2E(action: SendE2EAction): Promise<void> {
     console.log(`[ActionExecutor] Sending E2E prompt to ${action.project}`);
@@ -115,14 +116,39 @@ export class ActionExecutor extends EventEmitter {
       const result = await this.processManager.sendToAgent(action.project, action.prompt);
       console.log(`[ActionExecutor] Agent ${action.project} completed E2E (${result.length} chars)`);
 
-      // Mark as IDLE after E2E completes
-      this.statusMonitor.updateStatus(action.project, 'IDLE', 'E2E tests completed');
+      // Don't update status here - emit result for analysis
+      // The listener will analyze and set status to either IDLE (passed) or E2E_FIXING (failed)
       this.stateMachine.markAgentIdle(action.project);
 
       this.emit('e2eComplete', { project: action.project, result });
     } catch (err) {
       console.error(`[ActionExecutor] Failed to send E2E prompt to ${action.project}:`, err);
       this.emit('error', { action, error: 'Failed to send E2E prompt' });
+    }
+  }
+
+  /**
+   * Sends a fix prompt to an agent after E2E failure
+   */
+  async sendE2EFix(project: string, fixPrompt: string): Promise<string> {
+    console.log(`[ActionExecutor] Sending E2E fix prompt to ${project}`);
+
+    try {
+      this.statusMonitor.updateStatus(project, 'E2E_FIXING', 'Fixing E2E test failures');
+      this.stateMachine.markAgentActive(project);
+      this.emit('e2eFixPromptSent', { project });
+
+      const result = await this.processManager.sendToAgent(project, fixPrompt);
+      console.log(`[ActionExecutor] Agent ${project} completed E2E fix (${result.length} chars)`);
+
+      this.stateMachine.markAgentIdle(project);
+      this.emit('e2eFixComplete', { project, result });
+
+      return result;
+    } catch (err) {
+      console.error(`[ActionExecutor] Failed to send E2E fix prompt to ${project}:`, err);
+      this.emit('error', { project, error: 'Failed to send E2E fix prompt' });
+      throw err;
     }
   }
 

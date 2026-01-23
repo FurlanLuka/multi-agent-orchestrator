@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -190,10 +190,16 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('allComplete');
   };
 
+  // Emit streaming chat events for agentic UI
+  const emitChatStream = (event: ChatStreamEvent) => {
+    io.emit('chatStream', event);
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
   (io as any).emitChat = emitChat;
+  (io as any).emitChatStream = emitChatStream;
   (io as any).emitApproval = emitApproval;
   (io as any).emitSession = emitSession;
   (io as any).emitSessionCreated = emitSessionCreated;

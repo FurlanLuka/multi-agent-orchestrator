@@ -1,0 +1,30 @@
+{
+  "feature": "random small feature",
+  "description": "Add a simple word count feature to the blog posts - displaying word count on posts in the frontend and adding a word count field to the backend Post interface",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Add a 'wordCount' field to the Post interface in src/blog/blog.service.ts. Modify the create() method to automatically calculate word count from the body field using body.split(/\\s+/).length. Update the existing seed posts to include word counts. The Post interface is defined at line 3-8 of blog.service.ts.",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Update the Post interface in src/components/PostList.tsx (line 3-8) to include an optional 'wordCount?: number' field. Display the word count next to the date in the post-item div if wordCount exists, using a format like '• X words'. Also update the PostDetail component to show word count prominently.",
+      "dependencies": [
+        "example_backend"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "GET /posts returns posts with wordCount field",
+      "POST /posts creates new post with auto-calculated wordCount",
+      "Verify wordCount calculation is accurate (split by whitespace)"
+    ],
+    "example_frontend": [
+      "Post list displays word count next to date for each post",
+      "Post detail view shows word count",
+      "Creating a new post shows correct word count after save"
+    ]
+  }
+}

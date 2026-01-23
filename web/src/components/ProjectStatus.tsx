@@ -15,20 +15,24 @@ interface ProjectStatusProps {
 }
 
 const statusConfig: Record<AgentStatus, { color: string; icon: React.ReactNode; label: string }> = {
-  IDLE: { color: 'gray', icon: <IconClock size={16} />, label: 'Idle' },
+  PENDING: { color: 'gray', icon: <IconClock size={16} />, label: 'Pending' },
+  IDLE: { color: 'teal', icon: <IconCircleCheck size={16} />, label: 'Complete' },
   WORKING: { color: 'blue', icon: <IconLoader size={16} />, label: 'Working' },
   DEBUGGING: { color: 'yellow', icon: <IconBug size={16} />, label: 'Debugging' },
   FATAL_DEBUGGING: { color: 'red', icon: <IconAlertTriangle size={16} />, label: 'Fatal Debug' },
   FATAL_RECOVERY: { color: 'orange', icon: <IconAlertTriangle size={16} />, label: 'Recovering' },
   READY: { color: 'green', icon: <IconCircleCheck size={16} />, label: 'Ready' },
   E2E: { color: 'violet', icon: <IconTestPipe size={16} />, label: 'E2E Testing' },
+  E2E_FIXING: { color: 'orange', icon: <IconBug size={16} />, label: 'Fixing E2E' },
   BLOCKED: { color: 'pink', icon: <IconLock size={16} />, label: 'Blocked' },
 };
 
 function getStatusProgress(status: AgentStatus): number {
   switch (status) {
-    case 'IDLE':
+    case 'PENDING':
       return 0;
+    case 'IDLE':
+      return 100;
     case 'WORKING':
       return 40;
     case 'DEBUGGING':
@@ -40,6 +44,8 @@ function getStatusProgress(status: AgentStatus): number {
       return 80;
     case 'E2E':
       return 90;
+    case 'E2E_FIXING':
+      return 85;
     case 'BLOCKED':
       return 20;
     default:

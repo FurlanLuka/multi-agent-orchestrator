@@ -125,15 +125,15 @@ export class StatusMonitor extends EventEmitter {
   }
 
   /**
-   * Initializes a project with IDLE status
+   * Initializes a project with PENDING status (before execution starts)
    */
   initializeProject(project: string): void {
     this.states.set(project, {
-      status: 'IDLE',
-      message: 'Initialized',
+      status: 'PENDING',
+      message: 'Waiting for execution',
       updatedAt: Date.now()
     });
-    console.log(`[StatusMonitor] Initialized ${project} as IDLE`);
+    console.log(`[StatusMonitor] Initialized ${project} as PENDING`);
   }
 
   /**

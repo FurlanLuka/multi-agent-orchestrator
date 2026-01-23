@@ -2,7 +2,7 @@ import { MantineProvider, AppShell, Container, Stack, Title, Group, Badge, Text,
 import '@mantine/core/styles.css';
 import { IconRocket, IconMessageCircle, IconActivity, IconFileText, IconCheck } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
-import { PlanningChat } from './components/PlanningChat';
+import { AssistantChat } from './components/AssistantChat';
 import { ProjectStatus } from './components/ProjectStatus';
 import { LogViewer } from './components/LogViewer';
 import { ApprovalPanel } from './components/ApprovalPanel';
@@ -16,7 +16,7 @@ function App() {
     session,
     statuses,
     logs,
-    chatHistory,
+    streamingMessages,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -127,8 +127,8 @@ function App() {
                 </Tabs.Panel>
 
                 <Tabs.Panel value="chat" h="calc(100vh - 200px)">
-                  <PlanningChat
-                    chatHistory={chatHistory}
+                  <AssistantChat
+                    messages={streamingMessages}
                     pendingPlan={pendingPlan}
                     onSendMessage={sendChat}
                     onApprovePlan={approvePlan}

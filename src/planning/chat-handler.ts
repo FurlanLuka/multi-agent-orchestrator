@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent } from '../types';
+import { Plan, ChatEvent, ChatStreamEvent } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -47,6 +47,11 @@ export class ChatHandler extends EventEmitter {
     // Handle errors
     this.planningAgent.on('error', (error: Error) => {
       this.addMessage('system', `Planning Agent error: ${error.message}`);
+    });
+
+    // Forward streaming events for agentic UI
+    this.planningAgent.on('stream', (event: ChatStreamEvent) => {
+      this.emit('stream', event);
     });
   }
 
@@ -190,6 +195,37 @@ export class ChatHandler extends EventEmitter {
       const e = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${e.message}`);
       return '';
+    }
+  }
+
+  /**
+   * Analyzes E2E test results and determines next steps
+   */
+  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[]): Promise<{
+    passed: boolean;
+    analysis: string;
+    fixPrompt?: string;
+  }> {
+    this.addMessage('system', `Analyzing E2E test results for ${project}...`);
+
+    try {
+      const result = await this.planningAgent.analyzeE2EResult(project, e2eOutput, testScenarios);
+
+      if (result.passed) {
+        this.addMessage('system', `✓ E2E tests passed for ${project}: ${result.analysis}`);
+      } else {
+        this.addMessage('system', `✗ E2E tests failed for ${project}: ${result.analysis}`);
+      }
+
+      return result;
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      this.addMessage('system', `Error analyzing E2E results: ${e.message}`);
+      return {
+        passed: false,
+        analysis: 'Could not analyze E2E results',
+        fixPrompt: 'Please review the test output and fix any issues.'
+      };
     }
   }
 

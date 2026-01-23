@@ -165,6 +165,82 @@ async function main() {
     chatHandler.systemMessage(`Error executing action: ${error}`);
   });
 
+  // Track E2E retry counts per project (to prevent infinite loops)
+  const e2eRetryCount: Map<string, number> = new Map();
+  const MAX_E2E_RETRIES = 3;
+
+  // Handle E2E completion - analyze results and decide next step
+  actionExecutor.on('e2eComplete', async ({ project, result }) => {
+    console.log(`[Orchestrator] E2E completed for ${project}, analyzing results...`);
+
+    const session = sessionManager.getCurrentSession();
+    const testScenarios = session?.plan?.testPlan?.[project] || [];
+
+    try {
+      // Ask Planning Agent to analyze the E2E results
+      const analysis = await chatHandler.analyzeE2EResult(project, result, testScenarios);
+
+      if (analysis.passed) {
+        // E2E passed! Mark as complete
+        console.log(`[Orchestrator] E2E tests PASSED for ${project}`);
+        statusMonitor.updateStatus(project, 'IDLE', 'E2E tests passed');
+        e2eRetryCount.delete(project); // Reset retry count on success
+      } else {
+        // E2E failed - check retry count
+        const retries = e2eRetryCount.get(project) || 0;
+
+        if (retries >= MAX_E2E_RETRIES) {
+          console.error(`[Orchestrator] E2E tests failed for ${project} after ${retries} retries, giving up`);
+          chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
+          statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
+          return;
+        }
+
+        // Try to fix
+        console.log(`[Orchestrator] E2E tests FAILED for ${project}, attempting fix (retry ${retries + 1}/${MAX_E2E_RETRIES})`);
+        e2eRetryCount.set(project, retries + 1);
+
+        if (analysis.fixPrompt) {
+          // Send fix prompt to agent
+          const fixPrompt = `The E2E tests failed with the following issues:
+
+${analysis.analysis}
+
+Please fix these issues:
+${analysis.fixPrompt}
+
+After fixing, the E2E tests will be re-run automatically.`;
+
+          try {
+            await actionExecutor.sendE2EFix(project, fixPrompt);
+
+            // After fix completes, re-run E2E
+            console.log(`[Orchestrator] Fix applied for ${project}, re-running E2E tests`);
+            const e2ePrompt = await chatHandler.requestE2EPrompt(
+              project,
+              `Re-running E2E after fix attempt ${retries + 1}`,
+              testScenarios
+            );
+
+            if (e2ePrompt && e2ePrompt.trim()) {
+              await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
+            }
+          } catch (err) {
+            console.error(`[Orchestrator] E2E fix failed for ${project}:`, err);
+            statusMonitor.updateStatus(project, 'BLOCKED', 'E2E fix failed');
+          }
+        } else {
+          // No fix prompt available, mark as blocked
+          statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
+        }
+      }
+    } catch (err) {
+      console.error(`[Orchestrator] E2E analysis failed for ${project}:`, err);
+      // On analysis error, mark as blocked
+      statusMonitor.updateStatus(project, 'BLOCKED', 'E2E analysis failed');
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // Wire up State Machine events
   // ═══════════════════════════════════════════════════════════════
@@ -354,6 +430,11 @@ async function main() {
     console.log(`[Orchestrator] Plan approved, setting on session`);
     sessionManager.setPlan(plan);
     sessionLogger?.log('PLAN_APPROVED', { feature: plan.feature, taskCount: plan.tasks.length });
+  });
+
+  // Forward streaming events to UI for agentic chat
+  chatHandler.on('stream', (event) => {
+    (ui.io as any).emitChatStream(event);
   });
 
   // ═══════════════════════════════════════════════════════════════

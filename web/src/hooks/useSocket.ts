@@ -12,6 +12,9 @@ import type {
   ProjectTemplateConfig,
   ProjectConfig,
   ProjectTemplate,
+  ChatStreamEvent,
+  StreamingMessage,
+  ContentBlock,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -28,6 +31,9 @@ export function useSocket() {
   const [projects, setProjects] = useState<Record<string, ProjectConfig>>({});
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
+
+  // Streaming messages for agentic UI
+  const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -94,6 +100,56 @@ export function useSocket() {
       setAllComplete(true);
     });
 
+    // Streaming chat events for agentic UI
+    socket.on('chatStream', (event: ChatStreamEvent) => {
+      setStreamingMessages(prev => {
+        switch (event.type) {
+          case 'message_start': {
+            // Create new streaming message
+            const newMessage: StreamingMessage = {
+              id: event.messageId,
+              role: 'assistant',
+              content: [],
+              status: 'streaming',
+              createdAt: Date.now(),
+            };
+            return [...prev, newMessage];
+          }
+
+          case 'content_block': {
+            // Add content block to existing message
+            if (!event.block) return prev;
+            return prev.map(msg =>
+              msg.id === event.messageId
+                ? { ...msg, content: [...msg.content, event.block as ContentBlock] }
+                : msg
+            );
+          }
+
+          case 'message_complete': {
+            // Mark message as complete
+            return prev.map(msg =>
+              msg.id === event.messageId
+                ? { ...msg, status: 'complete' as const }
+                : msg
+            );
+          }
+
+          case 'error': {
+            // Mark message as error
+            return prev.map(msg =>
+              msg.id === event.messageId
+                ? { ...msg, status: 'error' as const }
+                : msg
+            );
+          }
+
+          default:
+            return prev;
+        }
+      });
+    });
+
     // Project management events
     socket.on('projects', (p: Record<string, ProjectConfig>) => {
       setProjects(p);
@@ -126,6 +182,16 @@ export function useSocket() {
     if (socketRef.current) {
       socketRef.current.emit('chat', message);
       setChatHistory(prev => [...prev, { from: 'user', message, timestamp: Date.now() }]);
+
+      // Also add user message to streaming messages for agentic UI
+      const userMessage: StreamingMessage = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: [{ type: 'text', text: message }],
+        status: 'complete',
+        createdAt: Date.now(),
+      };
+      setStreamingMessages(prev => [...prev, userMessage]);
     }
   }, []);
 
@@ -161,6 +227,10 @@ export function useSocket() {
     setLogs([]);
   }, []);
 
+  const clearStreamingMessages = useCallback(() => {
+    setStreamingMessages([]);
+  }, []);
+
   const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, runNpmInstall: boolean = true) => {
     if (socketRef.current) {
       setCreatingProject(true);
@@ -180,6 +250,7 @@ export function useSocket() {
     statuses,
     logs,
     chatHistory,
+    streamingMessages,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -192,6 +263,7 @@ export function useSocket() {
     startExecution,
     respondToApproval,
     clearLogs,
+    clearStreamingMessages,
     createProjectFromTemplate,
     refreshProjects,
   };

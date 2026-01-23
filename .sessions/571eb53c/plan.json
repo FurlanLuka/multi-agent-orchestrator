@@ -1,0 +1,33 @@
+{
+  "feature": "Remove likes feature",
+  "description": "Remove the likes functionality from both the backend API and frontend UI, including the endpoint, service method, data property, and all related UI components",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Remove likes feature from the NestJS backend:\n1. In src/blog/blog.service.ts:\n   - Remove 'likes: number' property from the Post interface (line 8)\n   - Remove 'likes: 0' from all sample post data (lines 19, 26, 33)\n   - Remove 'likes: 0' from the create() method's new post object (line 56)\n   - Delete the entire likePost() method (lines 62-69)\n2. In src/blog/blog.controller.ts:\n   - Remove the @Post(':id/like') endpoint and likePost() method (lines 36-39)",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Remove likes feature from the React frontend:\n1. In src/components/PostList.tsx:\n   - Remove 'likes: number' from the Post interface (line 8)\n2. In src/components/PostDetail.tsx:\n   - Remove 'onPostLiked' from PostDetailProps interface (line 9)\n   - Remove 'onPostLiked' from destructured props (line 12)\n   - Remove 'isLiking' state declaration (line 15)\n   - Delete the entire handleLike async function (lines 36-53)\n   - Remove the like-section div containing the like button (lines 64-72)\n3. In src/App.tsx:\n   - Delete the handlePostLiked function (lines 45-48)\n   - Remove 'onPostLiked={handlePostLiked}' prop from PostDetail component (line 73)",
+      "dependencies": [
+        "example_backend"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "Verify GET /posts returns posts without likes property",
+      "Verify GET /posts/:id returns a post without likes property",
+      "Verify POST /posts creates a post without likes property",
+      "Verify POST /posts/:id/like endpoint no longer exists (should return 404)"
+    ],
+    "example_frontend": [
+      "Verify PostList renders posts without errors",
+      "Verify PostDetail displays post without like button",
+      "Verify creating a new post works without likes field",
+      "Verify editing and deleting posts still work correctly",
+      "Verify no console errors related to missing likes property"
+    ]
+  }
+}
