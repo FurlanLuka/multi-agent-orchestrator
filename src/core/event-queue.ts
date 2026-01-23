@@ -1,6 +1,14 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import { QueuedEvent, OrchestratorEvent, PlanningAction } from '../types';
+import {
+  QueuedEvent,
+  OrchestratorEvent,
+  PlanningAction,
+  UserChatEvent,
+  E2ECompleteEvent,
+  E2EPromptRequestEvent,
+  FailureAnalysisEvent
+} from '../types';
 import { StateMachine } from './state-machine';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 
@@ -43,9 +51,27 @@ export class EventQueue extends EventEmitter {
     console.log(`[EventQueue] Added event: ${event.type} (queue size: ${this.queue.length})`);
 
     // Start processing if not already and state allows
-    if (!this.processing && this.stateMachine.canProcessQueue()) {
+    // user_chat events can be processed in any state (IDLE or RUNNING)
+    if (!this.processing && this.canProcessEvent(queuedEvent)) {
       this.processNext();
     }
+  }
+
+  /**
+   * Checks if an event can be processed in the current state
+   * Planning Agent events (user_chat, e2e_complete, e2e_prompt_request, failure_analysis)
+   * can be processed anytime as long as PA isn't busy
+   * Other events (hook events, etc.) require RUNNING state
+   */
+  private canProcessEvent(event: QueuedEvent): boolean {
+    // Planning Agent related events can be processed anytime
+    const planningAgentEventTypes = ['user_chat', 'e2e_complete', 'e2e_prompt_request', 'failure_analysis'];
+    if (planningAgentEventTypes.includes(event.type)) {
+      // Can process as long as Planning Agent isn't busy
+      return !this.planningAgent.isBusy();
+    }
+    // Other events require RUNNING state
+    return this.stateMachine.canProcessQueue();
   }
 
   /**
@@ -72,28 +98,84 @@ export class EventQueue extends EventEmitter {
   private async processNext(): Promise<void> {
     if (this.queue.length === 0) {
       this.processing = false;
+      this.emit('idle'); // Emit when queue is empty and done processing
       return;
     }
 
-    if (!this.stateMachine.canProcessQueue()) {
+    // Check if Planning Agent is busy
+    if (this.planningAgent.isBusy()) {
       this.processing = false;
-      console.log('[EventQueue] Processing paused, waiting for resume');
+      console.log('[EventQueue] Planning Agent is busy, waiting...');
+      return;
+    }
+
+    // Find the next processable event
+    const eventIndex = this.queue.findIndex(e => this.canProcessEvent(e));
+    if (eventIndex === -1) {
+      this.processing = false;
+      console.log('[EventQueue] No processable events, waiting for state change');
       return;
     }
 
     this.processing = true;
-    const event = this.queue.shift()!;
+    const event = this.queue.splice(eventIndex, 1)[0];
 
     console.log(`[EventQueue] Processing event: ${event.type} (remaining: ${this.queue.length})`);
     this.emit('processing', event);
 
     try {
-      // Send event to Planning Agent for analysis
-      const action = await this.analyzeEvent(event);
+      // Handle different event types with specific handlers
+      switch (event.type) {
+        case 'user_chat': {
+          // Emit for external handling via chatHandler.handleUserMessage
+          const chatEvent = event.data as UserChatEvent;
+          this.emit('userChat', { message: chatEvent.message });
+          break;
+        }
 
-      if (action) {
-        console.log(`[EventQueue] Planning Agent returned action: ${action.type}`);
-        this.emit('action', action);
+        case 'e2e_complete': {
+          // Emit for external handling via chatHandler.analyzeE2EResult
+          const e2eEvent = event.data as E2ECompleteEvent;
+          this.emit('e2eComplete', {
+            project: e2eEvent.project,
+            result: e2eEvent.result,
+            testScenarios: e2eEvent.testScenarios,
+            devServerLogs: e2eEvent.devServerLogs,
+            allProjects: e2eEvent.allProjects
+          });
+          break;
+        }
+
+        case 'e2e_prompt_request': {
+          // Emit for external handling via chatHandler.requestE2EPrompt
+          const promptEvent = event.data as E2EPromptRequestEvent;
+          this.emit('e2ePromptRequest', {
+            project: promptEvent.project,
+            taskSummary: promptEvent.taskSummary,
+            testScenarios: promptEvent.testScenarios
+          });
+          break;
+        }
+
+        case 'failure_analysis': {
+          // Emit for external handling via chatHandler.requestFailureAnalysis
+          const failureEvent = event.data as FailureAnalysisEvent;
+          this.emit('failureAnalysis', {
+            project: failureEvent.project,
+            error: failureEvent.error,
+            context: failureEvent.context
+          });
+          break;
+        }
+
+        default: {
+          // For other events (hook events, etc.), use the generic analyzeEvent
+          const action = await this.analyzeEvent(event);
+          if (action) {
+            console.log(`[EventQueue] Planning Agent returned action: ${action.type}`);
+            this.emit('action', action);
+          }
+        }
       }
     } catch (err) {
       console.error('[EventQueue] Error processing event:', err);
@@ -189,5 +271,21 @@ export class EventQueue extends EventEmitter {
    */
   isProcessing(): boolean {
     return this.processing;
+  }
+
+  /**
+   * Triggers processing of the queue (called when Planning Agent becomes free)
+   */
+  triggerProcessing(): void {
+    if (!this.processing && this.queue.length > 0) {
+      this.processNext();
+    }
+  }
+
+  /**
+   * Checks if there are pending events that could be processed
+   */
+  hasPendingEvents(): boolean {
+    return this.queue.length > 0;
   }
 }

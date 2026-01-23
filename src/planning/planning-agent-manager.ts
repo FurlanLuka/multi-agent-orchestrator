@@ -106,7 +106,8 @@ User: ${newMessage}`;
         '-p', prompt,
         '--output-format', 'stream-json',
         '--verbose',
-        '--dangerously-skip-permissions'
+        '--dangerously-skip-permissions',
+        '--no-session-persistence'
       ], {
         cwd: this.orchestratorDir,
         env: { ...process.env },
@@ -370,6 +371,14 @@ IMPORTANT: Before creating the plan, you MUST:
    - Review any existing .claude/skills/ files for context
 3. Based on your exploration, create tasks that fit the existing codebase patterns
 
+CRITICAL RULES FOR TASKS:
+- Tasks should be IMPLEMENTATION ONLY - write the actual feature code
+- DO NOT include any unit tests, Jest tests, or test file creation in tasks
+- DO NOT tell agents to "write tests" or "add test coverage"
+- DO NOT tell agents to start dev servers, run npm start, or run npm run dev - the orchestrator already manages dev servers
+- Testing is handled SEPARATELY via E2E testing after implementation completes
+- The "testPlan" section is for E2E test scenarios only (run via Playwright), NOT unit tests
+
 After exploring, create a plan in this JSON format:
 \`\`\`json
 {
@@ -378,12 +387,12 @@ After exploring, create a plan in this JSON format:
   "tasks": [
     {
       "project": "project_name",
-      "task": "Detailed task description for the agent that references specific files/patterns found",
+      "task": "Detailed IMPLEMENTATION task (no tests!) that references specific files/patterns found",
       "dependencies": []
     }
   ],
   "testPlan": {
-    "project_name": ["Test scenario 1", "Test scenario 2"]
+    "project_name": ["E2E test scenario 1", "E2E test scenario 2"]
   }
 }
 \`\`\`
@@ -557,9 +566,10 @@ ${e2eOutput.slice(-5000)}
 ${devServerSection}${agentAnalysisSection}
 Analyze the output and determine:
 1. Did ALL tests pass? Look for "allPassed": true in the agent's analysis, or check for FAIL/Error patterns.
-2. If tests failed, use the agent's codeAnalysis and suspectedProject fields to understand the root cause.
-3. Check the dev server logs for runtime errors (500s, exceptions, missing routes).
-4. IMPORTANT: Based on the agent's analysis (especially "suspectedProject" field), determine which project(s) need fixes:
+2. CRITICAL: If tests were NOT EXECUTED (e.g., "Playwright MCP tools unavailable", "no access to browser automation", "tests weren't run"), this is a FAILURE. Set passed: false.
+3. If tests failed, use the agent's codeAnalysis and suspectedProject fields to understand the root cause.
+4. Check the dev server logs for runtime errors (500s, exceptions, missing routes).
+5. IMPORTANT: Based on the agent's analysis (especially "suspectedProject" field), determine which project(s) need fixes:
    - "backend" or "this" (if this is backend) → send fix to backend
    - "frontend" or "this" (if this is frontend) → send fix to frontend
    - "both" → send coordinated fixes to both
@@ -608,6 +618,17 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
       // If we can't parse, assume failure and use the raw response
       console.warn('[PlanningAgent] Could not parse E2E analysis JSON, checking for failure patterns');
       const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+      const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);
+
+      // If tests weren't executed at all, that's a failure
+      if (testsNotExecuted) {
+        return {
+          passed: false,
+          analysis: 'E2E tests were NOT executed - infrastructure issue (missing Playwright MCP or similar)',
+          fixPrompt: 'E2E tests could not be executed. Ensure Playwright MCP tools are available and properly configured.'
+        };
+      }
+
       return {
         passed: !hasFailure,
         analysis: result.slice(0, 500),
@@ -617,6 +638,17 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
       console.error('[PlanningAgent] Error analyzing E2E result:', err);
       // On error, check output for obvious failures
       const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+      const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);
+
+      // If tests weren't executed at all, that's a failure
+      if (testsNotExecuted) {
+        return {
+          passed: false,
+          analysis: 'E2E tests were NOT executed - infrastructure issue',
+          fixPrompt: 'E2E tests could not be executed. Ensure testing infrastructure is properly configured.'
+        };
+      }
+
       return {
         passed: !hasFailure,
         analysis: 'Could not analyze E2E results',
@@ -630,6 +662,13 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
    */
   isRunning(): boolean {
     return true; // Always ready in one-shot mode
+  }
+
+  /**
+   * Checks if the Planning Agent is currently busy processing a request
+   */
+  isBusy(): boolean {
+    return this.currentProcess !== null;
   }
 
   /**

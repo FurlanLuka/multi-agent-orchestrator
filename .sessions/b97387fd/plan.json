@@ -1,0 +1,34 @@
+{
+  "feature": "Finalize auth requirements for all non-viewing features",
+  "description": "Verify and finalize that all mutation operations (create, update, delete) require authentication while viewing operations remain public. The backend already has AuthGuard applied to all mutation endpoints. This plan focuses on verification and any edge case improvements.",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Review and verify all controller endpoints have proper auth guards. In src/blog/blog.controller.ts and src/comments/comments.controller.ts, confirm that all POST, PATCH, and DELETE endpoints have @UseGuards(AuthGuard) decorator. The code already appears correct, but verify there are no edge cases where unauthenticated requests could mutate data. If any endpoints are missing guards, add them following the existing pattern.",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Review src/App.tsx and components (CreatePost.tsx, EditPost.tsx, PostDetail.tsx, CommentSection.tsx) to ensure all mutation actions properly handle 401 Unauthorized responses. Verify that the UI properly prevents unauthenticated users from seeing/accessing mutation actions. The code already handles most cases - verify EditPost.tsx shows a proper message when user is not authenticated instead of just rendering the form (currently it accepts user: null but doesn't check it before rendering).",
+      "dependencies": []
+    }
+  ],
+  "testPlan": {
+    "example_frontend": [
+      "Verify unauthenticated users can view the post list",
+      "Verify unauthenticated users can view individual posts",
+      "Verify unauthenticated users can view comments on posts",
+      "Verify unauthenticated users cannot see the 'New Post' button",
+      "Verify unauthenticated users cannot see Edit/Delete buttons on posts",
+      "Verify unauthenticated users cannot see the comment form",
+      "Verify unauthenticated users cannot see the React button on comments",
+      "Verify authenticated users CAN create posts",
+      "Verify authenticated users CAN edit their own posts",
+      "Verify authenticated users CAN delete their own posts",
+      "Verify authenticated users CAN add comments",
+      "Verify authenticated users CAN add reactions to comments",
+      "Verify authenticated users CANNOT edit/delete other users' posts",
+      "Verify authenticated users CANNOT delete other users' comments"
+    ]
+  }
+}

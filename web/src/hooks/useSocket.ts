@@ -15,6 +15,7 @@ import type {
   ChatStreamEvent,
   StreamingMessage,
   ContentBlock,
+  QueueStatus,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -34,6 +35,9 @@ export function useSocket() {
 
   // Streaming messages for agentic UI
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
+
+  // Queue status for Planning Agent visibility
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -95,6 +99,11 @@ export function useSocket() {
       setPendingPlan(proposal);
     });
 
+    // Plan cleared (user continued conversation)
+    socket.on('planCleared', () => {
+      setPendingPlan(null);
+    });
+
     // All complete
     socket.on('allComplete', () => {
       setAllComplete(true);
@@ -113,7 +122,20 @@ export function useSocket() {
               status: 'streaming',
               createdAt: Date.now(),
             };
-            return [...prev, newMessage];
+            // Also mark the most recent queued user message as complete
+            // (since we're now processing a response for it)
+            const updatedPrev = prev.map((msg, idx) => {
+              // Find the last queued user message before this new assistant message
+              if (msg.role === 'user' && msg.status === 'queued') {
+                // Check if there's no assistant message after it yet
+                const hasAssistantAfter = prev.slice(idx + 1).some(m => m.role === 'assistant');
+                if (!hasAssistantAfter) {
+                  return { ...msg, status: 'complete' as const };
+                }
+              }
+              return msg;
+            });
+            return [...updatedPrev, newMessage];
           }
 
           case 'content_block': {
@@ -150,6 +172,29 @@ export function useSocket() {
       });
     });
 
+    // Queue status events (for Planning Agent visibility)
+    socket.on('queueUpdate', (status: { size: number; events: QueueStatus['events'] }) => {
+      setQueueStatus(prev => ({
+        ...prev,
+        size: status.size,
+        events: status.events,
+        processing: prev?.processing,
+      }));
+    });
+
+    socket.on('queueProcessing', (processing: QueueStatus['processing'] | null) => {
+      setQueueStatus(prev => prev ? { ...prev, processing: processing || undefined } : { size: 0, events: [], processing: processing || undefined });
+
+      // When a user_chat starts processing, mark queued user messages as complete
+      if (processing?.type === 'user_chat') {
+        setStreamingMessages(prev => prev.map(msg =>
+          msg.role === 'user' && msg.status === 'queued'
+            ? { ...msg, status: 'complete' as const }
+            : msg
+        ));
+      }
+    });
+
     // Project management events
     socket.on('projects', (p: Record<string, ProjectConfig>) => {
       setProjects(p);
@@ -180,18 +225,25 @@ export function useSocket() {
   // Actions
   const sendChat = useCallback((message: string) => {
     if (socketRef.current) {
-      socketRef.current.emit('chat', message);
+      socketRef.current.emit('chat', { message });
       setChatHistory(prev => [...prev, { from: 'user', message, timestamp: Date.now() }]);
 
-      // Also add user message to streaming messages for agentic UI
-      const userMessage: StreamingMessage = {
-        id: `user_${Date.now()}`,
-        role: 'user',
-        content: [{ type: 'text', text: message }],
-        status: 'complete',
-        createdAt: Date.now(),
-      };
-      setStreamingMessages(prev => [...prev, userMessage]);
+      // Clear pending plan when user sends a message (they're continuing the conversation)
+      setPendingPlan(null);
+
+      // Check if there's an active streaming message (Planning Agent is busy)
+      // If so, mark this message as "queued"
+      setStreamingMessages(prev => {
+        const hasStreamingMessage = prev.some(m => m.role === 'assistant' && m.status === 'streaming');
+        const userMessage: StreamingMessage = {
+          id: `user_${Date.now()}`,
+          role: 'user',
+          content: [{ type: 'text', text: message }],
+          status: hasStreamingMessage ? 'queued' : 'complete',
+          createdAt: Date.now(),
+        };
+        return [...prev, userMessage];
+      });
     }
   }, []);
 
@@ -251,6 +303,7 @@ export function useSocket() {
     logs,
     chatHistory,
     streamingMessages,
+    queueStatus,
     currentApproval,
     pendingPlan,
     allComplete,

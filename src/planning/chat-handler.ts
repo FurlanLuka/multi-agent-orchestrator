@@ -103,6 +103,12 @@ export class ChatHandler extends EventEmitter {
    * Handles a user chat message
    */
   async handleUserMessage(message: string): Promise<void> {
+    // Clear pending plan - user is continuing the conversation
+    if (this.pendingPlan) {
+      this.pendingPlan = null;
+      this.emit('planCleared');
+    }
+
     // Add to history
     this.addMessage('user', message);
 
@@ -260,5 +266,12 @@ export class ChatHandler extends EventEmitter {
    */
   isReady(): boolean {
     return this.planningAgent.isRunning();
+  }
+
+  /**
+   * Checks if Planning Agent is currently busy processing a request
+   */
+  isBusy(): boolean {
+    return this.planningAgent.isBusy();
   }
 }

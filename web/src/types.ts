@@ -93,7 +93,7 @@ export interface StreamingMessage {
   id: string;
   role: 'user' | 'assistant';
   content: ContentBlock[];
-  status: 'pending' | 'streaming' | 'complete' | 'error';
+  status: 'pending' | 'streaming' | 'complete' | 'error' | 'queued';
   createdAt: number;
 }
 
@@ -146,4 +146,23 @@ export interface ProjectConfig {
     env: Record<string, string>;
   };
   hasE2E: boolean;
+}
+
+// Queue status for Planning Agent visibility
+export interface QueuedEventPreview {
+  id: string;
+  type: string;
+  project?: string;
+  queuedAt: number;
+  preview?: string;  // Truncated message for user_chat events
+}
+
+export interface QueueStatus {
+  size: number;
+  events: QueuedEventPreview[];
+  processing?: {
+    id: string;
+    type: string;
+    project?: string;
+  };
 }

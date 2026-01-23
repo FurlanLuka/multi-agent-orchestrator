@@ -264,7 +264,8 @@ export class ProcessManager extends EventEmitter {
         '-p', prompt,
         '--output-format', 'stream-json',
         '--verbose',
-        '--dangerously-skip-permissions'
+        '--dangerously-skip-permissions',
+        '--no-session-persistence'
       ], {
         cwd: projectPath,
         env: { ...process.env },

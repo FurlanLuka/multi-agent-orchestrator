@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   MantineProvider,
   AppShell,
@@ -15,7 +16,11 @@ import {
   ThemeIcon,
   Loader,
   ScrollArea,
+  Button,
+  Collapse,
+  List,
 } from '@mantine/core';
+// Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
 import {
   IconRocket,
@@ -25,15 +30,16 @@ import {
   IconSparkles,
   IconBrain,
   IconClipboardList,
+  IconChevronDown,
+  IconChevronUp,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
-import { ProjectStatus } from './components/ProjectStatus';
 import { LogViewer } from './components/LogViewer';
 import { ApprovalPanel } from './components/ApprovalPanel';
 import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
-import { AgentOutputPanel } from './components/AgentOutputPanel';
+import { ProjectCard } from './components/ProjectCard';
 
 function App() {
   const {
@@ -42,6 +48,7 @@ function App() {
     statuses,
     logs,
     streamingMessages,
+    queueStatus,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -58,6 +65,7 @@ function App() {
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const availableProjects = Object.keys(projects);
+  const [showPlan, setShowPlan] = useState(false);
 
   return (
     <MantineProvider defaultColorScheme="light">
@@ -112,7 +120,7 @@ function App() {
         </AppShell.Header>
 
         <AppShell.Main>
-          <Container size="xl" py="md" h="calc(100vh - 80px)">
+          <Container size="100%" py="md" h="calc(100vh - 80px)">
             {/* All Complete Banner */}
             {allComplete && (
               <Alert
@@ -195,6 +203,7 @@ function App() {
                       <AssistantChat
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
+                        queueStatus={queueStatus}
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}
@@ -231,10 +240,97 @@ function App() {
                               {session.feature}
                             </Text>
                           </Stack>
-                          <Badge variant="light" color="gray" size="sm" radius="md">
-                            Started {new Date(session.startedAt).toLocaleTimeString()}
-                          </Badge>
+                          <Group gap="sm">
+                            {session.plan && (
+                              <Button
+                                variant="subtle"
+                                size="xs"
+                                color="gray"
+                                onClick={() => setShowPlan(!showPlan)}
+                                rightSection={showPlan ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                              >
+                                {showPlan ? 'Hide Plan' : 'View Plan'}
+                              </Button>
+                            )}
+                            <Badge variant="light" color="gray" size="sm" radius="md">
+                              Started {new Date(session.startedAt).toLocaleTimeString()}
+                            </Badge>
+                          </Group>
                         </Group>
+
+                        {/* Collapsible Plan Details */}
+                        {session.plan && (
+                          <Collapse in={showPlan}>
+                            <Box
+                              mt="md"
+                              pt="md"
+                              style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}
+                            >
+                              <Stack gap="md">
+                                {/* Plan Description */}
+                                {session.plan.description && (
+                                  <Box>
+                                    <Text size="xs" fw={600} c="dimmed" mb="xs">Description</Text>
+                                    <Text size="sm">{session.plan.description}</Text>
+                                  </Box>
+                                )}
+
+                                {/* Tasks by Project */}
+                                <Box>
+                                  <Text size="xs" fw={600} c="dimmed" mb="xs">Tasks</Text>
+                                  <Stack gap="sm">
+                                    {session.plan.tasks.map((task, idx) => (
+                                      <Box
+                                        key={idx}
+                                        p="sm"
+                                        style={{
+                                          backgroundColor: 'var(--mantine-color-gray-0)',
+                                          borderRadius: 'var(--mantine-radius-md)',
+                                          border: '1px solid var(--mantine-color-gray-2)',
+                                        }}
+                                      >
+                                        <Group gap="xs" mb="xs">
+                                          <Badge size="xs" variant="light" color="blue">
+                                            {task.project}
+                                          </Badge>
+                                          {task.dependencies.length > 0 && (
+                                            <Text size="xs" c="dimmed">
+                                              depends on: {task.dependencies.join(', ')}
+                                            </Text>
+                                          )}
+                                        </Group>
+                                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+                                          {task.task}
+                                        </Text>
+                                      </Box>
+                                    ))}
+                                  </Stack>
+                                </Box>
+
+                                {/* Test Plan */}
+                                {session.plan.testPlan && Object.keys(session.plan.testPlan).length > 0 && (
+                                  <Box>
+                                    <Text size="xs" fw={600} c="dimmed" mb="xs">Test Plan</Text>
+                                    <Stack gap="xs">
+                                      {Object.entries(session.plan.testPlan).map(([project, scenarios]) => (
+                                        <Box key={project}>
+                                          <Badge size="xs" variant="light" color="teal" mb="xs">
+                                            {project}
+                                          </Badge>
+                                          <List size="sm" spacing="xs">
+                                            {scenarios.map((scenario, idx) => (
+                                              <List.Item key={idx}>{scenario}</List.Item>
+                                            ))}
+                                          </List>
+                                        </Box>
+                                      ))}
+                                    </Stack>
+                                  </Box>
+                                )}
+                              </Stack>
+                            </Box>
+                          </Collapse>
+                        )}
                       </Paper>
 
                       {/* Pre-approval: Waiting State */}
@@ -286,45 +382,22 @@ function App() {
                         </Alert>
                       )}
 
-                      {/* Post-approval: Full Dashboard */}
+                      {/* Post-approval: Unified Project Cards */}
                       {session.plan && (
                         <>
-                          {/* Project Statuses */}
-                          <Paper
-                            shadow="sm"
-                            radius="lg"
-                            p="lg"
-                            style={{
-                              border: '1px solid var(--mantine-color-gray-2)',
-                            }}
-                          >
-                            <Stack gap="md">
-                              <Group gap="xs">
-                                <Text fw={600} size="sm">Project Status</Text>
-                                <Badge size="xs" variant="light" color="gray">
-                                  {Object.keys(statuses).length} projects
-                                </Badge>
-                              </Group>
-                              <ProjectStatus statuses={statuses} />
-                            </Stack>
-                          </Paper>
+                          {/* One card per project with status + logs */}
+                          {sessionProjects.map(project => (
+                            <ProjectCard
+                              key={project}
+                              project={project}
+                              status={statuses[project]?.status || 'PENDING'}
+                              message={statuses[project]?.message || ''}
+                              updatedAt={statuses[project]?.updatedAt || Date.now()}
+                              logs={logs.filter(l => l.project === project)}
+                            />
+                          ))}
 
-                          {/* Agent Outputs */}
-                          <Paper
-                            shadow="sm"
-                            radius="lg"
-                            p="lg"
-                            style={{
-                              border: '1px solid var(--mantine-color-gray-2)',
-                            }}
-                          >
-                            <Stack gap="md">
-                              <Text fw={600} size="sm">Agent Activity</Text>
-                              <AgentOutputPanel logs={logs} projects={sessionProjects} />
-                            </Stack>
-                          </Paper>
-
-                          {/* Collapsible Full Logs */}
+                          {/* Collapsible Full Logs (all projects combined) */}
                           <Accordion
                             variant="contained"
                             radius="lg"
@@ -347,7 +420,7 @@ function App() {
                                 }
                               >
                                 <Group gap="xs">
-                                  <Text fw={600} size="sm">Full Logs</Text>
+                                  <Text fw={600} size="sm">All Logs</Text>
                                   <Badge size="xs" variant="light" color="gray">
                                     {logs.length} entries
                                   </Badge>

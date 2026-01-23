@@ -284,10 +284,37 @@ export interface UserChatEvent {
   target?: string; // 'planning' or specific project name
 }
 
+// E2E-related events (queued for Planning Agent)
+export interface E2ECompleteEvent {
+  type: 'e2e_complete';
+  project: string;
+  result: string;
+  testScenarios: string[];
+  devServerLogs: string;
+  allProjects: string[];
+}
+
+export interface E2EPromptRequestEvent {
+  type: 'e2e_prompt_request';
+  project: string;
+  taskSummary: string;
+  testScenarios: string[];
+}
+
+export interface FailureAnalysisEvent {
+  type: 'failure_analysis';
+  project: string;
+  error: string;
+  context: string[];
+}
+
 // Orchestrator event union (what gets queued)
 export type OrchestratorEvent =
   | (HookEvent & { project: string })
   | UserChatEvent
+  | E2ECompleteEvent
+  | E2EPromptRequestEvent
+  | FailureAnalysisEvent
   | OutboxEvent;
 
 // Planning Agent actions (what Planning Agent returns)
@@ -338,6 +365,25 @@ export interface HookConfig {
     PostToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
     PreToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
     SubagentStop?: Array<{ hooks: Array<{ type: string; command: string }> }>;
+  };
+}
+
+// Queue status for UI visibility
+export interface QueuedEventPreview {
+  id: string;
+  type: string;
+  project?: string;
+  queuedAt: number;
+  preview?: string;  // Truncated message for user_chat events
+}
+
+export interface QueueStatus {
+  size: number;
+  events: QueuedEventPreview[];
+  processing?: {
+    id: string;
+    type: string;
+    project?: string;
   };
 }
 

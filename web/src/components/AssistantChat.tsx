@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -22,12 +22,13 @@ import {
   Divider,
   Button,
 } from '@mantine/core';
-import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal } from '../types';
+import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconLoader2 } from '@tabler/icons-react';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus } from '../types';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
   pendingPlan: PlanProposal | null;
+  queueStatus: QueueStatus | null;
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
   sessionActive: boolean;
@@ -245,10 +246,100 @@ function formatTimestamp(timestamp: number): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+// Check if content looks like a plan message
+function isPlanContent(content: ContentBlock[]): boolean {
+  const textBlocks = content.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
+  if (textBlocks.length === 0) return false;
+
+  const fullText = textBlocks.map(b => b.text).join('\n');
+
+  // Check for plan indicators
+  return (
+    fullText.includes('## Implementation Plan') ||
+    fullText.includes('## Tasks') ||
+    fullText.includes('### Frontend') ||
+    fullText.includes('### Backend') ||
+    /^\d+\.\s+\*\*[^*]+\*\*/m.test(fullText) || // Numbered bold items like "1. **Task**"
+    (fullText.includes('plan') && fullText.length > 1000) // Long message mentioning "plan"
+  );
+}
+
+// Detect plan type from content keywords
+function detectPlanType(content: ContentBlock[]): string {
+  const textBlocks = content.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
+  if (textBlocks.length === 0) return 'Plan';
+
+  const fullText = textBlocks.map(b => b.text).join('\n').toLowerCase();
+
+  // Check for specific plan types based on keywords
+  if (fullText.includes('e2e') && fullText.includes('fix')) return 'E2E Fix';
+  if (fullText.includes('e2e') && fullText.includes('debug')) return 'E2E Debug';
+  if (fullText.includes('e2e') && (fullText.includes('run') || fullText.includes('test'))) return 'E2E Run';
+  if (fullText.includes('e2e') && fullText.includes('setup')) return 'E2E Setup';
+  if (fullText.includes('fatal') && fullText.includes('debug')) return 'Fatal Debug';
+  if (fullText.includes('debug')) return 'Debug';
+  if (fullText.includes('recovery') || fullText.includes('recover')) return 'Recovery';
+  if (fullText.includes('initial') || fullText.includes('implementation plan')) return 'Initial Plan';
+  if (fullText.includes('build') && fullText.includes('fix')) return 'Build Fix';
+
+  return 'Plan';
+}
+
+// Collapsible plan content component
+interface CollapsiblePlanContentProps {
+  content: ContentBlock[];
+  expanded: boolean;
+  onToggle: () => void;
+}
+
+function CollapsiblePlanContent({ content, expanded, onToggle }: CollapsiblePlanContentProps) {
+  const planType = detectPlanType(content);
+
+  if (!expanded) {
+    return (
+      <Box>
+        <Badge size="sm" variant="light" color="violet" mb="sm">{planType}</Badge>
+        <Button
+          variant="subtle"
+          size="xs"
+          onClick={onToggle}
+          leftSection={<IconChevronDown size={14} />}
+        >
+          Show full plan
+        </Button>
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      <Badge size="sm" variant="light" color="violet" mb="sm">{planType}</Badge>
+      <MessageContent content={content} />
+      <Button
+        variant="subtle"
+        size="xs"
+        onClick={onToggle}
+        leftSection={<IconChevronUp size={14} />}
+        mt="sm"
+      >
+        Hide details
+      </Button>
+    </Box>
+  );
+}
+
 // Single message component
-function ChatMessage({ message }: { message: StreamingMessage }) {
+interface ChatMessageProps {
+  message: StreamingMessage;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+}
+
+function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const isStreaming = message.status === 'streaming';
+  const isQueued = message.status === 'queued';
+  const isPlan = !isUser && isPlanContent(message.content);
 
   return (
     <Card
@@ -259,6 +350,7 @@ function ChatMessage({ message }: { message: StreamingMessage }) {
       style={{
         backgroundColor: isUser ? 'var(--mantine-color-blue-0)' : 'white',
         borderColor: isUser ? 'var(--mantine-color-blue-2)' : 'var(--mantine-color-gray-3)',
+        opacity: isQueued ? 0.8 : 1,
       }}
     >
       {/* Header with role and timestamp */}
@@ -277,6 +369,11 @@ function ChatMessage({ message }: { message: StreamingMessage }) {
               Streaming...
             </Badge>
           )}
+          {isQueued && (
+            <Badge size="xs" color="orange" variant="light">
+              Queued
+            </Badge>
+          )}
         </Group>
         <Group gap="xs">
           <IconClock size={12} color="var(--mantine-color-gray-5)" />
@@ -288,8 +385,49 @@ function ChatMessage({ message }: { message: StreamingMessage }) {
 
       <Divider mb="sm" color={isUser ? 'blue.1' : 'gray.2'} />
 
-      {/* Message content */}
-      <MessageContent content={message.content} />
+      {/* Message content - collapsible for plan messages */}
+      {isPlan ? (
+        <CollapsiblePlanContent
+          content={message.content}
+          expanded={isExpanded}
+          onToggle={onToggleExpand}
+        />
+      ) : (
+        <MessageContent content={message.content} />
+      )}
+    </Card>
+  );
+}
+
+// Queue status banner component
+function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
+  if (queueStatus.size === 0 && !queueStatus.processing) return null;
+
+  const processingLabel = queueStatus.processing
+    ? queueStatus.processing.type === 'user_chat'
+      ? 'Processing your message...'
+      : `Processing: ${queueStatus.processing.type}${queueStatus.processing.project ? ` (${queueStatus.processing.project})` : ''}`
+    : null;
+
+  return (
+    <Card p="sm" withBorder radius="md" mb="md" bg="blue.0" style={{ borderColor: 'var(--mantine-color-blue-3)' }}>
+      <Group gap="sm">
+        <IconLoader2 size={16} color="var(--mantine-color-blue-6)" style={{ animation: 'spin 1s linear infinite' }} />
+        <Text size="sm" c="blue.7">
+          {processingLabel || 'Queue active'}
+        </Text>
+        {queueStatus.size > 0 && (
+          <Badge size="sm" color="blue" variant="light">
+            {queueStatus.size} waiting
+          </Badge>
+        )}
+      </Group>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </Card>
   );
 }
@@ -298,12 +436,20 @@ function ChatMessage({ message }: { message: StreamingMessage }) {
 function ChatThread({
   messages,
   pendingPlan,
+  queueStatus,
   onSendMessage,
   onApprovePlan,
   sessionActive,
 }: AssistantChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+
+  // Check if any message is currently streaming
+  const hasStreamingMessage = messages.some(m => m.status === 'streaming');
+
+  // Derive effective expanded state - auto-collapse during streaming
+  const effectiveExpandedId = hasStreamingMessage ? null : expandedMessageId;
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -342,7 +488,12 @@ function ChatThread({
     >
       <Stack gap="md" style={{ flex: 1, minHeight: 0 }}>
         <ScrollArea h="100%" viewportRef={scrollRef} style={{ flex: 1 }}>
-          <Stack gap="md" p="xs">
+          <Stack gap="md" style={{ width: '100%' }}>
+            {/* Queue status banner */}
+            {queueStatus && (queueStatus.size > 0 || queueStatus.processing) && (
+              <QueueStatusBanner queueStatus={queueStatus} />
+            )}
+
             {messages.length === 0 ? (
               <Card p="xl" withBorder shadow="sm" radius="md">
                 <Stack align="center" gap="sm">
@@ -355,7 +506,16 @@ function ChatThread({
                 </Stack>
               </Card>
             ) : (
-              messages.map((msg) => <ChatMessage key={msg.id} message={msg} />)
+              messages.map((msg) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  isExpanded={effectiveExpandedId === msg.id}
+                  onToggleExpand={() => setExpandedMessageId(
+                    expandedMessageId === msg.id ? null : msg.id
+                  )}
+                />
+              ))
             )}
 
             {pendingPlan && (
@@ -420,15 +580,25 @@ function convertMessage(msg: StreamingMessage) {
     .map((block) => block.text)
     .join('\n');
 
-  return {
+  // Base message properties
+  const baseMessage = {
     id: msg.id,
     role: msg.role as 'user' | 'assistant',
     content: textContent || ' ', // assistant-ui requires non-empty content
     createdAt: new Date(msg.createdAt),
-    status: msg.status === 'streaming'
-      ? { type: 'running' as const }
-      : { type: 'complete' as const, reason: 'stop' as const },
   };
+
+  // Status is only supported for assistant messages
+  if (msg.role === 'assistant') {
+    return {
+      ...baseMessage,
+      status: msg.status === 'streaming'
+        ? { type: 'running' as const }
+        : { type: 'complete' as const, reason: 'stop' as const },
+    };
+  }
+
+  return baseMessage;
 }
 
 // Wrapper with AssistantUI runtime
