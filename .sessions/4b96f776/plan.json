@@ -1,0 +1,41 @@
+{
+  "feature": "Add Commenting",
+  "description": "Add the ability for users to create, view, and delete comments on blog posts",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Create a comments module following the existing blog module pattern. Create 3 files in src/comments/: (1) comments.service.ts - with Comment interface (id, postId, author, content, createdAt) and in-memory storage array, plus methods: findByPostId(postId), create(postId, data), delete(id). (2) comments.controller.ts - with routes: GET /posts/:postId/comments, POST /posts/:postId/comments, DELETE /comments/:id. Use @Param with ParseIntPipe like blog.controller.ts. (3) comments.module.ts - register controller and service, export service. Then register CommentsModule in app.module.ts imports array.",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Create src/components/CommentSection.tsx component to display and add comments. Props: postId (number). Features: (1) Fetch comments from GET http://localhost:3000/posts/{postId}/comments on mount. (2) Display list of comments showing author, content, and formatted createdAt date. (3) Form with author and content inputs to create new comment via POST. (4) Delete button on each comment that calls DELETE /comments/{id}. Follow the existing component patterns in CreatePost.tsx for form handling (useState for form fields, handleSubmit with async/await, error handling).",
+      "dependencies": [
+        "example_backend"
+      ]
+    },
+    {
+      "project": "example_frontend",
+      "task": "Integrate CommentSection into PostDetail.tsx. Import CommentSection component and add it below the post content but above the post-actions div. Pass post.id as the postId prop. No state changes needed in PostDetail since CommentSection manages its own state.",
+      "dependencies": [
+        "example_frontend"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "GET /posts/1/comments returns empty array initially",
+      "POST /posts/1/comments with {author, content} creates comment and returns it with id and createdAt",
+      "GET /posts/1/comments returns the created comment",
+      "DELETE /comments/1 removes the comment",
+      "GET /posts/1/comments returns empty array after deletion"
+    ],
+    "example_frontend": [
+      "View a post detail page and verify comment section appears",
+      "Submit a new comment with author and content fields",
+      "Verify the new comment appears in the list immediately",
+      "Click delete on a comment and verify it's removed",
+      "Verify comments are post-specific (different posts have different comments)"
+    ]
+  }
+}

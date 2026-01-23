@@ -412,6 +412,29 @@ Then generate a specific E2E test prompt that:
 2. Tests all the scenarios listed above
 3. Includes clear pass/fail criteria
 
+IMPORTANT: The E2E prompt MUST instruct the agent to:
+1. Run the E2E tests
+2. If ANY tests fail, the agent must ANALYZE its own codebase to understand WHY:
+   - Trace the failing test to the relevant code (components, API calls, etc.)
+   - Identify what the code is trying to do and where it fails
+   - Determine if the issue is likely in THIS project or requires changes in another project (e.g., backend API missing/wrong)
+3. Return a structured response at the END in this exact format:
+
+\`\`\`json
+{
+  "allPassed": true/false,
+  "failures": [
+    {
+      "test": "test name",
+      "error": "actual error message",
+      "codeAnalysis": "What I found: ComponentX.tsx:45 calls POST /api/endpoint which returns 404",
+      "suspectedProject": "frontend" | "backend" | "both" | "this"
+    }
+  ],
+  "overallAnalysis": "Summary of what went wrong and which project(s) likely need fixes"
+}
+\`\`\`
+
 Output the E2E prompt that should be sent to the agent.`;
 
     return await this.sendChat(prompt);
@@ -490,13 +513,38 @@ IMPORTANT: Return ONLY the JSON object, no other text.`;
 
   /**
    * Analyzes E2E test results and determines if tests passed or need fixes
-   * Returns: { passed: boolean, analysis: string, fixPrompt?: string }
+   * Returns: { passed: boolean, analysis: string, fixes?: Array<{project, prompt}> }
    */
-  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[]): Promise<{
+  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[], devServerLogs?: string, allProjects?: string[]): Promise<{
     passed: boolean;
     analysis: string;
-    fixPrompt?: string;
+    fixPrompt?: string;  // Legacy: fix for the originating project
+    fixes?: Array<{ project: string; prompt: string }>;  // New: targeted fixes per project
   }> {
+    const devServerSection = devServerLogs?.trim()
+      ? `\nDev Server Logs (stdout/stderr - includes request logs, errors, exceptions):
+\`\`\`
+${devServerLogs.slice(-3000)}
+\`\`\`
+`
+      : '';
+
+    const projectList = allProjects && allProjects.length > 1
+      ? `\nAvailable projects that can receive fixes: ${allProjects.join(', ')}`
+      : '';
+
+    // Try to extract the agent's self-analysis JSON from the output
+    const agentAnalysisMatch = e2eOutput.match(/```json\s*(\{[\s\S]*?"allPassed"[\s\S]*?\})\s*```/);
+    const agentAnalysisSection = agentAnalysisMatch
+      ? `\nAgent's Self-Analysis (the agent analyzed its own codebase):
+\`\`\`json
+${agentAnalysisMatch[1]}
+\`\`\`
+This analysis was done BY the agent that ran the tests - it traced failures through its own code.
+Use this to make informed decisions about which project(s) need fixes.
+`
+      : '';
+
     const prompt = `Analyze the E2E test results for project "${project}".
 
 Test scenarios that were being verified:
@@ -506,26 +554,47 @@ E2E Test Output:
 \`\`\`
 ${e2eOutput.slice(-5000)}
 \`\`\`
-
+${devServerSection}${agentAnalysisSection}
 Analyze the output and determine:
-1. Did ALL tests pass? Look for test failure indicators like "FAIL", "Error", "AssertionError", "expected", "timeout", etc.
-2. If tests failed, what specifically failed and why?
+1. Did ALL tests pass? Look for "allPassed": true in the agent's analysis, or check for FAIL/Error patterns.
+2. If tests failed, use the agent's codeAnalysis and suspectedProject fields to understand the root cause.
+3. Check the dev server logs for runtime errors (500s, exceptions, missing routes).
+4. IMPORTANT: Based on the agent's analysis (especially "suspectedProject" field), determine which project(s) need fixes:
+   - "backend" or "this" (if this is backend) → send fix to backend
+   - "frontend" or "this" (if this is frontend) → send fix to frontend
+   - "both" → send coordinated fixes to both
+${projectList}
 
 IMPORTANT: Respond with ONLY a JSON object in this exact format:
 {
   "passed": true or false,
   "analysis": "Brief summary of test results",
-  "fixPrompt": "If tests failed, specific instructions for the agent to fix the issues. Include exact error messages and what needs to change. Omit this field if tests passed."
-}`;
+  "fixes": [
+    { "project": "project_name", "prompt": "Specific fix instructions for this project" }
+  ]
+}
+
+The "fixes" array should contain an entry for EACH project that needs changes. Use the agent's codeAnalysis to provide specific, actionable fix instructions.`;
 
     try {
       const result = await this.sendChat(prompt);
 
-      // Extract JSON from response
-      const jsonMatch = result.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*?\}/);
+      // Extract JSON from response - handle nested objects with fixes array
+      const jsonMatch = result.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*\}/);
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
+
+          // Handle new format with fixes array
+          if (parsed.fixes && Array.isArray(parsed.fixes)) {
+            return {
+              passed: !!parsed.passed,
+              analysis: parsed.analysis || 'No analysis provided',
+              fixes: parsed.fixes.filter((f: any) => f.project && f.prompt)
+            };
+          }
+
+          // Legacy format with fixPrompt
           return {
             passed: !!parsed.passed,
             analysis: parsed.analysis || 'No analysis provided',

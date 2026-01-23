@@ -1,0 +1,55 @@
+{
+  "feature": "Login and Register",
+  "description": "Add user authentication with login and registration functionality. Users will be able to create accounts, log in, and access protected features. Posts will be associated with authors.",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Create the Auth module with user authentication:\n\n1. Create a new `auth/` directory with the NestJS module pattern:\n   - `auth.module.ts` - Auth module definition\n   - `auth.controller.ts` - Endpoints: POST /auth/register, POST /auth/login, GET /auth/me\n   - `auth.service.ts` - Business logic for user management and authentication\n\n2. Create a `users/` directory for user data:\n   - `users.service.ts` - In-memory user storage (following the pattern in `blog.service.ts`)\n   - Define User interface: { id: number, email: string, password: string, name: string, createdAt: Date }\n\n3. Implement endpoints:\n   - POST /auth/register - Accept { email, name, password }, validate email uniqueness, store user, return user (without password)\n   - POST /auth/login - Accept { email, password }, validate credentials, return { user, token } (simple token for now)\n   - GET /auth/me - Verify token from Authorization header, return current user\n\n4. Add simple JWT-like token generation (base64 encoded user ID for simplicity, or install @nestjs/jwt)\n\n5. Register AuthModule in app.module.ts (following the BlogModule pattern)\n\n6. Enable CORS for frontend access (check main.ts)",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Create authentication UI components and state management:\n\n1. Create new components in `src/components/`:\n   - `LoginForm.tsx` - Email/password form following CreatePost.tsx pattern with useState for form fields, submitting state, and error handling\n   - `RegisterForm.tsx` - Name/email/password form with same patterns\n   - `AuthHeader.tsx` - Shows logged-in user name or Login/Register buttons\n\n2. Add authentication state to App.tsx:\n   - Add state: `const [user, setUser] = useState<User | null>(null)`\n   - Add state: `const [showLogin, setShowLogin] = useState(false)`\n   - Add state: `const [showRegister, setShowRegister] = useState(false)`\n   - Store token in localStorage on successful login/register\n   - On app load, check localStorage for token and validate with GET /auth/me\n\n3. Update App.tsx to show auth UI:\n   - Add AuthHeader at top of the app\n   - Conditionally render LoginForm or RegisterForm based on state\n\n4. Add CSS styles to `style.css`:\n   - `.auth-header` - Header bar with user info/buttons\n   - `.login-form`, `.register-form` - Following `.create-post-form` pattern\n\n5. Define User interface in a types file or in App.tsx:\n   - `interface User { id: number, email: string, name: string }`",
+      "dependencies": [
+        "example_backend:0"
+      ]
+    },
+    {
+      "project": "example_backend",
+      "task": "Associate posts with authors:\n\n1. Update the Post interface in `blog.service.ts`:\n   - Add `authorId: number` and `authorName: string` fields\n\n2. Update `blog.controller.ts`:\n   - Modify POST /posts to optionally accept authorId from request body or extract from auth header\n   - Update the create method to include author information\n\n3. Update existing seed posts in `blog.service.ts` to have author information (can use a default 'Anonymous' or system user)",
+      "dependencies": [
+        "example_backend:0"
+      ]
+    },
+    {
+      "project": "example_frontend",
+      "task": "Update post creation to include author:\n\n1. Update `CreatePost.tsx`:\n   - Accept user prop: `interface CreatePostProps { ... user?: User }`\n   - Include authorId in the POST request body when user is logged in\n\n2. Update `PostList.tsx` and `PostDetail.tsx`:\n   - Display author name on posts\n   - Update Post interface to include `authorId?: number` and `authorName?: string`\n\n3. Update App.tsx:\n   - Pass user to CreatePost component",
+      "dependencies": [
+        "example_frontend:1",
+        "example_backend:2"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "POST /auth/register with valid data returns new user without password",
+      "POST /auth/register with duplicate email returns error",
+      "POST /auth/login with valid credentials returns user and token",
+      "POST /auth/login with invalid credentials returns 401 error",
+      "GET /auth/me with valid token returns current user",
+      "GET /auth/me without token returns 401 error",
+      "POST /posts with author information creates post with author"
+    ],
+    "example_frontend": [
+      "Register form submits and creates new account",
+      "Register form shows validation errors for duplicate email",
+      "Login form authenticates and stores token",
+      "Login form shows error for invalid credentials",
+      "Auth header shows user name when logged in",
+      "Auth header shows Login/Register buttons when logged out",
+      "Logout clears token and shows login buttons",
+      "Creating a post includes author name when logged in",
+      "Posts display author name in list and detail views"
+    ]
+  }
+}

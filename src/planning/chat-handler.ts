@@ -200,21 +200,24 @@ export class ChatHandler extends EventEmitter {
 
   /**
    * Analyzes E2E test results and determines next steps
+   * Can return fixes for multiple projects (e.g., frontend E2E fails due to backend issue)
    */
-  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[]): Promise<{
+  async analyzeE2EResult(project: string, e2eOutput: string, testScenarios: string[], devServerLogs?: string, allProjects?: string[]): Promise<{
     passed: boolean;
     analysis: string;
-    fixPrompt?: string;
+    fixPrompt?: string;  // Legacy: fix for originating project
+    fixes?: Array<{ project: string; prompt: string }>;  // New: targeted fixes per project
   }> {
     this.addMessage('system', `Analyzing E2E test results for ${project}...`);
 
     try {
-      const result = await this.planningAgent.analyzeE2EResult(project, e2eOutput, testScenarios);
+      const result = await this.planningAgent.analyzeE2EResult(project, e2eOutput, testScenarios, devServerLogs, allProjects);
 
       if (result.passed) {
         this.addMessage('system', `✓ E2E tests passed for ${project}: ${result.analysis}`);
       } else {
-        this.addMessage('system', `✗ E2E tests failed for ${project}: ${result.analysis}`);
+        const fixTargets = result.fixes?.map(f => f.project).join(', ') || project;
+        this.addMessage('system', `✗ E2E tests failed for ${project}: ${result.analysis}. Fixes needed in: ${fixTargets}`);
       }
 
       return result;

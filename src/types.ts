@@ -6,6 +6,7 @@ export interface ProjectConfig {
     readyPattern: string;
     env: Record<string, string>;
   };
+  buildCommand?: string;  // Command to build the project (e.g., "npm run build")
   hasE2E: boolean;
 }
 

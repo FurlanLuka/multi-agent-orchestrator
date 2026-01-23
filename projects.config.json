@@ -7,6 +7,7 @@
         "readyPattern": "Local:.*http|ready in",
         "env": {}
       },
+      "buildCommand": "npm run build",
       "hasE2E": true
     },
     "example_backend": {
@@ -16,6 +17,7 @@
         "readyPattern": "Nest application successfully started|listening on|Application is running",
         "env": {}
       },
+      "buildCommand": "npm run build",
       "hasE2E": true
     }
   },

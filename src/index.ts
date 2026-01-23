@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent } from './types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition } from './types';
 import { SessionManager } from './core/session-manager';
 import { ProcessManager } from './core/process-manager';
 import { ProjectManager, AddProjectOptions, CreateFromTemplateOptions } from './core/project-manager';
@@ -174,10 +174,20 @@ async function main() {
 
     const session = sessionManager.getCurrentSession();
     const testScenarios = session?.plan?.testPlan?.[project] || [];
+    const allProjects = session?.projects || [];
+
+    // Get recent dev server logs from ALL projects to provide cross-project context
+    // This helps identify if frontend E2E failed due to backend errors
+    const allDevServerLogs = allProjects.map(proj => {
+      const logs = logAggregator.getLogsByType(proj, 'devServer', 50)
+        .map(e => `[${e.stream}] ${e.text}`)
+        .join('\n');
+      return logs ? `=== ${proj} dev server logs ===\n${logs}` : '';
+    }).filter(Boolean).join('\n\n');
 
     try {
-      // Ask Planning Agent to analyze the E2E results
-      const analysis = await chatHandler.analyzeE2EResult(project, result, testScenarios);
+      // Ask Planning Agent to analyze the E2E results (include dev server logs and all projects for delegation)
+      const analysis = await chatHandler.analyzeE2EResult(project, result, testScenarios, allDevServerLogs, allProjects);
 
       if (analysis.passed) {
         // E2E passed! Mark as complete
@@ -199,8 +209,43 @@ async function main() {
         console.log(`[Orchestrator] E2E tests FAILED for ${project}, attempting fix (retry ${retries + 1}/${MAX_E2E_RETRIES})`);
         e2eRetryCount.set(project, retries + 1);
 
-        if (analysis.fixPrompt) {
-          // Send fix prompt to agent
+        // Check for new multi-project fixes format first
+        if (analysis.fixes && analysis.fixes.length > 0) {
+          try {
+            // Send fixes to all targeted projects in parallel
+            const fixPromises = analysis.fixes.map(async (fix) => {
+              const targetProject = fix.project;
+              const fixPrompt = `The E2E tests for ${project} failed. Analysis: ${analysis.analysis}
+
+You need to fix the following in ${targetProject}:
+${fix.prompt}
+
+After fixing, the E2E tests will be re-run automatically.`;
+
+              console.log(`[Orchestrator] Sending fix to ${targetProject} (E2E failed in ${project})`);
+              statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
+              await actionExecutor.sendE2EFix(targetProject, fixPrompt);
+            });
+
+            await Promise.all(fixPromises);
+
+            // After all fixes complete, re-run E2E on the original project
+            console.log(`[Orchestrator] Fixes applied, re-running E2E tests for ${project}`);
+            const e2ePrompt = await chatHandler.requestE2EPrompt(
+              project,
+              `Re-running E2E after fix attempt ${retries + 1}`,
+              testScenarios
+            );
+
+            if (e2ePrompt && e2ePrompt.trim()) {
+              await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
+            }
+          } catch (err) {
+            console.error(`[Orchestrator] E2E fix failed:`, err);
+            statusMonitor.updateStatus(project, 'BLOCKED', 'E2E fix failed');
+          }
+        } else if (analysis.fixPrompt) {
+          // Legacy: single project fix
           const fixPrompt = `The E2E tests failed with the following issues:
 
 ${analysis.analysis}
@@ -545,23 +590,43 @@ After fixing, the E2E tests will be re-run automatically.`;
         }
       }
 
-      // Start agents with their tasks
-      // Set status to WORKING BEFORE starting agent (since startAgent awaits completion)
-      for (const task of session.plan.tasks) {
+      // Start ALL agents in parallel - they can code simultaneously
+      // Dependencies only matter for E2E testing (handled separately in tryTriggerE2E)
+      const tasks = session.plan.tasks;
+
+      const runTask = async (task: TaskDefinition) => {
         const sessionDir = sessionManager.getSessionDir(task.project);
-        if (sessionDir) {
-          // Set WORKING status first, before the async task starts
-          statusMonitor.updateStatus(task.project, 'WORKING', 'Starting agent task...');
-          stateMachine.markAgentActive(task.project);
+        if (!sessionDir) return;
 
-          // Start the agent - this awaits completion of the task
-          await processManager.startAgent(task.project, sessionDir, task.task);
+        const projectConfig = config.projects[task.project];
 
-          // After task completes, set to READY (triggers E2E flow)
+        // Append build requirement if buildCommand is configured
+        let taskPrompt = task.task;
+        if (projectConfig?.buildCommand) {
+          taskPrompt += `\n\n**IMPORTANT**: Before completing this task, you MUST run the build command and ensure it passes:
+\`\`\`bash
+${projectConfig.buildCommand}
+\`\`\`
+Do NOT mark this task as complete until the build passes without errors.`;
+        }
+
+        statusMonitor.updateStatus(task.project, 'WORKING', 'Starting agent task...');
+        stateMachine.markAgentActive(task.project);
+
+        try {
+          await processManager.startAgent(task.project, sessionDir, taskPrompt);
           statusMonitor.updateStatus(task.project, 'READY', 'Task completed');
+        } catch (err) {
+          console.error(`[Orchestrator] Task ${task.project} failed:`, err);
+          statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', `Task failed: ${err}`);
+        } finally {
           stateMachine.markAgentIdle(task.project);
         }
-      }
+      };
+
+      // Run all tasks in parallel - planning agent already gave each agent the full context
+      console.log(`[Orchestrator] Starting ${tasks.length} tasks in parallel: ${tasks.map(t => t.project).join(', ')}`);
+      await Promise.all(tasks.map(runTask))
 
       chatHandler.systemMessage('All agents started. Monitoring progress...');
     });

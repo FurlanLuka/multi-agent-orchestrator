@@ -1,0 +1,34 @@
+{
+  "feature": "Comment Reactions",
+  "description": "Allow users to react to comments with emoji reactions (like, love, laugh, etc.). Each comment will display reaction counts and users can toggle their reactions.",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Add comment reactions functionality to the backend:\n\n1. In `src/comments/comments.service.ts`:\n   - Add a `Reaction` interface with fields: `id`, `commentId`, `emoji` (string like '👍', '❤️', '😂'), `user` (string)\n   - Add a private `reactions: Reaction[]` array to store reactions (following the same in-memory pattern as comments)\n   - Update the `Comment` interface to include `reactions?: Reaction[]`\n   - Add method `addReaction(commentId: number, data: { emoji: string; user: string }): Reaction` - creates a new reaction or throws if already exists for that user+emoji+comment combo\n   - Add method `removeReaction(commentId: number, emoji: string, user: string): void` - removes a reaction\n   - Add method `getReactions(commentId: number): Reaction[]` - returns all reactions for a comment\n   - Update `findByPostId()` to include reactions for each comment\n\n2. In `src/comments/comments.controller.ts`:\n   - Add `POST /comments/:commentId/reactions` endpoint that calls `commentsService.addReaction()` with body `{ emoji: string; user: string }`\n   - Add `DELETE /comments/:commentId/reactions` endpoint with query params `emoji` and `user` that calls `commentsService.removeReaction()`\n   - Add `GET /comments/:commentId/reactions` endpoint that returns all reactions for a comment",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Add comment reactions UI to the frontend:\n\n1. Update the `Comment` interface in `src/components/CommentSection.tsx` to include:\n   ```typescript\n   reactions?: Array<{ id: number; emoji: string; user: string }>\n   ```\n\n2. Create a reaction picker component inline within CommentSection.tsx (or extract to a new file if preferred):\n   - Show emoji buttons for common reactions: 👍 ❤️ 😂 😮 😢\n   - Display current reaction counts next to each emoji\n   - Allow clicking to toggle a reaction (add if not present, remove if already reacted)\n   - Use a simple state for the current user (can hardcode 'Anonymous' or prompt for name)\n\n3. In the comment rendering section (around line 102-120), add:\n   - A reactions display area showing emoji + count for each reaction type that has reactions\n   - A reaction button that opens/shows the reaction picker\n   - Handle adding/removing reactions via fetch calls to:\n     - `POST http://localhost:3000/comments/{commentId}/reactions` with body `{ emoji, user }`\n     - `DELETE http://localhost:3000/comments/{commentId}/reactions?emoji={emoji}&user={user}`\n\n4. Add CSS classes for styling:\n   - `.comment-reactions` - container for reaction display\n   - `.reaction-badge` - individual reaction count badge\n   - `.reaction-picker` - the emoji picker UI\n   - `.reaction-button` - button to open picker",
+      "dependencies": [
+        "example_backend"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "POST a reaction to an existing comment and verify it returns the created reaction",
+      "GET reactions for a comment and verify the reaction appears in the list",
+      "Verify comments returned from GET /posts/:postId/comments include reactions array",
+      "DELETE a reaction and verify it's removed",
+      "Verify adding duplicate reaction (same user, emoji, comment) is handled appropriately"
+    ],
+    "example_frontend": [
+      "View a comment and verify reaction area is displayed",
+      "Click reaction button to add a reaction and verify the count updates",
+      "Click the same reaction again to remove it and verify count decreases",
+      "Add multiple different reactions and verify all display correctly",
+      "Verify reactions persist after page refresh (fetched from backend)"
+    ]
+  }
+}
