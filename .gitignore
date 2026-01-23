@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+web/node_modules/
+
+# Build output
+dist/
+web/dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime directories
+/tmp/
+
+# Session data (runtime only)
+.orchestrator/
+
+# TypeScript cache
+*.tsbuildinfo

@@ -1,0 +1,314 @@
+// Project configuration
+export interface ProjectConfig {
+  path: string;
+  devServer: {
+    command: string;
+    readyPattern: string;
+    env: Record<string, string>;
+  };
+  hasE2E: boolean;
+}
+
+export interface Config {
+  projects: Record<string, ProjectConfig>;
+  defaults: {
+    approvalTimeout: number;
+    maxRestarts: number;
+    debugEscalationTime: number;
+  };
+}
+
+// Agent status states
+export type AgentStatus =
+  | 'IDLE'
+  | 'WORKING'
+  | 'DEBUGGING'
+  | 'FATAL_DEBUGGING'
+  | 'FATAL_RECOVERY'
+  | 'READY'
+  | 'E2E'
+  | 'BLOCKED';
+
+// Outbox event types (agent → orchestrator)
+export interface StatusUpdate {
+  type: 'status_update';
+  project: string;
+  status: AgentStatus;
+  message: string;
+  timestamp: number;
+}
+
+export interface Message {
+  type: 'message';
+  from: string;
+  to: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface ApprovalRequest {
+  type: 'approval_request';
+  id: string;
+  project: string;
+  prompt: string;
+  approval_type: string;
+  timestamp: number;
+}
+
+export interface ErrorReport {
+  type: 'error_report';
+  project: string;
+  error: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  timestamp: number;
+}
+
+export interface TaskComplete {
+  type: 'task_complete';
+  project: string;
+  summary: string;
+  timestamp: number;
+}
+
+export interface RestartRequest {
+  type: 'restart_request';
+  project: string;
+  reason: string;
+  timestamp: number;
+}
+
+export type OutboxEvent =
+  | StatusUpdate
+  | Message
+  | ApprovalRequest
+  | ErrorReport
+  | TaskComplete
+  | RestartRequest;
+
+// Session and plan
+export interface Session {
+  id: string;
+  startedAt: number;
+  feature: string;
+  projects: string[];
+  plan?: Plan;
+}
+
+export interface TaskDefinition {
+  project: string;
+  task: string;
+  dependencies: string[];
+}
+
+export interface Plan {
+  feature: string;
+  description: string;
+  tasks: TaskDefinition[];
+  testPlan: Record<string, string[]>;
+}
+
+// Project state tracking
+export interface ProjectState {
+  status: AgentStatus;
+  message: string;
+  updatedAt: number;
+  devServerPid?: number;
+  agentPid?: number;
+}
+
+// Process info
+export interface ProcessInfo {
+  pid: number;
+  project: string;
+  type: 'devServer' | 'agent';
+  startedAt: number;
+  ready: boolean;
+}
+
+// Log entry
+export interface LogEntry {
+  project: string;
+  type: 'devServer' | 'agent';
+  stream: 'stdout' | 'stderr';
+  text: string;
+  timestamp: number;
+}
+
+// Approval response
+export interface ApprovalResponse {
+  approved: boolean;
+  timestamp: number;
+}
+
+// WebSocket event payloads
+export interface StatusEvent {
+  project: string;
+  status: AgentStatus;
+  message: string;
+}
+
+export interface LogEvent {
+  project: string;
+  type: 'devServer' | 'agent';
+  stream: 'stdout' | 'stderr';
+  text: string;
+  timestamp: number;
+}
+
+export interface ChatEvent {
+  from: 'user' | 'planning';
+  message: string;
+  timestamp?: number;
+}
+
+export interface ApprovalEvent {
+  id: string;
+  project: string;
+  prompt: string;
+  approval_type: string;
+}
+
+// Planning Agent types
+export interface PlanProposal {
+  plan: Plan;
+  summary: string;
+}
+
+export interface E2EPromptRequest {
+  project: string;
+  taskSummary: string;
+  testScenarios: string[];
+}
+
+// Orchestrator state machine
+export type OrchestratorState = 'IDLE' | 'RUNNING' | 'PAUSING' | 'PAUSED';
+
+// Extended agent status for new hooks
+export type ExtendedAgentStatus = AgentStatus | 'NEEDS_INPUT' | 'ERROR';
+
+// New hook-based events (from .claude/hooks/)
+export interface HookStatusEvent {
+  type: 'status';
+  status: ExtendedAgentStatus;
+  timestamp: number;
+}
+
+export interface HookNotificationEvent {
+  type: 'notification';
+  status: ExtendedAgentStatus;
+  message: string;
+  notification_type: string;
+  timestamp: number;
+}
+
+export interface HookToolCompleteEvent {
+  type: 'tool_complete';
+  tool: string;
+  success: boolean;
+  timestamp: number;
+}
+
+export interface HookToolStartEvent {
+  type: 'tool_start';
+  tool: string;
+  timestamp: number;
+}
+
+export interface HookSubagentStopEvent {
+  type: 'subagent_stop';
+  timestamp: number;
+}
+
+// Union of all hook events
+export type HookEvent =
+  | HookStatusEvent
+  | HookNotificationEvent
+  | HookToolCompleteEvent
+  | HookToolStartEvent
+  | HookSubagentStopEvent;
+
+// Event queue types
+export interface QueuedEvent {
+  id: string;
+  type: string;
+  project?: string;
+  data: OrchestratorEvent;
+  queuedAt: number;
+}
+
+export interface UserChatEvent {
+  type: 'user_chat';
+  message: string;
+  target?: string; // 'planning' or specific project name
+}
+
+// Orchestrator event union (what gets queued)
+export type OrchestratorEvent =
+  | (HookEvent & { project: string })
+  | UserChatEvent
+  | OutboxEvent;
+
+// Planning Agent actions (what Planning Agent returns)
+export interface ChatResponseAction {
+  type: 'chat_response';
+  message: string;
+}
+
+export interface SendToAgentAction {
+  type: 'send_to_agent';
+  project: string;
+  prompt: string;
+}
+
+export interface SendE2EAction {
+  type: 'send_e2e';
+  project: string;
+  prompt: string;
+}
+
+export interface RestartServerAction {
+  type: 'restart_server';
+  project: string;
+}
+
+export interface CompleteAction {
+  type: 'complete';
+  summary: string;
+}
+
+export interface NoopAction {
+  type: 'noop';
+}
+
+export type PlanningAction =
+  | ChatResponseAction
+  | SendToAgentAction
+  | SendE2EAction
+  | RestartServerAction
+  | CompleteAction
+  | NoopAction;
+
+// Hook configuration for .claude/settings.json
+export interface HookConfig {
+  hooks: {
+    Stop?: Array<{ hooks: Array<{ type: string; command: string }> }>;
+    Notification?: Array<{ hooks: Array<{ type: string; command: string }> }>;
+    PostToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
+    PreToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
+    SubagentStop?: Array<{ hooks: Array<{ type: string; command: string }> }>;
+  };
+}
+
+// Project templates
+export type ProjectTemplate = 'vite-frontend' | 'nestjs-backend';
+
+export interface ProjectTemplateConfig {
+  name: ProjectTemplate;
+  displayName: string;
+  description: string;
+  devServer: {
+    command: string;
+    readyPattern: string;
+  };
+  defaultPort: number;
+}

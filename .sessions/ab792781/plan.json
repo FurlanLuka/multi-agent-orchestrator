@@ -1,0 +1,33 @@
+{
+  "feature": "Add new blog post (in-memory storage)",
+  "description": "Allow users to create new blog posts via a form in the frontend, with data stored in-memory on the backend",
+  "tasks": [
+    {
+      "project": "example_backend",
+      "task": "Add a POST endpoint to create new blog posts. In src/blog/blog.service.ts, add a `create(data: { title: string, body: string }): Post` method that generates a new id (use `Math.max(...this.posts.map(p => p.id), 0) + 1`), sets createdAt to new Date(), adds the post to the in-memory `this.posts` array, and returns the created post. In src/blog/blog.controller.ts, add a `@Post()` endpoint decorated with `@Body()` that calls `this.blogService.create(data)`. Import `Post` and `Body` from '@nestjs/common'. Also add CORS support if not present - in src/main.ts add `app.enableCors()` before the listen call.",
+      "dependencies": []
+    },
+    {
+      "project": "example_frontend",
+      "task": "Create a CreatePost form component and integrate it into the app. Create src/components/CreatePost.tsx with a form containing title (input) and body (textarea) fields, and a submit button. On submit, POST to 'http://localhost:3000/posts' with JSON body { title, body }. The component should accept an `onPostCreated: (post: Post) => void` callback prop. In src/App.tsx, add state to toggle between list view and create form (`showCreateForm`), add a 'New Post' button in the PostList view that sets showCreateForm to true, and render CreatePost when showCreateForm is true. When a post is created, call the callback to add it to the local posts state and return to the list view. In src/components/PostList.tsx, modify to accept an optional `posts` prop to allow parent to manage posts state, and add the 'New Post' button. Add appropriate CSS styles for the form in src/style.css (e.g., .create-post-form, form inputs, textarea).",
+      "dependencies": [
+        "example_backend"
+      ]
+    }
+  ],
+  "testPlan": {
+    "example_backend": [
+      "POST /posts with valid JSON { title: 'Test', body: 'Content' } returns 201 with created post including id and createdAt",
+      "GET /posts returns the newly created post in the list",
+      "Created post persists in memory until server restart"
+    ],
+    "example_frontend": [
+      "Clicking 'New Post' button shows the create post form",
+      "Form has title input, body textarea, and submit button",
+      "Submitting form with valid data creates post and returns to list view",
+      "New post appears in the post list after creation",
+      "Form validation prevents submitting with empty title",
+      "Cancel/back button returns to list without creating post"
+    ]
+  }
+}

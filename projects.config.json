@@ -1,0 +1,27 @@
+{
+  "projects": {
+    "example_frontend": {
+      "path": "~/Documents/example_frontend",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "hasE2E": true
+    },
+    "example_backend": {
+      "path": "~/Documents/example_backend",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {}
+      },
+      "hasE2E": true
+    }
+  },
+  "defaults": {
+    "approvalTimeout": 300000,
+    "maxRestarts": 3,
+    "debugEscalationTime": 120000
+  }
+}
