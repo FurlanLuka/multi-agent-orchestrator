@@ -11,7 +11,6 @@ import {
   Alert,
   Grid,
   Paper,
-  Accordion,
   Box,
   ThemeIcon,
   Loader,
@@ -25,7 +24,6 @@ import '@mantine/core/styles.css';
 import {
   IconRocket,
   IconMessageCircle,
-  IconFileText,
   IconCheck,
   IconSparkles,
   IconBrain,
@@ -35,7 +33,6 @@ import {
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
-import { LogViewer } from './components/LogViewer';
 import { ApprovalPanel } from './components/ApprovalPanel';
 import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
@@ -49,6 +46,7 @@ function App() {
     logs,
     streamingMessages,
     queueStatus,
+    testStates,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -59,7 +57,6 @@ function App() {
     startSession,
     approvePlan,
     respondToApproval,
-    clearLogs,
     createProjectFromTemplate,
   } = useSocket();
 
@@ -278,7 +275,7 @@ function App() {
                                 {/* Tasks by Project */}
                                 <Box>
                                   <Text size="xs" fw={600} c="dimmed" mb="xs">Tasks</Text>
-                                  <Stack gap="sm">
+                                <Stack gap="sm">
                                     {session.plan.tasks.map((task, idx) => (
                                       <Box
                                         key={idx}
@@ -392,49 +389,11 @@ function App() {
                               project={project}
                               status={statuses[project]?.status || 'PENDING'}
                               message={statuses[project]?.message || ''}
-                              updatedAt={statuses[project]?.updatedAt || Date.now()}
+                              updatedAt={statuses[project]?.updatedAt || 0}
                               logs={logs.filter(l => l.project === project)}
+                              testState={testStates[project]}
                             />
                           ))}
-
-                          {/* Collapsible Full Logs (all projects combined) */}
-                          <Accordion
-                            variant="contained"
-                            radius="lg"
-                            styles={{
-                              item: {
-                                border: '1px solid var(--mantine-color-gray-2)',
-                                backgroundColor: 'white',
-                              },
-                              control: {
-                                padding: 'var(--mantine-spacing-md)',
-                              },
-                            }}
-                          >
-                            <Accordion.Item value="logs">
-                              <Accordion.Control
-                                icon={
-                                  <ThemeIcon size="sm" radius="md" variant="light" color="gray">
-                                    <IconFileText size={14} />
-                                  </ThemeIcon>
-                                }
-                              >
-                                <Group gap="xs">
-                                  <Text fw={600} size="sm">All Logs</Text>
-                                  <Badge size="xs" variant="light" color="gray">
-                                    {logs.length} entries
-                                  </Badge>
-                                </Group>
-                              </Accordion.Control>
-                              <Accordion.Panel>
-                                <LogViewer
-                                  logs={logs}
-                                  projects={sessionProjects}
-                                  onClearLogs={clearLogs}
-                                />
-                              </Accordion.Panel>
-                            </Accordion.Item>
-                          </Accordion>
                         </>
                       )}
                     </Stack>

@@ -410,24 +410,33 @@ Start by exploring the project directories, then create the plan.`;
 
 Task completed: ${request.taskSummary}
 
+Dev server URL: ${request.devServerUrl || 'http://localhost:5173'}
+
 Test scenarios to verify:
 ${request.testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
-Please read the project's E2E testing skill at:
-~/${request.project}/.claude/skills/e2e-testing.md
+Generate an E2E test prompt that instructs the agent to:
 
-Then generate a specific E2E test prompt that:
-1. Uses the project's testing framework and conventions
-2. Tests all the scenarios listed above
-3. Includes clear pass/fail criteria
+1. READ the project's E2E testing skill at: ~/${request.project}/.claude/skills/e2e-testing.md
+   - This skill contains project-specific testing instructions (Playwright MCP for frontend, curl for backend, etc.)
+   - Follow the testing methodology described in that skill file
 
-IMPORTANT: The E2E prompt MUST instruct the agent to:
-1. Run the E2E tests
-2. If ANY tests fail, the agent must ANALYZE its own codebase to understand WHY:
-   - Trace the failing test to the relevant code (components, API calls, etc.)
+2. OUTPUT TEST STATUS MARKERS for real-time UI tracking. For EACH test scenario:
+   - Before running: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "running"}
+   - After passing: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "passed"}
+   - After failing: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "failed", "error": "brief error message"}
+
+3. If required tools are NOT AVAILABLE (e.g., Playwright MCP tools for frontend):
+   - DO NOT attempt to analyze code as a workaround
+   - Immediately fail all tests with error explaining the missing tools
+   - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Required testing tools not available"}
+
+4. If ANY tests fail, ANALYZE the codebase to understand WHY:
+   - Trace the failing scenario to the relevant code
    - Identify what the code is trying to do and where it fails
-   - Determine if the issue is likely in THIS project or requires changes in another project (e.g., backend API missing/wrong)
-3. Return a structured response at the END in this exact format:
+   - Determine if the issue is in THIS project or another
+
+5. Return a structured response at the END:
 
 \`\`\`json
 {

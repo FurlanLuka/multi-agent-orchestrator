@@ -5,6 +5,7 @@ export interface ProjectConfig {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
+    port?: number;  // Dev server port (default: 5173 for frontend, 3000 for backend)
   };
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
   hasE2E: boolean;
@@ -220,6 +221,7 @@ export interface E2EPromptRequest {
   project: string;
   taskSummary: string;
   testScenarios: string[];
+  devServerUrl?: string;
 }
 
 // Orchestrator state machine
@@ -299,6 +301,7 @@ export interface E2EPromptRequestEvent {
   project: string;
   taskSummary: string;
   testScenarios: string[];
+  devServerUrl?: string;
 }
 
 export interface FailureAnalysisEvent {
@@ -385,6 +388,17 @@ export interface QueueStatus {
     type: string;
     project?: string;
   };
+}
+
+// Test status tracking for E2E tests
+export type TestScenarioStatus = 'pending' | 'running' | 'passed' | 'failed';
+
+export interface TestStatusEvent {
+  project: string;
+  scenario: string;
+  status: TestScenarioStatus;
+  error?: string;
+  timestamp: number;
 }
 
 // Project templates

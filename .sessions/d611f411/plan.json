@@ -1,0 +1,14 @@
+{
+  "feature": "Make reacting require auth",
+  "description": "Reactions on comments already require authentication. Both backend endpoints are protected with AuthGuard, and the frontend only shows reaction UI to authenticated users and sends auth tokens with requests.",
+  "tasks": [],
+  "testPlan": {
+    "example_frontend": [
+      "Verify that unauthenticated users cannot see the 'React' button on comments",
+      "Verify that authenticated users can see and use the 'React' button on comments",
+      "Verify that adding a reaction as an authenticated user works correctly",
+      "Verify that removing a reaction as an authenticated user works correctly",
+      "Verify that reaction API calls fail with 401 when token is missing or invalid"
+    ]
+  }
+}

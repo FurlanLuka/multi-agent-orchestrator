@@ -120,6 +120,9 @@ export class EventQueue extends EventEmitter {
     this.processing = true;
     const event = this.queue.splice(eventIndex, 1)[0];
 
+    // Notify that an event was removed from queue (for UI updates)
+    this.emit('eventRemoved', event);
+
     console.log(`[EventQueue] Processing event: ${event.type} (remaining: ${this.queue.length})`);
     this.emit('processing', event);
 
@@ -152,7 +155,8 @@ export class EventQueue extends EventEmitter {
           this.emit('e2ePromptRequest', {
             project: promptEvent.project,
             taskSummary: promptEvent.taskSummary,
-            testScenarios: promptEvent.testScenarios
+            testScenarios: promptEvent.testScenarios,
+            devServerUrl: promptEvent.devServerUrl
           });
           break;
         }

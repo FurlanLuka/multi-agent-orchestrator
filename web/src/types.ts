@@ -166,3 +166,25 @@ export interface QueueStatus {
     project?: string;
   };
 }
+
+// Test status tracking for E2E tests
+export type TestScenarioStatus = 'pending' | 'running' | 'passed' | 'failed';
+
+export interface TestScenarioState {
+  name: string;
+  status: TestScenarioStatus;
+  error?: string;
+}
+
+export interface ProjectTestState {
+  scenarios: TestScenarioState[];
+  updatedAt: number;
+}
+
+export interface TestStatusEvent {
+  project: string;
+  scenario: string;
+  status: TestScenarioStatus;
+  error?: string;
+  timestamp: number;
+}

@@ -16,6 +16,8 @@ import type {
   StreamingMessage,
   ContentBlock,
   QueueStatus,
+  ProjectTestState,
+  TestStatusEvent,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -38,6 +40,9 @@ export function useSocket() {
 
   // Queue status for Planning Agent visibility
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+
+  // Test states for E2E test tracking per project
+  const [testStates, setTestStates] = useState<Record<string, ProjectTestState>>({});
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -77,6 +82,23 @@ export function useSocket() {
         ...prev,
         [project]: { status, message, updatedAt: Date.now() }
       }));
+
+      // Initialize test scenarios when project enters E2E state
+      if (status === 'E2E') {
+        setSession(currentSession => {
+          if (currentSession?.plan?.testPlan?.[project]) {
+            const scenarios = currentSession.plan.testPlan[project];
+            setTestStates(prev => ({
+              ...prev,
+              [project]: {
+                scenarios: scenarios.map(name => ({ name, status: 'pending' as const })),
+                updatedAt: Date.now()
+              }
+            }));
+          }
+          return currentSession;
+        });
+      }
     });
 
     // Log events
@@ -195,6 +217,42 @@ export function useSocket() {
       }
     });
 
+    // Test status events for real-time E2E test tracking
+    socket.on('testStatus', (event: TestStatusEvent) => {
+      setTestStates(prev => {
+        const projectState = prev[event.project];
+        if (!projectState) {
+          // Create a new state with just this scenario
+          return {
+            ...prev,
+            [event.project]: {
+              scenarios: [{ name: event.scenario, status: event.status, error: event.error }],
+              updatedAt: Date.now()
+            }
+          };
+        }
+
+        // Update existing scenario or add new one
+        const scenarioExists = projectState.scenarios.some(s => s.name === event.scenario);
+        const updatedScenarios = scenarioExists
+          ? projectState.scenarios.map(s =>
+              s.name === event.scenario
+                ? { ...s, status: event.status, error: event.error }
+                : s
+            )
+          : [...projectState.scenarios, { name: event.scenario, status: event.status, error: event.error }];
+
+        return {
+          ...prev,
+          [event.project]: {
+            ...projectState,
+            scenarios: updatedScenarios,
+            updatedAt: Date.now()
+          }
+        };
+      });
+    });
+
     // Project management events
     socket.on('projects', (p: Record<string, ProjectConfig>) => {
       setProjects(p);
@@ -304,6 +362,7 @@ export function useSocket() {
     chatHistory,
     streamingMessages,
     queueStatus,
+    testStates,
     currentApproval,
     pendingPlan,
     allComplete,

@@ -73,6 +73,11 @@ async function main() {
     (ui.io as any).emitLog(entry);
   });
 
+  // Forward test status events to UI for real-time E2E test tracking
+  processManager.on('testStatus', (event: { project: string; scenario: string; status: string; error?: string; timestamp: number }) => {
+    (ui.io as any).emit('testStatus', event);
+  });
+
   processManager.on('ready', ({ project, type }) => {
     console.log(`[Orchestrator] ${project} ${type} is ready`);
     // Don't set status to IDLE here - that's reserved for when the full task is complete
@@ -149,6 +154,19 @@ async function main() {
 
   // Forward queue events to UI for visibility
   eventQueue.on('eventAdded', (event) => {
+    (ui.io as any).emit('queueUpdate', {
+      size: eventQueue.getQueueSize(),
+      events: eventQueue.getQueuedEvents().map(e => ({
+        id: e.id,
+        type: e.type,
+        project: e.project,
+        queuedAt: e.queuedAt,
+        preview: e.type === 'user_chat' ? (e.data as any).message?.slice(0, 50) : undefined
+      }))
+    });
+  });
+
+  eventQueue.on('eventRemoved', () => {
     (ui.io as any).emit('queueUpdate', {
       size: eventQueue.getQueueSize(),
       events: eventQueue.getQueuedEvents().map(e => ({
@@ -411,6 +429,17 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Track projects waiting for E2E (waiting on dependencies)
   const pendingE2E: Map<string, { message: string; waitingOn: string[] }> = new Map();
 
+  // Helper to get dev server URL for a project
+  const getDevServerUrl = (project: string): string => {
+    const projectConfig = config.projects[project];
+    if (projectConfig?.devServer?.port) {
+      return `http://localhost:${projectConfig.devServer.port}`;
+    }
+    // Default: frontend projects use 5173, backend uses 3000
+    const isFrontend = project.toLowerCase().includes('frontend');
+    return isFrontend ? 'http://localhost:5173' : 'http://localhost:3000';
+  };
+
   // Helper to check and trigger E2E for a project (queues the request)
   const tryTriggerE2E = (project: string, message: string) => {
     const session = sessionManager.getCurrentSession();
@@ -444,7 +473,8 @@ After fixing, the E2E tests will be re-run automatically.`;
       type: 'e2e_prompt_request',
       project,
       taskSummary: message,
-      testScenarios: session.plan.testPlan[project]
+      testScenarios: session.plan.testPlan[project],
+      devServerUrl: getDevServerUrl(project)
     });
   };
 
@@ -465,7 +495,8 @@ After fixing, the E2E tests will be re-run automatically.`;
               type: 'e2e_prompt_request',
               project: waitingProject,
               taskSummary: message,
-              testScenarios: session.plan.testPlan[waitingProject]
+              testScenarios: session.plan.testPlan[waitingProject],
+              devServerUrl: getDevServerUrl(waitingProject)
             });
           }
         } else {
@@ -687,6 +718,29 @@ After fixing, the E2E tests will be re-run automatically.`;
       // Start ALL agents in parallel - they can code simultaneously
       // Dependencies only matter for E2E testing (handled separately in tryTriggerE2E)
       const tasks = session.plan.tasks;
+
+      // Handle case where there are no tasks (alreadyImplemented: true)
+      // Projects without tasks should go straight to READY (triggers E2E) or IDLE (if no E2E tests)
+      if (tasks.length === 0) {
+        console.log('[Orchestrator] No tasks to execute - feature already implemented');
+        chatHandler.systemMessage('Feature already implemented. Running E2E tests...');
+
+        for (const project of session.projects) {
+          // Set to READY which will trigger tryTriggerE2E via the projectReady event
+          statusMonitor.updateStatus(project, 'READY', 'No implementation needed');
+        }
+        return;
+      }
+
+      // Find projects that have no tasks assigned but are in the session
+      // These should also go straight to READY/E2E
+      const projectsWithTasks = new Set(tasks.map(t => t.project));
+      for (const project of session.projects) {
+        if (!projectsWithTasks.has(project)) {
+          console.log(`[Orchestrator] ${project} has no tasks - marking as READY`);
+          statusMonitor.updateStatus(project, 'READY', 'No implementation needed');
+        }
+      }
 
       // Track pending tasks per project to avoid setting READY prematurely
       // when multiple tasks for the same project run in parallel

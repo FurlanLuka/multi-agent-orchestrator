@@ -308,6 +308,23 @@ export class ProcessManager extends EventEmitter {
                       for (const textLine of textLines) {
                         this.bufferLog(project, `[agent] ${textLine}`);
                         this.emit('log', { project, type: 'agent', stream: 'stdout', text: textLine, timestamp: Date.now() });
+
+                        // Detect test status markers for real-time tracking
+                        if (textLine.startsWith('[TEST_STATUS]')) {
+                          try {
+                            const json = textLine.substring('[TEST_STATUS]'.length).trim();
+                            const testStatus = JSON.parse(json);
+                            this.emit('testStatus', {
+                              project,
+                              scenario: testStatus.scenario,
+                              status: testStatus.status,
+                              error: testStatus.error,
+                              timestamp: Date.now()
+                            });
+                          } catch {
+                            // Invalid JSON, ignore
+                          }
+                        }
                       }
                     }
                   }

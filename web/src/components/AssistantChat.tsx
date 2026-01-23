@@ -401,6 +401,8 @@ function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) 
 
 // Queue status banner component
 function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (queueStatus.size === 0 && !queueStatus.processing) return null;
 
   const processingLabel = queueStatus.processing
@@ -411,17 +413,45 @@ function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
 
   return (
     <Card p="sm" withBorder radius="md" mb="md" bg="blue.0" style={{ borderColor: 'var(--mantine-color-blue-3)' }}>
-      <Group gap="sm">
-        <IconLoader2 size={16} color="var(--mantine-color-blue-6)" style={{ animation: 'spin 1s linear infinite' }} />
-        <Text size="sm" c="blue.7">
-          {processingLabel || 'Queue active'}
-        </Text>
+      <Group gap="sm" justify="space-between">
+        <Group gap="sm">
+          <IconLoader2 size={16} color="var(--mantine-color-blue-6)" style={{ animation: 'spin 1s linear infinite' }} />
+          <Text size="sm" c="blue.7">
+            {processingLabel || 'Queue active'}
+          </Text>
+        </Group>
         {queueStatus.size > 0 && (
-          <Badge size="sm" color="blue" variant="light">
+          <Badge
+            size="sm"
+            color="blue"
+            variant="light"
+            style={{ cursor: 'pointer' }}
+            onClick={() => setExpanded(!expanded)}
+            rightSection={expanded ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
+          >
             {queueStatus.size} waiting
           </Badge>
         )}
       </Group>
+
+      {/* Expandable queue list */}
+      {expanded && queueStatus.events.length > 0 && (
+        <Stack gap="xs" mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-blue-2)' }}>
+          {queueStatus.events.map((event, i) => (
+            <Group key={event.id} gap="xs">
+              <Text size="xs" c="dimmed" w={20}>{i + 1}.</Text>
+              <Badge size="xs" variant="outline" color="gray">{event.type}</Badge>
+              {event.project && <Text size="xs" c="dimmed">({event.project})</Text>}
+              {event.preview && (
+                <Text size="xs" c="dimmed" truncate style={{ maxWidth: 200 }}>
+                  "{event.preview}..."
+                </Text>
+              )}
+            </Group>
+          ))}
+        </Stack>
+      )}
+
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
