@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition } from './types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock } from './types';
 import { SessionManager } from './core/session-manager';
+import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
 import { ProjectManager, AddProjectOptions, CreateFromTemplateOptions } from './core/project-manager';
 import { EventWatcher } from './core/event-watcher';
@@ -38,7 +39,8 @@ async function main() {
   console.log('');
 
   // Initialize core components
-  const sessionManager = new SessionManager(config, ORCHESTRATOR_DIR);
+  const sessionStore = new SessionStore(ORCHESTRATOR_DIR);
+  const sessionManager = new SessionManager(config, ORCHESTRATOR_DIR, sessionStore);
   const processManager = new ProcessManager(config);
   const projectManager = new ProjectManager(configPath, config, ORCHESTRATOR_DIR);
   const eventWatcher = new EventWatcher();
@@ -46,9 +48,14 @@ async function main() {
   const approvalQueue = new ApprovalQueue(true); // UI mode
   const logAggregator = new LogAggregator();
 
+  // Wire up SessionStore to StatusMonitor and LogAggregator for persistence
+  statusMonitor.setSessionStore(sessionStore);
+  logAggregator.setSessionStore(sessionStore);
+
   // Initialize state machine and new event-driven components
   const stateMachine = new StateMachine();
   const planningAgent = new PlanningAgentManager(ORCHESTRATOR_DIR);
+  planningAgent.setProjectConfig(config.projects);  // Provide project context to Planning Agent
   const chatHandler = new ChatHandler(planningAgent);
   const eventQueue = new EventQueue(stateMachine, planningAgent);
   const actionExecutor = new ActionExecutor(processManager, statusMonitor, stateMachine);
@@ -76,6 +83,18 @@ async function main() {
   // Forward test status events to UI for real-time E2E test tracking
   processManager.on('testStatus', (event: { project: string; scenario: string; status: string; error?: string; timestamp: number }) => {
     (ui.io as any).emit('testStatus', event);
+
+    // Persist test status to SessionStore
+    const currentSessionId = sessionStore.getCurrentSessionId();
+    if (currentSessionId) {
+      sessionStore.updateTestState(
+        currentSessionId,
+        event.project,
+        event.scenario,
+        event.status as any,
+        event.error
+      );
+    }
   });
 
   processManager.on('ready', ({ project, type }) => {
@@ -441,7 +460,7 @@ After fixing, the E2E tests will be re-run automatically.`;
   };
 
   // Helper to check and trigger E2E for a project (queues the request)
-  const tryTriggerE2E = (project: string, message: string) => {
+  const tryTriggerE2E = async (project: string, message: string) => {
     const session = sessionManager.getCurrentSession();
 
     // If no test plan for this project, mark as IDLE (complete) immediately
@@ -467,6 +486,35 @@ After fixing, the E2E tests will be re-run automatically.`;
       }
     }
 
+    // Health check before E2E - verify dev server is actually responding
+    console.log(`[Orchestrator] Running health check for ${project} before E2E...`);
+    const health = await processManager.checkDevServerHealthWithRetry(project, 3, 2000);
+
+    if (!health.healthy) {
+      console.log(`[Orchestrator] Dev server unhealthy for ${project}: ${health.error}`);
+      console.log(`[Orchestrator] Attempting restart for ${project}...`);
+
+      try {
+        await processManager.restartDevServer(project);
+
+        // Re-check health after restart
+        const retryHealth = await processManager.checkDevServerHealthWithRetry(project, 3, 2000);
+        if (!retryHealth.healthy) {
+          console.error(`[Orchestrator] Dev server still unhealthy after restart for ${project}`);
+          statusMonitor.updateStatus(project, 'FATAL_DEBUGGING',
+            `Dev server failed health check: ${retryHealth.error}`);
+          return;
+        }
+
+        console.log(`[Orchestrator] Dev server for ${project} recovered after restart`);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Failed to restart dev server for ${project}:`, err);
+        statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', `Dev server restart failed: ${errorMsg}`);
+        return;
+      }
+    }
+
     // Queue E2E prompt request - will be processed when Planning Agent is free
     console.log(`[Orchestrator] Queueing E2E prompt request for ${project}`);
     eventQueue.add({
@@ -479,7 +527,7 @@ After fixing, the E2E tests will be re-run automatically.`;
   };
 
   // Helper to check pending E2E when a project becomes IDLE
-  const checkPendingE2E = (completedProject: string) => {
+  const checkPendingE2E = async (completedProject: string) => {
     for (const [waitingProject, { message, waitingOn }] of pendingE2E) {
       if (waitingOn.includes(completedProject)) {
         // Remove the completed project from waitingOn
@@ -488,17 +536,9 @@ After fixing, the E2E tests will be re-run automatically.`;
           // All dependencies satisfied, trigger E2E
           console.log(`[Orchestrator] ${waitingProject} dependencies satisfied, triggering E2E`);
           pendingE2E.delete(waitingProject);
-          const session = sessionManager.getCurrentSession();
-          if (session?.plan?.testPlan?.[waitingProject]) {
-            // Queue E2E prompt request - will be processed when Planning Agent is free
-            eventQueue.add({
-              type: 'e2e_prompt_request',
-              project: waitingProject,
-              taskSummary: message,
-              testScenarios: session.plan.testPlan[waitingProject],
-              devServerUrl: getDevServerUrl(waitingProject)
-            });
-          }
+
+          // Use tryTriggerE2E which includes health checks
+          await tryTriggerE2E(waitingProject, message);
         } else {
           pendingE2E.set(waitingProject, { message, waitingOn: remaining });
         }
@@ -506,15 +546,15 @@ After fixing, the E2E tests will be re-run automatically.`;
     }
   };
 
-  statusMonitor.on('projectReady', ({ project, message }) => {
+  statusMonitor.on('projectReady', async ({ project, message }) => {
     console.log(`[Orchestrator] ${project} is READY: ${message}`);
-    tryTriggerE2E(project, message);
+    await tryTriggerE2E(project, message);
   });
 
-  statusMonitor.on('statusChange', ({ project, status }) => {
+  statusMonitor.on('statusChange', async ({ project, status }) => {
     // When a project becomes IDLE (E2E complete), check if any pending E2E can start
     if (status === 'IDLE') {
-      checkPendingE2E(project);
+      await checkPendingE2E(project);
     }
   });
 
@@ -529,6 +569,9 @@ After fixing, the E2E tests will be re-run automatically.`;
     console.log('[Orchestrator] All projects IDLE - Feature complete!');
     chatHandler.systemMessage('All projects completed! Feature implementation done.');
     (ui.io as any).emitAllComplete();
+
+    // Mark session as completed
+    sessionManager.markSessionCompleted();
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -593,22 +636,52 @@ After fixing, the E2E tests will be re-run automatically.`;
     console.log(`[Orchestrator] Plan proposed: ${plan.feature}`);
     (ui.io as any).emitPlanProposal(plan, summary);
     sessionLogger?.planProposal(plan);
+
+    // Persist pending plan for session recovery
+    const currentSessionId = sessionStore.getCurrentSessionId();
+    if (currentSessionId) {
+      sessionStore.setPendingPlan(currentSessionId, { plan, summary });
+    }
   });
 
   chatHandler.on('planCleared', () => {
     console.log(`[Orchestrator] Plan cleared (user continuing conversation)`);
     (ui.io as any).emit('planCleared');
+
+    // Clear persisted pending plan
+    const currentSessionId = sessionStore.getCurrentSessionId();
+    if (currentSessionId) {
+      sessionStore.clearPendingPlan(currentSessionId);
+    }
   });
 
   chatHandler.on('planApproved', (plan: Plan) => {
     console.log(`[Orchestrator] Plan approved, setting on session`);
     sessionManager.setPlan(plan);
     sessionLogger?.log('PLAN_APPROVED', { feature: plan.feature, taskCount: plan.tasks.length });
+    // Note: sessionStore.setPlan already clears pendingPlan
   });
 
   // Forward streaming events to UI for agentic chat
+  // Also persist chat messages on message_complete
   chatHandler.on('stream', (event) => {
     (ui.io as any).emitChatStream(event);
+
+    // Persist completed messages to SessionStore
+    if (event.type === 'message_complete') {
+      const currentSessionId = sessionStore.getCurrentSessionId();
+      if (currentSessionId) {
+        // Create a StreamingMessage from the completed event
+        const message: StreamingMessage = {
+          id: event.messageId,
+          role: 'assistant',
+          content: event.content || [],
+          status: 'complete',
+          createdAt: Date.now(),
+        };
+        sessionStore.appendChatMessage(currentSessionId, message);
+      }
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -618,6 +691,19 @@ After fixing, the E2E tests will be re-run automatically.`;
   ui.io.on('connection', (socket) => {
     // Handle user chat with optional target
     socket.on('chat', ({ message, target }: { message: string; target?: string }) => {
+      // Persist user message to SessionStore
+      const currentSessionId = sessionStore.getCurrentSessionId();
+      if (currentSessionId) {
+        const userMessage: StreamingMessage = {
+          id: `user_${Date.now()}`,
+          role: 'user',
+          content: [{ type: 'text', text: message }],
+          status: 'complete',
+          createdAt: Date.now(),
+        };
+        sessionStore.appendChatMessage(currentSessionId, userMessage);
+      }
+
       if (target && target !== 'planning') {
         // Direct prompt to specific agent (bypasses queue)
         console.log(`[Orchestrator] Chat to agent: ${target}`);
@@ -637,6 +723,10 @@ After fixing, the E2E tests will be re-run automatically.`;
       try {
         // Create session
         const session = sessionManager.createSession(feature, projects);
+
+        // Set current session ID on StatusMonitor and LogAggregator for persistence
+        statusMonitor.setCurrentSessionId(session.id);
+        logAggregator.setCurrentSessionId(session.id);
 
         // Create session logger for debugging
         sessionLogger = new SessionLogger(ORCHESTRATOR_DIR, session.id);
@@ -880,13 +970,13 @@ Do NOT mark this task as complete until the build passes without errors.`;
       }
     });
 
-    // Run npm install for a project
-    socket.on('runNpmInstall', async ({ name }: { name: string }) => {
+    // Install dependencies for a project
+    socket.on('installDependencies', async ({ name }: { name: string }) => {
       try {
-        await projectManager.runNpmInstall(name);
+        await projectManager.installDependencies(name);
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] npm install failed:`, error);
+        console.error(`[Orchestrator] dependency install failed:`, error);
         // Error event already emitted by projectManager
       }
     });
@@ -931,6 +1021,216 @@ Do NOT mark this task as complete until the build passes without errors.`;
         socket.emit('createFromTemplateError', { name: options.name, error });
       }
     });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Session Persistence Socket Events
+    // ═══════════════════════════════════════════════════════════════
+
+    // Get list of all sessions
+    socket.on('getSessions', () => {
+      const sessions = sessionManager.listSessions();
+      socket.emit('sessionList', sessions);
+    });
+
+    // Load a specific session
+    socket.on('loadSession', ({ sessionId }: { sessionId: string }) => {
+      try {
+        // Check if this session is the currently active one
+        const currentSession = sessionManager.getCurrentSession();
+        const isActiveSession = currentSession?.id === sessionId;
+
+        // For viewing (not activating), just get the data without modifying state
+        const fullData = sessionStore.getFullSessionData(sessionId);
+        if (!fullData) {
+          socket.emit('loadSessionError', { error: 'Session not found' });
+          return;
+        }
+
+        // Only update monitors/watchers if this is NOT an active session view request
+        // (active sessions already have these set up)
+        if (!isActiveSession) {
+          // Set current session ID on StatusMonitor and LogAggregator for viewing
+          statusMonitor.setCurrentSessionId(sessionId);
+          logAggregator.setCurrentSessionId(sessionId);
+
+          // Restore statuses and logs to in-memory stores
+          statusMonitor.restoreStatuses(fullData.session.statuses);
+          logAggregator.restoreLogs(fullData.logs);
+
+          // Initialize event watchers for each project
+          for (const project of fullData.session.projects) {
+            const sessionDir = sessionManager.getSessionDir(project);
+            if (sessionDir) {
+              eventWatcher.watchProject(project, sessionDir);
+            }
+          }
+
+          // Create session logger
+          sessionLogger = new SessionLogger(ORCHESTRATOR_DIR, sessionId);
+        }
+
+        // Send full session data to client (include pending plan and active status)
+        socket.emit('sessionLoaded', {
+          ...fullData,
+          pendingPlan: fullData.session.pendingPlan,
+          isActive: isActiveSession,
+        });
+
+        console.log(`[Orchestrator] Session ${sessionId} loaded (active: ${isActiveSession})`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to load session:', error);
+        socket.emit('loadSessionError', { error });
+      }
+    });
+
+    // Delete a session
+    socket.on('deleteSession', ({ sessionId }: { sessionId: string }) => {
+      try {
+        const success = sessionManager.deleteSession(sessionId);
+        if (success) {
+          socket.emit('deleteSessionSuccess', { sessionId });
+          // Send updated session list
+          socket.emit('sessionList', sessionManager.listSessions());
+        } else {
+          socket.emit('deleteSessionError', { sessionId, error: 'Session not found' });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        socket.emit('deleteSessionError', { sessionId, error });
+      }
+    });
+
+    // Activate a session (start dev servers and make it the active session)
+    socket.on('activateSession', async ({ sessionId }: { sessionId: string }) => {
+      try {
+        // If there's already an active session, mark it as interrupted
+        const currentSession = sessionManager.getCurrentSession();
+        if (currentSession && currentSession.id !== sessionId) {
+          sessionManager.markSessionInterrupted();
+          processManager.stopAll();
+          eventWatcher.stopAll();
+        }
+
+        // Load the session
+        const fullData = sessionManager.loadSession(sessionId);
+        if (!fullData) {
+          socket.emit('activateSessionError', { error: 'Session not found' });
+          return;
+        }
+
+        // Set current session ID on StatusMonitor and LogAggregator
+        statusMonitor.setCurrentSessionId(sessionId);
+        logAggregator.setCurrentSessionId(sessionId);
+
+        // Restore statuses and logs to in-memory stores
+        statusMonitor.restoreStatuses(fullData.session.statuses);
+        logAggregator.restoreLogs(fullData.logs);
+
+        // Initialize event watchers for each project
+        for (const project of fullData.session.projects) {
+          const sessionDir = sessionManager.getSessionDir(project);
+          if (sessionDir) {
+            logAggregator.registerProject(project, sessionDir);
+            eventWatcher.watchProject(project, sessionDir);
+          }
+        }
+
+        // Create session logger
+        sessionLogger = new SessionLogger(ORCHESTRATOR_DIR, sessionId);
+
+        // Update session status to 'running'
+        sessionStore.loadSession(sessionId); // Ensure it's loaded
+        const session = sessionStore.loadSession(sessionId);
+        if (session) {
+          session.status = 'running';
+          // Write back (loadSession already sets currentSessionId)
+        }
+
+        // Start dev servers for all projects
+        for (const project of fullData.session.projects) {
+          try {
+            console.log(`[Orchestrator] Starting dev server for ${project}...`);
+            await processManager.startDevServer(project);
+          } catch (err) {
+            console.error(`[Orchestrator] Failed to start dev server for ${project}:`, err);
+            statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', `Dev server failed: ${err}`);
+          }
+        }
+
+        // Emit success with pending plan if exists
+        const pendingPlan = sessionStore.getPendingPlan(sessionId);
+        socket.emit('sessionActivated', { sessionId, pendingPlan });
+
+        // Send full session data to all clients (include pending plan)
+        const updatedFullData = sessionStore.getFullSessionData(sessionId);
+        if (updatedFullData) {
+          (ui.io as any).emit('sessionLoaded', {
+            ...updatedFullData,
+            pendingPlan: updatedFullData.session.pendingPlan,
+            isActive: true,
+          });
+        }
+
+        // Send updated session list to all clients
+        (ui.io as any).emit('sessionList', sessionManager.listSessions());
+
+        console.log(`[Orchestrator] Session ${sessionId} activated`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to activate session:', error);
+        socket.emit('activateSessionError', { error });
+      }
+    });
+
+    // Stop the active session (stops dev servers, marks as interrupted)
+    socket.on('stopSession', ({ sessionId }: { sessionId: string }) => {
+      try {
+        const currentSession = sessionManager.getCurrentSession();
+        if (!currentSession || currentSession.id !== sessionId) {
+          socket.emit('stopSessionError', { sessionId, error: 'Session not active' });
+          return;
+        }
+
+        // Mark session as interrupted
+        sessionManager.markSessionInterrupted();
+
+        // Stop all processes
+        processManager.stopAll();
+
+        // Stop file watchers
+        eventWatcher.stopAll();
+
+        // Emit success
+        socket.emit('sessionStopped', { sessionId });
+
+        // Send updated session list to all clients
+        (ui.io as any).emit('sessionList', sessionManager.listSessions());
+
+        console.log(`[Orchestrator] Session ${sessionId} stopped`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to stop session:', error);
+        socket.emit('stopSessionError', { sessionId, error });
+      }
+    });
+
+    // On connection, always send session list
+    const sessions = sessionManager.listSessions();
+    socket.emit('sessionList', sessions);
+
+    // If there's an active session, send its full data with isActive flag
+    const currentSession = sessionManager.getCurrentSession();
+    if (currentSession) {
+      const fullData = sessionStore.getFullSessionData(currentSession.id);
+      if (fullData) {
+        socket.emit('sessionLoaded', {
+          ...fullData,
+          pendingPlan: fullData.session.pendingPlan,
+          isActive: true,
+        });
+      }
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -939,6 +1239,15 @@ Do NOT mark this task as complete until the build passes without errors.`;
 
   const shutdown = () => {
     console.log('\n[Orchestrator] Shutting down...');
+
+    // Mark current session as interrupted if it exists and isn't completed
+    const currentSession = sessionManager.getCurrentSession();
+    if (currentSession) {
+      const sessionData = sessionStore.loadSession(currentSession.id);
+      if (sessionData && sessionData.status !== 'completed') {
+        sessionManager.markSessionInterrupted();
+      }
+    }
 
     // Stop all processes
     processManager.stopAll();

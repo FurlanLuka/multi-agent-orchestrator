@@ -1,0 +1,49 @@
+{
+  "id": "754a984e",
+  "feature": "can you add an endpoint that returns total number users in the organization and siaplys it next to organization name on the dashboard page?",
+  "projects": [
+    "speak-api",
+    "speak-partner"
+  ],
+  "startedAt": 1769185263667,
+  "statuses": {
+    "speak-api": {
+      "status": "WORKING",
+      "message": "Starting agent task...",
+      "updatedAt": 1769185409352
+    },
+    "speak-partner": {
+      "status": "WORKING",
+      "message": "Starting agent task...",
+      "updatedAt": 1769185409356
+    }
+  },
+  "testStates": {},
+  "status": "interrupted",
+  "updatedAt": 1769185566857,
+  "plan": {
+    "feature": "Organization User Count Endpoint and Dashboard Display",
+    "description": "Add an API endpoint to return the total number of users in an organization and display this count next to the organization name on the dashboard page.",
+    "tasks": [
+      {
+        "project": "speak-api",
+        "task": "Add a new endpoint GET /v1/partners/organizations/:organizationId/user-count that returns the total number of active users in the organization. Implementation details:\n\n1. In `src/modules/partners/portal/partners.schema.ts`:\n   - Add a new response schema `getOrganizationUserCountResponseSchema` with a `totalUsers` number field\n   - Export the type `GetOrganizationUserCountResponse`\n\n2. In `src/modules/partners/portal/partners.service.ts`:\n   - Add a new function `getOrganizationUserCount(organizationId: string)` that:\n     - Queries prisma.organizationUser.count() with the condition: organizationId matches, deletedAt is null, and the related user has a non-null email and null deletedAt (following the same pattern as getOrganizationUsers in organizationUser.service.ts lines 849-869)\n     - Returns { totalUsers: count }\n\n3. In `src/modules/partners/portal/partners.controller.ts`:\n   - Add a new controller `getOrganizationUserCountController` that calls the service and returns the response\n\n4. In `src/routes/v1/partners/organizations.ts`:\n   - Add a new GET route `/:organizationId/user-count` with validation using the new schema and controller\n   - Place it after the existing `/:organizationId` GET route (around line 208)\n   - The route will be automatically protected by the existing `partnerAuth` middleware on line 201",
+        "dependencies": []
+      },
+      {
+        "project": "speak-partner",
+        "task": "Display the total user count next to the organization name on the dashboard. Implementation details:\n\n1. In `src/server-state/api/organization.interfaces.ts`:\n   - Add a new interface `GetOrganizationUserCountResponse` with `totalUsers: number` field\n\n2. In `src/server-state/api/organization.tsx`:\n   - Add a new function `getOrganizationUserCount(organizationId: string)` that calls the API endpoint `${ORGANIZATIONS_API_URL}/${organizationId}/user-count`\n   - Add a new hook `useGetOrganizationUserCount(organizationId: string)` following the existing pattern (see lines 48-53 for reference)\n\n3. In `src/app/(DashboardLayout)/page.tsx`:\n   - Import `useGetOrganizationUserCount` from the server-state API\n   - Call `useGetOrganizationUserCount(selectedOrganization.id)` to fetch the user count\n   - Modify the Typography component displaying `selectedOrganization.name` (line 47-48) to also show the user count:\n     - Display as \"Organization Name • X users\" or similar format\n     - Handle loading state gracefully (show just the name while loading)\n     - Use the same typography styling for consistency",
+        "dependencies": [
+          "speak-api"
+        ]
+      }
+    ],
+    "testPlan": {
+      "speak-partner": [
+        "Navigate to the dashboard page and verify the organization name displays with a user count next to it (e.g., 'Acme Corp • 25 users')",
+        "Verify the user count updates correctly when switching between organizations (if the user has access to multiple organizations)",
+        "Verify the dashboard loads correctly without errors when the user count API is temporarily unavailable (graceful degradation)"
+      ]
+    }
+  }
+}

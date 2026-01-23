@@ -1,8 +1,25 @@
 import { EventEmitter } from 'events';
 import { AgentStatus, ProjectState } from '../types';
+import { SessionStore } from './session-store';
 
 export class StatusMonitor extends EventEmitter {
   private states: Map<string, ProjectState> = new Map();
+  private sessionStore: SessionStore | null = null;
+  private currentSessionId: string | null = null;
+
+  /**
+   * Sets the SessionStore for persistence
+   */
+  setSessionStore(store: SessionStore): void {
+    this.sessionStore = store;
+  }
+
+  /**
+   * Sets the current session ID for persistence
+   */
+  setCurrentSessionId(sessionId: string | null): void {
+    this.currentSessionId = sessionId;
+  }
 
   /**
    * Updates the status for a project
@@ -18,6 +35,11 @@ export class StatusMonitor extends EventEmitter {
     };
 
     this.states.set(project, state);
+
+    // Persist to SessionStore
+    if (this.sessionStore && this.currentSessionId) {
+      this.sessionStore.updateStatus(this.currentSessionId, project, status, message);
+    }
 
     console.log(`[StatusMonitor] ${project}: ${prev?.status || 'NONE'} → ${status} (${message})`);
 
@@ -133,6 +155,12 @@ export class StatusMonitor extends EventEmitter {
       message: 'Waiting for execution',
       updatedAt: Date.now()
     });
+
+    // Persist to SessionStore
+    if (this.sessionStore && this.currentSessionId) {
+      this.sessionStore.updateStatus(this.currentSessionId, project, 'PENDING', 'Waiting for execution');
+    }
+
     console.log(`[StatusMonitor] Initialized ${project} as PENDING`);
   }
 
@@ -161,6 +189,7 @@ export class StatusMonitor extends EventEmitter {
    */
   clear(): void {
     this.states.clear();
+    this.currentSessionId = null;
   }
 
   /**
@@ -180,5 +209,16 @@ export class StatusMonitor extends EventEmitter {
       lines.push(`  ${project}: ${state.status} (${age}s ago) - ${state.message}`);
     }
     return lines.length > 0 ? lines.join('\n') : '  No projects being monitored';
+  }
+
+  /**
+   * Restores statuses from a persisted session
+   */
+  restoreStatuses(statuses: Record<string, ProjectState>): void {
+    this.states.clear();
+    for (const [project, state] of Object.entries(statuses)) {
+      this.states.set(project, state);
+    }
+    console.log(`[StatusMonitor] Restored statuses for ${Object.keys(statuses).length} projects`);
   }
 }

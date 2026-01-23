@@ -33,15 +33,33 @@ interface ConversationMessage {
   content: string;
 }
 
+interface ProjectConfig {
+  path: string;
+  devServer: {
+    command: string;
+    readyPattern: string;
+    env: Record<string, string>;
+  };
+  hasE2E: boolean;
+}
+
 export class PlanningAgentManager extends EventEmitter {
   private orchestratorDir: string;
   private conversationHistory: ConversationMessage[] = [];
   private currentProcess: ChildProcess | null = null;
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
+  private projectConfig: Record<string, ProjectConfig> = {};
 
   constructor(orchestratorDir: string) {
     super();
     this.orchestratorDir = orchestratorDir;
+  }
+
+  /**
+   * Sets the project configuration for context
+   */
+  setProjectConfig(config: Record<string, ProjectConfig>): void {
+    this.projectConfig = config;
   }
 
   /**
@@ -60,14 +78,56 @@ export class PlanningAgentManager extends EventEmitter {
    * Builds a prompt with conversation context
    */
   private buildContextPrompt(newMessage: string): string {
-    const systemPrompt = `You are the Planning Agent for a multi-agent orchestrator system.
-Your role is to:
-- Create detailed implementation plans for features
-- Coordinate work between multiple project agents
-- Analyze events and decide on actions
-- Help debug issues when agents encounter errors
+    // Build project list for context
+    let projectsSection = '';
+    if (Object.keys(this.projectConfig).length > 0) {
+      const projectList = Object.entries(this.projectConfig)
+        .map(([name, config]) => `- **${name}**: ${config.path}`)
+        .join('\n');
+      projectsSection = `
+## REGISTERED PROJECTS
 
-You have access to all Claude tools (Bash, Read, Edit, etc.) to explore codebases and gather information.`;
+These are the projects you coordinate. Work ONLY on these directories:
+${projectList}
+
+When the user asks to implement a feature, explore THESE project directories (not the orchestrator directory).`;
+    }
+
+    const systemPrompt = `You are the Planning Agent for a multi-agent orchestrator system.
+
+## YOUR ROLE: COORDINATOR & ANALYST ONLY
+
+You are a COORDINATOR, not a coder. Your role is to:
+- Create detailed implementation plans for features
+- DELEGATE all coding work to project worker agents
+- Analyze events from worker agents and decide on next actions
+- Help debug issues by analyzing logs and providing guidance
+
+## CRITICAL RULES
+
+1. **NEVER WRITE CODE YOURSELF** - You analyze and delegate, not implement
+2. **NEVER MODIFY FILES** - Do not use Edit, Write, or any file modification tools
+3. **NEVER RUN BASH COMMANDS THAT MODIFY STATE** - No npm install, git commit, etc.
+4. **NEVER WORK IN THE ORCHESTRATOR DIRECTORY** - The current directory (${this.orchestratorDir}) is the orchestrator system itself, NOT a project you manage. Never explore, read, or modify files here.
+${projectsSection}
+
+## WHAT YOU CAN DO
+
+- **Read files** in PROJECT directories to understand structure and gather context
+- **Search codebases** using Grep/Glob to analyze project code
+- **Create plans** that describe what worker agents should implement
+- **Respond to events** from worker agents (status updates, errors, completion)
+- **Ask clarifying questions** to the user
+
+## RESPONDING TO USER REQUESTS
+
+When a user asks you to implement a feature:
+1. First, explore the RELEVANT PROJECT codebases (the paths listed above, NOT the orchestrator directory) to understand the current state
+2. Create a structured plan with tasks for each affected project
+3. Present the plan for approval
+4. Never start implementing yourself - worker agents will do the actual coding
+
+IMPORTANT: The user might ask about features like "comments", "authentication", etc. These features exist in the PROJECT codebases, not in the orchestrator. Always look in the registered project directories.`;
 
     if (this.conversationHistory.length === 0) {
       return `${systemPrompt}
@@ -121,6 +181,7 @@ User: ${newMessage}`;
       let resultText = '';
       let lineCount = 0;
       let partialLine = ''; // Buffer for incomplete lines
+      const contentBlocks: ContentBlock[] = []; // Collect all content blocks for persistence
 
       // Generate unique message ID for this response
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -184,8 +245,9 @@ User: ${newMessage}`;
                       contentBlock = { type: 'thinking', thinking: block.thinking };
                     }
 
-                    // Emit content block for streaming UI
+                    // Emit content block for streaming UI and collect for persistence
                     if (contentBlock) {
+                      contentBlocks.push(contentBlock);
                       const blockEvent: ChatStreamEvent = {
                         type: 'content_block',
                         messageId,
@@ -260,10 +322,11 @@ User: ${newMessage}`;
         if (code === 0 || finalResult) {
           this.processOutput(finalResult);
 
-          // Emit message complete for streaming UI
+          // Emit message complete for streaming UI with all content blocks
           const completeEvent: ChatStreamEvent = {
             type: 'message_complete',
-            messageId
+            messageId,
+            content: contentBlocks
           };
           this.emit('stream', completeEvent);
 

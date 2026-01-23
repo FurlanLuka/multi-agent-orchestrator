@@ -1,0 +1,88 @@
+{
+  "id": "5e3c5a3a",
+  "feature": "create simple blog with login, register and authenticated posting. all in memory no dbs",
+  "projects": [
+    "exbe",
+    "exfe"
+  ],
+  "startedAt": 1769183935605,
+  "statuses": {
+    "exbe": {
+      "status": "IDLE",
+      "message": "No E2E tests configured",
+      "updatedAt": 1769184136706
+    },
+    "exfe": {
+      "status": "E2E",
+      "message": "Running E2E tests",
+      "updatedAt": 1769184528821
+    }
+  },
+  "testStates": {
+    "exfe": {
+      "scenarios": [
+        {
+          "name": "Navigate to homepage, verify blog posts list is visible (empty initially)",
+          "status": "running"
+        },
+        {
+          "name": "ALL",
+          "status": "failed",
+          "error": "Required Playwright MCP tools not available - cannot perform E2E testing"
+        }
+      ],
+      "updatedAt": 1769184380291
+    }
+  },
+  "status": "interrupted",
+  "updatedAt": 1769184538341,
+  "plan": {
+    "feature": "Simple Blog with Authentication",
+    "description": "A simple blog application with user registration, login, and authenticated posting capabilities. All data stored in-memory (no database).",
+    "tasks": [
+      {
+        "project": "exbe",
+        "task": "Create the authentication module with in-memory user storage. Create src/auth/ folder with: (1) auth.module.ts - NestJS module for auth, (2) auth.controller.ts with POST /auth/register (accepts email, password, name) and POST /auth/login (accepts email, password, returns token), (3) auth.service.ts with in-memory user Map storage, password hashing using crypto, and simple JWT-like token generation (base64 encoded JSON with expiry), (4) auth.guard.ts - a CanActivate guard that validates the Authorization Bearer token, (5) user.interface.ts with User type (id, email, name, passwordHash, createdAt). Register the AuthModule in app.module.ts. Enable CORS in main.ts for frontend access.",
+        "dependencies": []
+      },
+      {
+        "project": "exbe",
+        "task": "Create the posts module with in-memory storage. Create src/posts/ folder with: (1) posts.module.ts - NestJS module importing AuthModule for guards, (2) posts.controller.ts with GET /posts (public, returns all posts with author info), POST /posts (protected, creates post for authenticated user), DELETE /posts/:id (protected, only author can delete), (3) posts.service.ts with in-memory Map storage for posts, (4) post.interface.ts with Post type (id, title, content, authorId, authorName, createdAt). All protected routes should use the AuthGuard from auth module. Register PostsModule in app.module.ts.",
+        "dependencies": [
+          "exbe task 1"
+        ]
+      },
+      {
+        "project": "exfe",
+        "task": "Create the authentication context and API service. Create: (1) src/api.ts - API helper with base URL http://localhost:3000, functions for register(email, password, name), login(email, password), getPosts(), createPost(title, content, token), deletePost(id, token), (2) src/AuthContext.tsx - React context with AuthProvider component managing user state (user object with id, email, name, token) in localStorage, providing login/logout/register functions and isAuthenticated boolean, (3) src/types.ts with TypeScript interfaces for User, Post, LoginResponse, RegisterResponse.",
+        "dependencies": []
+      },
+      {
+        "project": "exfe",
+        "task": "Create the authentication UI components. Create: (1) src/components/LoginForm.tsx - form with email and password fields, login button, link to register, error display, uses AuthContext, (2) src/components/RegisterForm.tsx - form with name, email, password fields, register button, link to login, error display, uses AuthContext, (3) src/components/Header.tsx - shows app title 'Simple Blog', and either login/register buttons or user name with logout button based on auth state.",
+        "dependencies": [
+          "exfe task 1"
+        ]
+      },
+      {
+        "project": "exfe",
+        "task": "Create the blog posts UI components and update App. Create: (1) src/components/PostList.tsx - fetches and displays all posts, shows author name and date, shows delete button only for posts by current user, (2) src/components/CreatePostForm.tsx - form with title and content fields, only shown when authenticated, calls createPost API, (3) Update src/App.tsx to be the main blog app: import AuthProvider, render Header, conditionally show LoginForm or RegisterForm based on route/state, show CreatePostForm for authenticated users, always show PostList. Add simple client-side routing state (view: 'login' | 'register' | 'blog'). Update src/style.css with styles for forms, posts, header, and blog layout.",
+        "dependencies": [
+          "exfe task 2"
+        ]
+      }
+    ],
+    "testPlan": {
+      "exfe": [
+        "Navigate to homepage, verify blog posts list is visible (empty initially)",
+        "Click register, fill form with valid data, submit - verify successful registration and auto-login",
+        "Verify header shows logged in user name and logout button",
+        "Create a new post with title and content, verify it appears in the list with correct author",
+        "Verify delete button appears on own posts, click delete, verify post is removed",
+        "Click logout, verify header shows login/register buttons again",
+        "Login with previously registered credentials, verify successful login",
+        "Verify create post form is visible when logged in, hidden when logged out"
+      ]
+    }
+  }
+}

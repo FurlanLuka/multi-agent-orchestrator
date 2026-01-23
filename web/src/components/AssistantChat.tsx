@@ -32,6 +32,7 @@ interface AssistantChatProps {
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
   sessionActive: boolean;
+  readOnly?: boolean;
 }
 
 // Types for markdown components
@@ -470,6 +471,7 @@ function ChatThread({
   onSendMessage,
   onApprovePlan,
   sessionActive,
+  readOnly = false,
 }: AssistantChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -575,12 +577,14 @@ function ChatThread({
             <TextInput
               ref={inputRef}
               placeholder={
-                sessionActive
+                readOnly
+                  ? 'Read-only view - activate session to chat'
+                  : sessionActive
                   ? 'Chat with Planning Agent...'
                   : 'Start a session first...'
               }
               style={{ flex: 1 }}
-              disabled={!sessionActive}
+              disabled={!sessionActive || readOnly}
               onKeyDown={handleKeyDown}
               radius="md"
               size="md"
@@ -591,7 +595,7 @@ function ChatThread({
               color="blue"
               radius="md"
               onClick={handleSend}
-              disabled={!sessionActive}
+              disabled={!sessionActive || readOnly}
             >
               <IconSend size={20} />
             </ActionIcon>

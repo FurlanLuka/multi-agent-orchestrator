@@ -12,15 +12,16 @@ export interface AddProjectOptions {
     readyPattern: string;
     env?: Record<string, string>;
   };
+  buildCommand?: string;
   hasE2E?: boolean;
-  runNpmInstall?: boolean;
+  dependencyInstall?: boolean;
 }
 
 export interface CreateFromTemplateOptions {
   name: string;
   targetPath: string;
   template: ProjectTemplate;
-  runNpmInstall?: boolean;
+  dependencyInstall?: boolean;
 }
 
 // Template configurations
@@ -33,6 +34,7 @@ const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
       command: 'npm run dev',
       readyPattern: 'Local:.*http|ready in'
     },
+    buildCommand: 'npm run build',
     defaultPort: 5173
   },
   'nestjs-backend': {
@@ -43,6 +45,7 @@ const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
       command: 'npm run start:dev',
       readyPattern: 'Nest application successfully started|listening on|Application is running'
     },
+    buildCommand: 'npm run build',
     defaultPort: 3000
   }
 };
@@ -90,7 +93,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, hasE2E, runNpmInstall } = options;
+    const { name, path: projectPath, devServer, buildCommand, hasE2E, dependencyInstall } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -115,6 +118,7 @@ export class ProjectManager extends EventEmitter {
         readyPattern: 'ready|listening|started|compiled',
         env: {}
       },
+      buildCommand: buildCommand || 'npm run build',
       hasE2E: hasE2E ?? false
     };
 
@@ -127,9 +131,9 @@ export class ProjectManager extends EventEmitter {
     console.log(`[ProjectManager] Added project: ${name} at ${projectPath}`);
     this.emit('projectAdded', { name, config: projectConfig });
 
-    // Run npm install if requested
-    if (runNpmInstall) {
-      await this.runNpmInstall(name);
+    // Install dependencies if requested
+    if (dependencyInstall) {
+      await this.installDependencies(name);
     }
 
     // Set up Claude hooks for the project
@@ -171,9 +175,27 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
-   * Runs npm install for a project
+   * Detects the package manager used by the project
    */
-  async runNpmInstall(projectName: string): Promise<void> {
+  private detectPackageManager(projectPath: string): { cmd: string; args: string[] } {
+    // Check for lock files to determine package manager
+    if (fs.existsSync(path.join(projectPath, 'pnpm-lock.yaml'))) {
+      return { cmd: 'pnpm', args: ['install'] };
+    }
+    if (fs.existsSync(path.join(projectPath, 'yarn.lock'))) {
+      return { cmd: 'yarn', args: ['install'] };
+    }
+    if (fs.existsSync(path.join(projectPath, 'bun.lockb'))) {
+      return { cmd: 'bun', args: ['install'] };
+    }
+    // Default to npm
+    return { cmd: 'npm', args: ['install'] };
+  }
+
+  /**
+   * Installs dependencies for a project (detects npm/yarn/pnpm/bun)
+   */
+  async installDependencies(projectName: string): Promise<void> {
     const projectConfig = this.config.projects[projectName];
     if (!projectConfig) {
       throw new Error(`Project "${projectName}" does not exist`);
@@ -184,15 +206,16 @@ export class ProjectManager extends EventEmitter {
     // Check if package.json exists
     const packageJsonPath = path.join(projectPath, 'package.json');
     if (!fs.existsSync(packageJsonPath)) {
-      console.log(`[ProjectManager] No package.json found in ${projectName}, skipping npm install`);
+      console.log(`[ProjectManager] No package.json found in ${projectName}, skipping dependency install`);
       return;
     }
 
-    console.log(`[ProjectManager] Running npm install for ${projectName}...`);
-    this.emit('npmInstallStart', { project: projectName });
+    const { cmd, args } = this.detectPackageManager(projectPath);
+    console.log(`[ProjectManager] Running ${cmd} ${args.join(' ')} for ${projectName}...`);
+    this.emit('dependencyInstallStart', { project: projectName, packageManager: cmd });
 
     return new Promise((resolve, reject) => {
-      const proc = spawn('npm', ['install'], {
+      const proc = spawn(cmd, args, {
         cwd: projectPath,
         stdio: ['ignore', 'pipe', 'pipe']
       });
@@ -203,30 +226,30 @@ export class ProjectManager extends EventEmitter {
       proc.stdout?.on('data', (data) => {
         const text = data.toString();
         stdout += text;
-        this.emit('npmInstallLog', { project: projectName, text, stream: 'stdout' });
+        this.emit('dependencyInstallLog', { project: projectName, text, stream: 'stdout' });
       });
 
       proc.stderr?.on('data', (data) => {
         const text = data.toString();
         stderr += text;
-        this.emit('npmInstallLog', { project: projectName, text, stream: 'stderr' });
+        this.emit('dependencyInstallLog', { project: projectName, text, stream: 'stderr' });
       });
 
       proc.on('error', (err) => {
-        console.error(`[ProjectManager] npm install error for ${projectName}:`, err);
-        this.emit('npmInstallError', { project: projectName, error: err.message });
+        console.error(`[ProjectManager] ${cmd} install error for ${projectName}:`, err);
+        this.emit('dependencyInstallError', { project: projectName, error: err.message });
         reject(err);
       });
 
       proc.on('exit', (code) => {
         if (code === 0) {
-          console.log(`[ProjectManager] npm install completed for ${projectName}`);
-          this.emit('npmInstallComplete', { project: projectName });
+          console.log(`[ProjectManager] ${cmd} install completed for ${projectName}`);
+          this.emit('dependencyInstallComplete', { project: projectName });
           resolve();
         } else {
-          const error = `npm install failed with code ${code}: ${stderr}`;
+          const error = `${cmd} install failed with code ${code}: ${stderr}`;
           console.error(`[ProjectManager] ${error}`);
-          this.emit('npmInstallError', { project: projectName, error });
+          this.emit('dependencyInstallError', { project: projectName, error });
           reject(new Error(error));
         }
       });
@@ -313,7 +336,7 @@ export class ProjectManager extends EventEmitter {
    * Creates a new project from a template
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<void> {
-    const { name, targetPath, template, runNpmInstall } = options;
+    const { name, targetPath, template, dependencyInstall } = options;
 
     // Validate project name doesn't exist
     if (this.config.projects[name]) {
@@ -361,6 +384,7 @@ export class ProjectManager extends EventEmitter {
         readyPattern: templateConfig.devServer.readyPattern,
         env: {}
       },
+      buildCommand: templateConfig.buildCommand,
       hasE2E: true // Templates include E2E skills
     };
 
@@ -371,9 +395,9 @@ export class ProjectManager extends EventEmitter {
     console.log(`[ProjectManager] Added project: ${name} at ${targetPath}`);
     this.emit('projectAdded', { name, config: projectConfig });
 
-    // Run npm install if requested
-    if (runNpmInstall) {
-      await this.runNpmInstall(name);
+    // Install dependencies if requested
+    if (dependencyInstall) {
+      await this.installDependencies(name);
     }
 
     // Set up Claude hooks for the project

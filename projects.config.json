@@ -1,24 +1,24 @@
 {
   "projects": {
-    "example_frontend": {
-      "path": "~/Documents/example_frontend",
+    "speak-api": {
+      "path": "~/Documents/speak-api",
+      "devServer": {
+        "command": "npm run start",
+        "readyPattern": "ready|listening|started|compiled",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": false
+    },
+    "speak-partner": {
+      "path": "~/Documents/speak-partner",
       "devServer": {
         "command": "npm run dev",
-        "readyPattern": "Local:.*http|ready in",
+        "readyPattern": "ready|listening|started|compiled",
         "env": {}
       },
       "buildCommand": "npm run build",
-      "hasE2E": true
-    },
-    "example_backend": {
-      "path": "~/Documents/example_backend",
-      "devServer": {
-        "command": "npm run start:dev",
-        "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "env": {}
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true
+      "hasE2E": false
     }
   },
   "defaults": {

@@ -18,6 +18,8 @@ import {
   Button,
   Collapse,
   List,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -26,10 +28,12 @@ import {
   IconMessageCircle,
   IconCheck,
   IconSparkles,
-  IconBrain,
   IconClipboardList,
   IconChevronDown,
   IconChevronUp,
+  IconEye,
+  IconLayoutSidebar,
+  IconLayoutSidebarFilled,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -37,6 +41,7 @@ import { ApprovalPanel } from './components/ApprovalPanel';
 import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
+import { SessionSidebar } from './components/SessionSidebar';
 
 function App() {
   const {
@@ -53,21 +58,57 @@ function App() {
     projects,
     templates,
     creatingProject,
+    addingProject,
+    sessions,
+    loadingSession,
+    activeSessionId,
+    viewingSessionId,
     sendChat,
     startSession,
     approvePlan,
     respondToApproval,
     createProjectFromTemplate,
+    addProject,
+    removeProject,
+    deleteSession,
+    viewSession,
+    stopSession,
+    getSessions,
+    clearSession,
   } = useSocket();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const availableProjects = Object.keys(projects);
   const [showPlan, setShowPlan] = useState(false);
+  const [showNewSession, setShowNewSession] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Determine if we're in read-only mode (viewing a session that's not active)
+  const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
+
+  // Handler for starting a new session
+  const handleNewSession = () => {
+    clearSession(); // Clear viewing state so we don't show read-only indicators
+    setShowNewSession(true);
+  };
+
+  // Handler for starting session (wraps startSession to hide form)
+  const handleStartSession = (feature: string, projectList: string[]) => {
+    startSession(feature, projectList);
+    setShowNewSession(false);
+    // Refresh sessions list
+    getSessions();
+  };
 
   return (
     <MantineProvider defaultColorScheme="light">
       <AppShell
         header={{ height: 64 }}
+        navbar={{
+          width: sidebarCollapsed ? 0 : 300,
+          breakpoint: 'sm',
+          collapsed: { mobile: sidebarCollapsed, desktop: sidebarCollapsed }
+        }}
         padding="md"
         styles={{
           main: {
@@ -85,6 +126,16 @@ function App() {
         >
           <Group justify="space-between" h="100%">
             <Group gap="sm">
+              <Tooltip label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="lg"
+                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                >
+                  {sidebarCollapsed ? <IconLayoutSidebar size={20} /> : <IconLayoutSidebarFilled size={20} />}
+                </ActionIcon>
+              </Tooltip>
               <ThemeIcon size="lg" radius="md" variant="gradient" gradient={{ from: 'blue', to: 'cyan' }}>
                 <IconRocket size={20} />
               </ThemeIcon>
@@ -93,7 +144,18 @@ function App() {
               </Title>
             </Group>
             <Group gap="md">
-              {session && (
+              {isReadOnly && (
+                <Badge
+                  variant="light"
+                  color="orange"
+                  size="lg"
+                  radius="md"
+                  leftSection={<IconEye size={14} />}
+                >
+                  Read-Only View
+                </Badge>
+              )}
+              {activeSessionId && !isReadOnly && (
                 <Badge
                   variant="light"
                   color="blue"
@@ -116,6 +178,20 @@ function App() {
           </Group>
         </AppShell.Header>
 
+        {/* Session Sidebar */}
+        <AppShell.Navbar p="sm" style={{ backgroundColor: 'white' }}>
+          <SessionSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            viewingSessionId={viewingSessionId}
+            connected={connected}
+            onNewSession={handleNewSession}
+            onViewSession={viewSession}
+            onDeleteSession={deleteSession}
+            onStopSession={stopSession}
+          />
+        </AppShell.Navbar>
+
         <AppShell.Main>
           <Container size="100%" py="md" h="calc(100vh - 80px)">
             {/* All Complete Banner */}
@@ -137,29 +213,67 @@ function App() {
               </Alert>
             )}
 
-            {/* No Session - Show Setup + Project Manager */}
-            {!session && (
+            {/* Read-Only Banner */}
+            {isReadOnly && session && (
+              <Alert
+                icon={<IconEye size={20} />}
+                title="Viewing Session History"
+                color="orange"
+                mb="md"
+                radius="md"
+                variant="light"
+                styles={{
+                  root: {
+                    border: '1px solid var(--mantine-color-orange-3)',
+                  },
+                }}
+              >
+                <Text size="sm">
+                  This is a read-only view of a past session. Start a new session to continue working.
+                </Text>
+              </Alert>
+            )}
+
+            {/* No Session or New Session Form - Show Setup + Project Manager */}
+            {(!session || showNewSession) && (
               <Grid gutter="lg">
                 <Grid.Col span={{ base: 12, md: 7 }}>
                   <SessionSetup
                     availableProjects={availableProjects}
-                    onStartSession={startSession}
+                    onStartSession={handleStartSession}
                     connected={connected}
+                    sessions={[]}
+                    onLoadSession={() => {}}
+                    onDeleteSession={() => {}}
+                    loadingSession={loadingSession}
                   />
+                  {showNewSession && (
+                    <Button
+                      variant="subtle"
+                      color="gray"
+                      mt="md"
+                      onClick={() => setShowNewSession(false)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 5 }}>
                   <ProjectManager
                     projects={projects}
                     templates={templates}
                     creatingProject={creatingProject}
+                    addingProject={addingProject}
                     onCreateProject={createProjectFromTemplate}
+                    onAddProject={addProject}
+                    onRemoveProject={removeProject}
                   />
                 </Grid.Col>
               </Grid>
             )}
 
             {/* Active Session - Split Panel Layout */}
-            {session && (
+            {session && !showNewSession && (
               <Grid gutter="lg" h="100%">
                 {/* LEFT PANEL: Planning Chat (Always Visible) */}
                 <Grid.Col
@@ -171,32 +285,23 @@ function App() {
                     radius="lg"
                     p={0}
                     h="calc(100vh - 120px)"
-                    style={{
-                      overflow: 'hidden',
-                      border: '1px solid var(--mantine-color-gray-2)',
-                    }}
+                    withBorder
+                    style={{ overflow: 'hidden' }}
                   >
                     {/* Chat Header */}
-                    <Box
-                      p="md"
-                      style={{
-                        borderBottom: '1px solid var(--mantine-color-gray-2)',
-                        background: 'linear-gradient(135deg, var(--mantine-color-blue-0) 0%, var(--mantine-color-cyan-0) 100%)',
-                      }}
-                    >
+                    <Group justify="space-between" p="md" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)' }}>
                       <Group gap="sm">
-                        <ThemeIcon size="md" radius="md" variant="light" color="blue">
-                          <IconBrain size={16} />
-                        </ThemeIcon>
-                        <Text fw={600} size="sm">Planning Agent</Text>
-                        {streamingMessages.some(m => m.status === 'streaming') && (
-                          <Badge size="xs" color="blue" variant="dot">
-                            Thinking...
-                          </Badge>
-                        )}
+                        <Text fw={700} size="lg" tt="uppercase">Planning Agent</Text>
                       </Group>
-                    </Box>
-                    <Box h="calc(100% - 56px)">
+                      <Badge
+                        color={streamingMessages.some(m => m.status === 'streaming') ? 'blue' : 'gray'}
+                        variant="filled"
+                        size="lg"
+                      >
+                        {streamingMessages.some(m => m.status === 'streaming') ? 'Thinking...' : 'Ready'}
+                      </Badge>
+                    </Group>
+                    <Box h="calc(100% - 65px)">
                       <AssistantChat
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
@@ -204,6 +309,7 @@ function App() {
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}
+                        readOnly={isReadOnly}
                       />
                     </Box>
                   </Paper>

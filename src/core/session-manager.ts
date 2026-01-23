@@ -1,16 +1,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { Config, Session, Plan, HookConfig } from '../types';
+import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData } from '../types';
+import { SessionStore } from './session-store';
 
 export class SessionManager {
   private config: Config;
   private currentSession: Session | null = null;
   private orchestratorDir: string;
+  private sessionStore: SessionStore;
 
-  constructor(config: Config, orchestratorDir: string) {
+  constructor(config: Config, orchestratorDir: string, sessionStore: SessionStore) {
     this.config = config;
     this.orchestratorDir = orchestratorDir;
+    this.sessionStore = sessionStore;
   }
 
   /**
@@ -34,6 +37,9 @@ export class SessionManager {
       feature,
       projects
     };
+
+    // Persist to SessionStore
+    this.sessionStore.createSession(id, feature, projects);
 
     // Create session directories in each project
     for (const projectName of projects) {
@@ -81,7 +87,7 @@ export class SessionManager {
       console.log(`[SessionManager] Created session directory for ${projectName}: ${sessionDir}`);
     }
 
-    // Register session globally
+    // Register session globally (legacy - kept for compatibility)
     const globalDir = '/tmp/orchestrator/sessions';
     fs.mkdirSync(globalDir, { recursive: true });
     fs.writeFileSync(
@@ -191,7 +197,10 @@ export class SessionManager {
     }
     this.currentSession.plan = plan;
 
-    // Update global registry
+    // Persist to SessionStore
+    this.sessionStore.setPlan(this.currentSession.id, plan);
+
+    // Update global registry (legacy)
     const globalPath = '/tmp/orchestrator/sessions/active.json';
     fs.writeFileSync(globalPath, JSON.stringify(this.currentSession, null, 2));
   }
@@ -260,5 +269,84 @@ export class SessionManager {
    */
   getProjectConfig(project: string) {
     return this.config.projects[project];
+  }
+
+  /**
+   * Gets the SessionStore instance
+   */
+  getSessionStore(): SessionStore {
+    return this.sessionStore;
+  }
+
+  /**
+   * Lists all available sessions
+   */
+  listSessions(): SessionSummary[] {
+    return this.sessionStore.listSessions();
+  }
+
+  /**
+   * Loads a previous session
+   * Returns full session data including logs and chat history
+   */
+  loadSession(sessionId: string): FullSessionData | null {
+    const fullData = this.sessionStore.getFullSessionData(sessionId);
+    if (!fullData) return null;
+
+    // Convert persisted session to Session type
+    this.currentSession = this.sessionStore.toSession(fullData.session);
+
+    // Set up project directories if they don't exist (for resuming)
+    for (const projectName of this.currentSession.projects) {
+      const projectConfig = this.config.projects[projectName];
+      if (!projectConfig) continue;
+
+      const projectPath = this.expandPath(projectConfig.path);
+      const sessionDir = path.join(projectPath, '.orchestrator', `session_${sessionId}`);
+
+      // Create directories if they don't exist
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(path.join(sessionDir, 'outbox'), { recursive: true });
+        fs.mkdirSync(path.join(sessionDir, 'logs'), { recursive: true });
+      }
+
+      // Ensure hooks are configured
+      this.ensureHooksConfigured(projectPath);
+      this.ensureHookScripts(projectPath);
+    }
+
+    // Update global registry
+    const globalDir = '/tmp/orchestrator/sessions';
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(globalDir, 'active.json'),
+      JSON.stringify(this.currentSession, null, 2)
+    );
+
+    console.log(`[SessionManager] Loaded session: ${sessionId}`);
+    return fullData;
+  }
+
+  /**
+   * Marks the current session as completed
+   */
+  markSessionCompleted(): void {
+    if (!this.currentSession) return;
+    this.sessionStore.markCompleted(this.currentSession.id);
+  }
+
+  /**
+   * Marks the current session as interrupted
+   */
+  markSessionInterrupted(): void {
+    if (!this.currentSession) return;
+    this.sessionStore.markInterrupted(this.currentSession.id);
+  }
+
+  /**
+   * Deletes a session
+   */
+  deleteSession(sessionId: string): boolean {
+    return this.sessionStore.deleteSession(sessionId);
   }
 }

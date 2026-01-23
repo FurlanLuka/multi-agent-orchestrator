@@ -545,4 +545,73 @@ export class ProcessManager extends EventEmitter {
 
     return result;
   }
+
+  /**
+   * Checks if dev server is responding (health check)
+   * Returns healthy: true if server responds to HTTP request
+   */
+  async checkDevServerHealth(project: string): Promise<{ healthy: boolean; error?: string }> {
+    const key = this.getKey(project, 'devServer');
+    const proc = this.processes.get(key);
+
+    if (!proc || !proc.ready) {
+      return { healthy: false, error: 'Dev server not running' };
+    }
+
+    const projectConfig = this.config.projects[project];
+    if (!projectConfig) {
+      return { healthy: false, error: 'Project not configured' };
+    }
+
+    // Determine port - use configured port or infer from project type
+    let port = projectConfig.devServer.port;
+    if (!port) {
+      const isFrontend = project.toLowerCase().includes('frontend');
+      port = isFrontend ? 5173 : 3000;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(`http://localhost:${port}`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      // Any response (even 404) means server is up
+      console.log(`[ProcessManager] Health check for ${project}: OK (status ${response.status})`);
+      return { healthy: true };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.log(`[ProcessManager] Health check for ${project}: FAILED (${errorMessage})`);
+      return { healthy: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Performs health check with retry logic
+   * Attempts health check multiple times before declaring unhealthy
+   */
+  async checkDevServerHealthWithRetry(
+    project: string,
+    maxRetries: number = 3,
+    delayMs: number = 2000
+  ): Promise<{ healthy: boolean; error?: string }> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const result = await this.checkDevServerHealth(project);
+      if (result.healthy) {
+        return result;
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`[ProcessManager] Health check retry ${attempt}/${maxRetries} for ${project} in ${delayMs}ms`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return { healthy: false, error: `Health check failed after ${maxRetries} attempts` };
+  }
 }

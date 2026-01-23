@@ -2,11 +2,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { LogEntry } from '../types';
+import { SessionStore } from './session-store';
 
 export class LogAggregator extends EventEmitter {
   private logs: Map<string, LogEntry[]> = new Map();
   private sessionDirs: Map<string, string> = new Map();
   private readonly MAX_LOGS_PER_PROJECT = 1000;
+  private sessionStore: SessionStore | null = null;
+  private currentSessionId: string | null = null;
+
+  /**
+   * Sets the SessionStore for persistence
+   */
+  setSessionStore(store: SessionStore): void {
+    this.sessionStore = store;
+  }
+
+  /**
+   * Sets the current session ID for persistence
+   */
+  setCurrentSessionId(sessionId: string | null): void {
+    this.currentSessionId = sessionId;
+  }
 
   /**
    * Registers a project for log aggregation
@@ -39,8 +56,13 @@ export class LogAggregator extends EventEmitter {
       projectLogs.splice(0, projectLogs.length - this.MAX_LOGS_PER_PROJECT);
     }
 
-    // Write to file
+    // Write to file (legacy per-project logs)
     this.writeToFile(entry);
+
+    // Persist to SessionStore (centralized logs)
+    if (this.sessionStore && this.currentSessionId) {
+      this.sessionStore.appendLog(this.currentSessionId, entry);
+    }
 
     // Emit for real-time streaming
     this.emit('log', entry);
@@ -137,6 +159,7 @@ export class LogAggregator extends EventEmitter {
    */
   clearAll(): void {
     this.logs.clear();
+    this.currentSessionId = null;
   }
 
   /**
@@ -171,5 +194,21 @@ export class LogAggregator extends EventEmitter {
     }
 
     return summary;
+  }
+
+  /**
+   * Restores logs from a persisted session
+   */
+  restoreLogs(logs: LogEntry[]): void {
+    this.logs.clear();
+
+    for (const entry of logs) {
+      if (!this.logs.has(entry.project)) {
+        this.logs.set(entry.project, []);
+      }
+      this.logs.get(entry.project)!.push(entry);
+    }
+
+    console.log(`[LogAggregator] Restored ${logs.length} log entries`);
   }
 }

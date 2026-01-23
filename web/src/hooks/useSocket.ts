@@ -18,6 +18,8 @@ import type {
   QueueStatus,
   ProjectTestState,
   TestStatusEvent,
+  SessionSummary,
+  FullSessionData,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -34,6 +36,7 @@ export function useSocket() {
   const [projects, setProjects] = useState<Record<string, ProjectConfig>>({});
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [addingProject, setAddingProject] = useState(false);
 
   // Streaming messages for agentic UI
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
@@ -43,6 +46,17 @@ export function useSocket() {
 
   // Test states for E2E test tracking per project
   const [testStates, setTestStates] = useState<Record<string, ProjectTestState>>({});
+
+  // Session persistence state
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [loadingSession, setLoadingSession] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+
+  // Cache for active session's streaming messages (preserved when viewing other sessions)
+  const activeSessionMessagesRef = useRef<StreamingMessage[]>([]);
+  // Track active session ID in a ref for event handlers
+  const activeSessionIdRef = useRef<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -70,6 +84,13 @@ export function useSocket() {
     socket.on('sessionCreated', (s: Session) => {
       setSession(s);
       setAllComplete(false);
+      // New sessions are automatically active
+      setActiveSessionId(s.id);
+      setViewingSessionId(s.id);
+      activeSessionIdRef.current = s.id;
+      // Clear the cached messages for the new session
+      activeSessionMessagesRef.current = [];
+      setStreamingMessages([]);
     });
 
     // Status events
@@ -132,8 +153,10 @@ export function useSocket() {
     });
 
     // Streaming chat events for agentic UI
+    // These events always come from the active session
     socket.on('chatStream', (event: ChatStreamEvent) => {
-      setStreamingMessages(prev => {
+      // Helper function to apply event to message array
+      const applyEvent = (messages: StreamingMessage[]): StreamingMessage[] => {
         switch (event.type) {
           case 'message_start': {
             // Create new streaming message
@@ -145,12 +168,9 @@ export function useSocket() {
               createdAt: Date.now(),
             };
             // Also mark the most recent queued user message as complete
-            // (since we're now processing a response for it)
-            const updatedPrev = prev.map((msg, idx) => {
-              // Find the last queued user message before this new assistant message
+            const updatedPrev = messages.map((msg, idx) => {
               if (msg.role === 'user' && msg.status === 'queued') {
-                // Check if there's no assistant message after it yet
-                const hasAssistantAfter = prev.slice(idx + 1).some(m => m.role === 'assistant');
+                const hasAssistantAfter = messages.slice(idx + 1).some(m => m.role === 'assistant');
                 if (!hasAssistantAfter) {
                   return { ...msg, status: 'complete' as const };
                 }
@@ -161,9 +181,8 @@ export function useSocket() {
           }
 
           case 'content_block': {
-            // Add content block to existing message
-            if (!event.block) return prev;
-            return prev.map(msg =>
+            if (!event.block) return messages;
+            return messages.map(msg =>
               msg.id === event.messageId
                 ? { ...msg, content: [...msg.content, event.block as ContentBlock] }
                 : msg
@@ -171,8 +190,7 @@ export function useSocket() {
           }
 
           case 'message_complete': {
-            // Mark message as complete
-            return prev.map(msg =>
+            return messages.map(msg =>
               msg.id === event.messageId
                 ? { ...msg, status: 'complete' as const }
                 : msg
@@ -180,8 +198,7 @@ export function useSocket() {
           }
 
           case 'error': {
-            // Mark message as error
-            return prev.map(msg =>
+            return messages.map(msg =>
               msg.id === event.messageId
                 ? { ...msg, status: 'error' as const }
                 : msg
@@ -189,9 +206,15 @@ export function useSocket() {
           }
 
           default:
-            return prev;
+            return messages;
         }
-      });
+      };
+
+      // Always update the active session's cached messages
+      activeSessionMessagesRef.current = applyEvent(activeSessionMessagesRef.current);
+
+      // Update displayed messages
+      setStreamingMessages(prev => applyEvent(prev));
     });
 
     // Queue status events (for Planning Agent visibility)
@@ -264,6 +287,8 @@ export function useSocket() {
 
     socket.on('createFromTemplateSuccess', () => {
       setCreatingProject(false);
+      // Auto-refresh projects list
+      socket.emit('getProjects');
     });
 
     socket.on('createFromTemplateError', ({ error }: { error: string }) => {
@@ -271,9 +296,128 @@ export function useSocket() {
       console.error('Failed to create project:', error);
     });
 
+    socket.on('addProjectSuccess', () => {
+      setAddingProject(false);
+      // Auto-refresh projects list
+      socket.emit('getProjects');
+    });
+
+    socket.on('addProjectError', ({ error }: { error: string }) => {
+      setAddingProject(false);
+      console.error('Failed to add project:', error);
+    });
+
+    socket.on('removeProjectSuccess', () => {
+      // Auto-refresh projects list
+      socket.emit('getProjects');
+    });
+
+    socket.on('removeProjectError', ({ error }: { error: string }) => {
+      console.error('Failed to remove project:', error);
+    });
+
+    // Session persistence events
+    socket.on('sessionList', (sessionList: SessionSummary[]) => {
+      setSessions(sessionList);
+    });
+
+    socket.on('sessionLoaded', (data: FullSessionData & { isActive?: boolean; pendingPlan?: PlanProposal }) => {
+      setLoadingSession(false);
+
+      // Restore session
+      const restoredSession: Session = {
+        id: data.session.id,
+        startedAt: data.session.startedAt,
+        feature: data.session.feature,
+        projects: data.session.projects,
+        plan: data.session.plan,
+      };
+      setSession(restoredSession);
+
+      // Restore statuses
+      setStatuses(data.session.statuses);
+
+      // Restore logs
+      setLogs(data.logs);
+
+      // Check if this is the currently active session - if so, use cached messages
+      // which may include an in-progress streaming message
+      const isReturningToActiveSession = data.session.id === activeSessionIdRef.current;
+      if (isReturningToActiveSession && activeSessionMessagesRef.current.length > 0) {
+        // Use cached messages which may have streaming content
+        setStreamingMessages(activeSessionMessagesRef.current);
+      } else {
+        // Use loaded messages from persistence
+        setStreamingMessages(data.chatMessages);
+        // If this becomes the active session, initialize the cache
+        if (data.isActive) {
+          activeSessionMessagesRef.current = data.chatMessages;
+        }
+      }
+
+      // Restore pending plan if it exists
+      if (data.pendingPlan) {
+        setPendingPlan(data.pendingPlan);
+      } else {
+        setPendingPlan(null);
+      }
+
+      // Restore test states
+      const restoredTestStates: Record<string, ProjectTestState> = {};
+      for (const [project, testState] of Object.entries(data.session.testStates)) {
+        restoredTestStates[project] = {
+          scenarios: testState.scenarios.map(s => ({
+            name: s.name,
+            status: s.status,
+            error: s.error,
+          })),
+          updatedAt: testState.updatedAt,
+        };
+      }
+      setTestStates(restoredTestStates);
+
+      // Track which session we're viewing (sidebar still visible)
+      setViewingSessionId(data.session.id);
+
+      // If this was loaded as active session (e.g., auto-reconnect), track it
+      if (data.isActive) {
+        setActiveSessionId(data.session.id);
+        activeSessionIdRef.current = data.session.id;
+      }
+
+      // Set completion state based on session status
+      setAllComplete(data.session.status === 'completed');
+
+      console.log(`Session ${data.session.id} loaded (active: ${data.isActive ?? false})`);
+    });
+
+    socket.on('loadSessionError', ({ error }: { error: string }) => {
+      setLoadingSession(false);
+      console.error('Failed to load session:', error);
+    });
+
+    socket.on('deleteSessionSuccess', ({ sessionId }: { sessionId: string }) => {
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+    });
+
+    socket.on('deleteSessionError', ({ sessionId, error }: { sessionId: string; error: string }) => {
+      console.error(`Failed to delete session ${sessionId}:`, error);
+    });
+
+
+    // Session stopped event
+    socket.on('sessionStopped', ({ sessionId }: { sessionId: string }) => {
+      setActiveSessionId(null);
+      activeSessionIdRef.current = null;
+      // Clear the cached messages since session is no longer active
+      activeSessionMessagesRef.current = [];
+      console.log(`Session ${sessionId} stopped`);
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
+    socket.emit('getSessions');
 
     return () => {
       socket.disconnect();
@@ -291,23 +435,28 @@ export function useSocket() {
 
       // Check if there's an active streaming message (Planning Agent is busy)
       // If so, mark this message as "queued"
-      setStreamingMessages(prev => {
-        const hasStreamingMessage = prev.some(m => m.role === 'assistant' && m.status === 'streaming');
-        const userMessage: StreamingMessage = {
-          id: `user_${Date.now()}`,
-          role: 'user',
-          content: [{ type: 'text', text: message }],
-          status: hasStreamingMessage ? 'queued' : 'complete',
-          createdAt: Date.now(),
-        };
-        return [...prev, userMessage];
-      });
+      const hasStreamingMessage = activeSessionMessagesRef.current.some(
+        m => m.role === 'assistant' && m.status === 'streaming'
+      );
+      const userMessage: StreamingMessage = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: [{ type: 'text', text: message }],
+        status: hasStreamingMessage ? 'queued' : 'complete',
+        createdAt: Date.now(),
+      };
+
+      // Update both the ref cache and the displayed state
+      activeSessionMessagesRef.current = [...activeSessionMessagesRef.current, userMessage];
+      setStreamingMessages(prev => [...prev, userMessage]);
     }
   }, []);
 
   const startSession = useCallback((feature: string, projects: string[]) => {
     if (socketRef.current) {
       socketRef.current.emit('startSession', { feature, projects });
+      // Clear cached messages for new session
+      activeSessionMessagesRef.current = [];
     }
   }, []);
 
@@ -341,16 +490,115 @@ export function useSocket() {
     setStreamingMessages([]);
   }, []);
 
-  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, runNpmInstall: boolean = true) => {
+  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true) => {
     if (socketRef.current) {
       setCreatingProject(true);
-      socketRef.current.emit('createFromTemplate', { name, targetPath, template, runNpmInstall });
+      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall });
     }
   }, []);
 
   const refreshProjects = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.emit('getProjects');
+    }
+  }, []);
+
+  interface AddProjectOptions {
+    name: string;
+    path: string;
+    devServer?: {
+      command: string;
+      readyPattern: string;
+      env?: Record<string, string>;
+    };
+    buildCommand?: string;
+    hasE2E?: boolean;
+    dependencyInstall?: boolean;
+  }
+
+  const addProject = useCallback((options: AddProjectOptions) => {
+    if (socketRef.current) {
+      setAddingProject(true);
+      socketRef.current.emit('addProject', options);
+    }
+  }, []);
+
+  const removeProject = useCallback((name: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('removeProject', { name });
+    }
+  }, []);
+
+  const getSessions = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('getSessions');
+    }
+  }, []);
+
+  const loadSession = useCallback((sessionId: string) => {
+    if (socketRef.current) {
+      setLoadingSession(true);
+      socketRef.current.emit('loadSession', { sessionId });
+    }
+  }, []);
+
+  const deleteSession = useCallback((sessionId: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('deleteSession', { sessionId });
+
+      // If we're viewing the deleted session, clear the view
+      if (viewingSessionId === sessionId) {
+        setViewingSessionId(null);
+        setSession(null);
+        setStatuses({});
+        setLogs([]);
+        setStreamingMessages([]);
+        setTestStates({});
+        setPendingPlan(null);
+      }
+    }
+  }, [viewingSessionId]);
+
+
+  const viewSession = useCallback((sessionId: string) => {
+    // If it's the currently active session, just switch to viewing it
+    if (sessionId === activeSessionId) {
+      setViewingSessionId(sessionId);
+      // Refresh the session data
+      if (socketRef.current) {
+        setLoadingSession(true);
+        socketRef.current.emit('loadSession', { sessionId });
+      }
+    } else {
+      // Load session in read-only mode (no dev servers started)
+      setViewingSessionId(sessionId);
+      if (socketRef.current) {
+        setLoadingSession(true);
+        socketRef.current.emit('loadSession', { sessionId });
+      }
+    }
+  }, [activeSessionId]);
+
+  const stopSession = useCallback(() => {
+    if (socketRef.current && activeSessionId) {
+      socketRef.current.emit('stopSession', { sessionId: activeSessionId });
+    }
+  }, [activeSessionId]);
+
+  const clearSession = useCallback(() => {
+    setSession(null);
+    setStatuses({});
+    setLogs([]);
+    setChatHistory([]);
+    setStreamingMessages([]);
+    setTestStates({});
+    setPendingPlan(null);
+    setAllComplete(false);
+    setActiveSessionId(null);
+    setViewingSessionId(null);
+    // Request fresh session list
+    if (socketRef.current) {
+      socketRef.current.emit('getSessions');
     }
   }, []);
 
@@ -369,6 +617,11 @@ export function useSocket() {
     projects,
     templates,
     creatingProject,
+    addingProject,
+    sessions,
+    loadingSession,
+    activeSessionId,
+    viewingSessionId,
     sendChat,
     startSession,
     approvePlan,
@@ -377,6 +630,14 @@ export function useSocket() {
     clearLogs,
     clearStreamingMessages,
     createProjectFromTemplate,
+    addProject,
+    removeProject,
     refreshProjects,
+    getSessions,
+    loadSession,
+    deleteSession,
+    clearSession,
+    viewSession,
+    stopSession,
   };
 }

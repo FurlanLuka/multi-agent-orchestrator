@@ -201,6 +201,7 @@ export interface ChatStreamEvent {
   type: 'message_start' | 'content_block' | 'message_complete' | 'error';
   messageId: string;
   block?: ContentBlock;
+  content?: ContentBlock[];  // All content blocks (for message_complete)
   error?: string;
 }
 
@@ -412,5 +413,56 @@ export interface ProjectTemplateConfig {
     command: string;
     readyPattern: string;
   };
+  buildCommand?: string;
   defaultPort: number;
+  dependencyInstall?: boolean;  // Whether to install dependencies when creating from template
+}
+
+// Streaming message for assistant-ui (persisted in chat history)
+export interface StreamingMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: ContentBlock[];
+  status: 'pending' | 'streaming' | 'complete' | 'error' | 'queued';
+  createdAt: number;
+}
+
+// Session persistence types
+export interface PersistedSession {
+  id: string;
+  feature: string;
+  projects: string[];
+  startedAt: number;
+  plan?: Plan;
+  pendingPlan?: PlanProposal;  // Plan waiting for user approval
+  statuses: Record<string, ProjectState>;
+  testStates: Record<string, PersistedTestState>;
+  status: 'planning' | 'running' | 'completed' | 'interrupted';
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface PersistedTestState {
+  scenarios: Array<{
+    name: string;
+    status: TestScenarioStatus;
+    error?: string;
+  }>;
+  updatedAt: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  feature: string;
+  projects: string[];
+  startedAt: number;
+  updatedAt: number;
+  status: 'planning' | 'running' | 'completed' | 'interrupted';
+  completedAt?: number;
+}
+
+export interface FullSessionData {
+  session: PersistedSession;
+  logs: LogEntry[];
+  chatMessages: StreamingMessage[];
 }

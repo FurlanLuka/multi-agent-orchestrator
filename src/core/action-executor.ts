@@ -11,6 +11,20 @@ import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
 
+// Patterns that indicate dev server issues in agent responses
+const DEV_SERVER_ISSUE_PATTERNS = [
+  /connection refused/i,
+  /ECONNREFUSED/i,
+  /server not responding/i,
+  /server is not running/i,
+  /dev server.*not.*running/i,
+  /cannot connect to.*localhost/i,
+  /failed to fetch/i,
+  /net::ERR_CONNECTION_REFUSED/i,
+  /ETIMEDOUT/i,
+  /socket hang up/i,
+];
+
 /**
  * Executes actions returned by the Planning Agent
  */
@@ -18,6 +32,8 @@ export class ActionExecutor extends EventEmitter {
   private processManager: ProcessManager;
   private statusMonitor: StatusMonitor;
   private stateMachine: StateMachine;
+  private retryCount: Map<string, number> = new Map();
+  private readonly MAX_RETRIES = 2;
 
   constructor(
     processManager: ProcessManager,
@@ -28,6 +44,57 @@ export class ActionExecutor extends EventEmitter {
     this.processManager = processManager;
     this.statusMonitor = statusMonitor;
     this.stateMachine = stateMachine;
+  }
+
+  /**
+   * Checks if agent response indicates dev server issues
+   */
+  private detectsDevServerIssue(result: string): boolean {
+    return DEV_SERVER_ISSUE_PATTERNS.some(pattern => pattern.test(result));
+  }
+
+  /**
+   * Attempts to recover dev server and retry the task
+   * Returns true if recovery was successful and task should be retried
+   */
+  private async attemptDevServerRecovery(project: string): Promise<boolean> {
+    const retries = this.retryCount.get(project) || 0;
+    if (retries >= this.MAX_RETRIES) {
+      console.log(`[ActionExecutor] Max retries (${this.MAX_RETRIES}) reached for ${project}`);
+      this.retryCount.delete(project);
+      return false;
+    }
+
+    console.log(`[ActionExecutor] Attempting dev server recovery for ${project} (attempt ${retries + 1}/${this.MAX_RETRIES})`);
+    this.retryCount.set(project, retries + 1);
+
+    // Health check first
+    const health = await this.processManager.checkDevServerHealth(project);
+    if (health.healthy) {
+      console.log(`[ActionExecutor] Dev server for ${project} is actually healthy, issue may be transient`);
+      return true; // Server is fine, retry the task
+    }
+
+    // Server is unhealthy, attempt restart
+    console.log(`[ActionExecutor] Dev server unhealthy for ${project}, restarting...`);
+    this.statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
+
+    try {
+      await this.processManager.restartDevServer(project);
+
+      // Verify health after restart
+      const retryHealth = await this.processManager.checkDevServerHealthWithRetry(project, 3, 2000);
+      if (retryHealth.healthy) {
+        console.log(`[ActionExecutor] Dev server for ${project} recovered successfully`);
+        return true;
+      } else {
+        console.error(`[ActionExecutor] Dev server still unhealthy after restart for ${project}`);
+        return false;
+      }
+    } catch (err) {
+      console.error(`[ActionExecutor] Failed to restart dev server for ${project}:`, err);
+      return false;
+    }
   }
 
   /**
@@ -89,6 +156,36 @@ export class ActionExecutor extends EventEmitter {
       const result = await this.processManager.sendToAgent(action.project, action.prompt);
       console.log(`[ActionExecutor] Agent ${action.project} completed task (${result.length} chars)`);
 
+      // Check if agent response indicates dev server issues
+      if (this.detectsDevServerIssue(result)) {
+        console.log(`[ActionExecutor] Detected dev server issue in ${action.project} response`);
+
+        const recovered = await this.attemptDevServerRecovery(action.project);
+        if (recovered) {
+          // Retry the task
+          console.log(`[ActionExecutor] Retrying task for ${action.project} after dev server recovery`);
+          this.emit('chat', {
+            from: 'system',
+            message: `Dev server issue detected for ${action.project}. Restarted server and retrying task...`
+          });
+
+          // Recursively retry
+          await this.executeSendToAgent(action);
+          return;
+        } else {
+          // Recovery failed, mark as fatal
+          this.statusMonitor.updateStatus(action.project, 'FATAL_DEBUGGING',
+            'Dev server not responding after recovery attempts');
+          this.stateMachine.markAgentIdle(action.project);
+          this.retryCount.delete(action.project);
+          this.emit('error', { action, error: 'Dev server recovery failed' });
+          return;
+        }
+      }
+
+      // Success - clear retry count and update status
+      this.retryCount.delete(action.project);
+
       // Update status to READY - this triggers E2E flow via StatusMonitor.projectReady event
       this.statusMonitor.updateStatus(action.project, 'READY', 'Task completed');
       this.stateMachine.markAgentIdle(action.project);
@@ -115,6 +212,36 @@ export class ActionExecutor extends EventEmitter {
 
       const result = await this.processManager.sendToAgent(action.project, action.prompt);
       console.log(`[ActionExecutor] Agent ${action.project} completed E2E (${result.length} chars)`);
+
+      // Check if E2E failure is due to dev server issues (not actual test failures)
+      if (this.detectsDevServerIssue(result)) {
+        console.log(`[ActionExecutor] Detected dev server issue during E2E for ${action.project}`);
+
+        const recovered = await this.attemptDevServerRecovery(action.project);
+        if (recovered) {
+          // Retry E2E
+          console.log(`[ActionExecutor] Retrying E2E for ${action.project} after dev server recovery`);
+          this.emit('chat', {
+            from: 'system',
+            message: `Dev server issue detected during E2E for ${action.project}. Restarted server and retrying tests...`
+          });
+
+          // Recursively retry
+          await this.executeSendE2E(action);
+          return;
+        } else {
+          // Recovery failed
+          this.statusMonitor.updateStatus(action.project, 'FATAL_DEBUGGING',
+            'Dev server not responding during E2E tests');
+          this.stateMachine.markAgentIdle(action.project);
+          this.retryCount.delete(action.project);
+          this.emit('error', { action, error: 'Dev server recovery failed during E2E' });
+          return;
+        }
+      }
+
+      // Clear retry count on success (even if tests fail, server was working)
+      this.retryCount.delete(action.project);
 
       // Don't update status here - emit result for analysis
       // The listener will analyze and set status to either IDLE (passed) or E2E_FIXING (failed)
