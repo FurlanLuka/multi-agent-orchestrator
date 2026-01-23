@@ -18,7 +18,8 @@
         "env": {}
       },
       "buildCommand": "npm run build",
-      "hasE2E": false
+      "hasE2E": true,
+      "e2eInstructions": "### 1. Setup Test Credentials\n\n```bash\nnpm run test:e2e:setup\n```\n\nRead credentials from `playwright/.auth/test-data.json`.\n\n### 2. Use playwright MCP to navigate dev server deployment and click through using playwright MCP"
     }
   },
   "defaults": {

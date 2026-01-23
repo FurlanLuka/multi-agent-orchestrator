@@ -34,6 +34,11 @@ import {
   IconEye,
   IconLayoutSidebar,
   IconLayoutSidebarFilled,
+  IconCircle,
+  IconClock,
+  IconLoader,
+  IconCircleCheck,
+  IconCircleX,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -42,6 +47,7 @@ import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
 import { SessionSidebar } from './components/SessionSidebar';
+import { MarkdownMessage } from './components/MarkdownMessage';
 
 function App() {
   const {
@@ -52,6 +58,7 @@ function App() {
     streamingMessages,
     queueStatus,
     testStates,
+    taskStates,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -70,6 +77,7 @@ function App() {
     createProjectFromTemplate,
     addProject,
     removeProject,
+    updateProject,
     deleteSession,
     viewSession,
     stopSession,
@@ -79,9 +87,23 @@ function App() {
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const availableProjects = Object.keys(projects);
-  const [showPlan, setShowPlan] = useState(false);
+  const [showPlan, setShowPlan] = useState(true);  // Show plan by default
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Toggle task expansion
+  const toggleTaskExpanded = (taskId: string) => {
+    setExpandedTasks(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
@@ -267,6 +289,7 @@ function App() {
                     onCreateProject={createProjectFromTemplate}
                     onAddProject={addProject}
                     onRemoveProject={removeProject}
+                    onUpdateProject={updateProject}
                   />
                 </Grid.Col>
               </Grid>
@@ -381,32 +404,92 @@ function App() {
                                 {/* Tasks by Project */}
                                 <Box>
                                   <Text size="xs" fw={600} c="dimmed" mb="xs">Tasks</Text>
-                                <Stack gap="sm">
-                                    {session.plan.tasks.map((task, idx) => (
-                                      <Box
-                                        key={idx}
-                                        p="sm"
-                                        style={{
-                                          backgroundColor: 'var(--mantine-color-gray-0)',
-                                          borderRadius: 'var(--mantine-radius-md)',
-                                          border: '1px solid var(--mantine-color-gray-2)',
-                                        }}
-                                      >
-                                        <Group gap="xs" mb="xs">
-                                          <Badge size="xs" variant="light" color="blue">
-                                            {task.project}
-                                          </Badge>
-                                          {task.dependencies.length > 0 && (
-                                            <Text size="xs" c="dimmed">
-                                              depends on: {task.dependencies.join(', ')}
+                                  <Stack gap="xs">
+                                    {session.plan.tasks.map((task, idx) => {
+                                      const taskId = `${task.project}:${idx}`;
+                                      const taskState = taskStates.find(t => t.taskId === taskId);
+                                      const status = taskState?.status || 'pending';
+                                      const isExpanded = expandedTasks.has(taskId);
+
+                                      // Get status icon and color
+                                      const getStatusIcon = () => {
+                                        switch (status) {
+                                          case 'completed': return <IconCircleCheck size={16} />;
+                                          case 'working': return <IconLoader size={16} className="animate-spin" />;
+                                          case 'waiting': return <IconClock size={16} />;
+                                          case 'failed': return <IconCircleX size={16} />;
+                                          default: return <IconCircle size={16} />;
+                                        }
+                                      };
+
+                                      const getStatusColor = () => {
+                                        switch (status) {
+                                          case 'completed': return 'green';
+                                          case 'working': return 'blue';
+                                          case 'waiting': return 'yellow';
+                                          case 'failed': return 'red';
+                                          default: return 'gray';
+                                        }
+                                      };
+
+                                      // Use task.name if available, fallback to truncated task description
+                                      const taskName = task.name || task.task.split('\n')[0].substring(0, 60) + (task.task.length > 60 ? '...' : '');
+
+                                      return (
+                                        <Box
+                                          key={idx}
+                                          p="sm"
+                                          style={{
+                                            backgroundColor: status === 'working'
+                                              ? 'var(--mantine-color-blue-0)'
+                                              : status === 'completed'
+                                              ? 'var(--mantine-color-green-0)'
+                                              : status === 'waiting'
+                                              ? 'var(--mantine-color-yellow-0)'
+                                              : status === 'failed'
+                                              ? 'var(--mantine-color-red-0)'
+                                              : 'var(--mantine-color-gray-0)',
+                                            borderRadius: 'var(--mantine-radius-md)',
+                                            border: `1px solid var(--mantine-color-${getStatusColor()}-2)`,
+                                            cursor: 'pointer',
+                                          }}
+                                          onClick={() => toggleTaskExpanded(taskId)}
+                                        >
+                                          {/* Collapsed View: Status + Project + Task Name */}
+                                          <Group gap="xs" wrap="nowrap">
+                                            <ThemeIcon size="sm" variant="light" color={getStatusColor()}>
+                                              {getStatusIcon()}
+                                            </ThemeIcon>
+                                            <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
+                                              {task.project}
+                                            </Badge>
+                                            <Text size="sm" fw={500} style={{ flex: 1 }} lineClamp={1}>
+                                              {taskName}
                                             </Text>
-                                          )}
-                                        </Group>
-                                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                                          {task.task}
-                                        </Text>
-                                      </Box>
-                                    ))}
+                                            {taskState?.waitingOn && taskState.waitingOn.length > 0 && (
+                                              <Badge size="xs" variant="outline" color="yellow" style={{ flexShrink: 0 }}>
+                                                waiting: {taskState.waitingOn.join(', ')}
+                                              </Badge>
+                                            )}
+                                            <ActionIcon size="sm" variant="subtle" color="gray">
+                                              {isExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                            </ActionIcon>
+                                          </Group>
+
+                                          {/* Expanded View: Full Description */}
+                                          <Collapse in={isExpanded}>
+                                            <Box mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}>
+                                              {task.dependencies.length > 0 && (
+                                                <Text size="xs" c="dimmed" mb="xs">
+                                                  Dependencies: {task.dependencies.join(', ')}
+                                                </Text>
+                                              )}
+                                              <MarkdownMessage content={task.task} />
+                                            </Box>
+                                          </Collapse>
+                                        </Box>
+                                      );
+                                    })}
                                   </Stack>
                                 </Box>
 

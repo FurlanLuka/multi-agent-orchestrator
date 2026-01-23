@@ -445,8 +445,16 @@ After fixing, the E2E tests will be re-run automatically.`;
     (ui.io as any).emitStatus(project, status, message);
   });
 
+  // Forward task status changes to UI
+  statusMonitor.on('taskStatusChange', (event) => {
+    (ui.io as any).emitTaskStatus(event);
+  });
+
   // Track projects waiting for E2E (waiting on dependencies)
   const pendingE2E: Map<string, { message: string; waitingOn: string[] }> = new Map();
+
+  // Track tasks waiting for dependencies (task execution)
+  const pendingTasks: Map<string, { task: TaskDefinition; taskKey: string; waitingOn: string[] }> = new Map();
 
   // Helper to get dev server URL for a project
   const getDevServerUrl = (project: string): string => {
@@ -462,6 +470,15 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Helper to check and trigger E2E for a project (queues the request)
   const tryTriggerE2E = async (project: string, message: string) => {
     const session = sessionManager.getCurrentSession();
+    const projectConfig = config.projects[project];
+
+    // Skip E2E if project has hasE2E: false
+    if (projectConfig && projectConfig.hasE2E === false) {
+      console.log(`[Orchestrator] ${project} has E2E disabled (hasE2E: false), marking as complete`);
+      statusMonitor.updateStatus(project, 'IDLE', 'E2E disabled for this project');
+      // This will trigger checkPendingE2E via the statusChange event
+      return;
+    }
 
     // If no test plan for this project, mark as IDLE (complete) immediately
     if (!session?.plan?.testPlan?.[project] || session.plan.testPlan[project].length === 0) {
@@ -471,19 +488,34 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
-    // Check if frontend needs to wait for backend
-    // Frontend E2E tests typically need backend to be running and ready
-    const isFrontend = project.toLowerCase().includes('frontend');
-    const backendProject = session.projects.find(p => p.toLowerCase().includes('backend'));
+    // Check if this project's E2E tests need to wait for other projects
+    // E2E tests wait for any project that this project's tasks depend on
+    const projectDependencies = new Set<string>();
 
-    if (isFrontend && backendProject) {
-      const backendStatus = statusMonitor.getStatus(backendProject);
-      if (backendStatus?.status !== 'IDLE') {
-        // Backend not done yet, queue frontend E2E
-        console.log(`[Orchestrator] ${project} waiting for ${backendProject} to complete E2E first`);
-        pendingE2E.set(project, { message, waitingOn: [backendProject] });
-        return;
+    // Collect dependencies: if any task for THIS project depends on another project, wait for that project
+    for (const task of session.plan.tasks) {
+      if (task.project === project) {
+        for (const dep of task.dependencies) {
+          if (session.projects.includes(dep) && dep !== project) {
+            projectDependencies.add(dep);
+          }
+        }
       }
+    }
+
+    // Check if any dependencies are not yet complete (IDLE)
+    const waitingOn: string[] = [];
+    for (const dep of projectDependencies) {
+      const depStatus = statusMonitor.getStatus(dep);
+      if (depStatus?.status !== 'IDLE') {
+        waitingOn.push(dep);
+      }
+    }
+
+    if (waitingOn.length > 0) {
+      console.log(`[Orchestrator] ${project} E2E waiting for: ${waitingOn.join(', ')}`);
+      pendingE2E.set(project, { message, waitingOn });
+      return;
     }
 
     // Health check before E2E - verify dev server is actually responding
@@ -515,6 +547,34 @@ After fixing, the E2E tests will be re-run automatically.`;
       }
     }
 
+    const devServerUrl = getDevServerUrl(project);
+
+    // Check if project has custom E2E instructions
+    if (projectConfig?.e2eInstructions) {
+      console.log(`[Orchestrator] Using custom E2E instructions for ${project}`);
+
+      // Build E2E prompt from custom instructions
+      const e2ePrompt = `# E2E Testing for ${project}
+
+Dev Server URL: ${devServerUrl}
+
+## Custom Testing Instructions
+
+${projectConfig.e2eInstructions}
+
+## Test Scenarios to Verify
+${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+**IMPORTANT**: Output TEST STATUS MARKERS for real-time tracking:
+- Before each test: [TEST_STATUS] {"scenario": "exact scenario text", "status": "running"}
+- After passing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "passed"}
+- After failing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "failed", "error": "brief error description"}`;
+
+      // Execute E2E directly without going through Planning Agent
+      await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
+      return;
+    }
+
     // Queue E2E prompt request - will be processed when Planning Agent is free
     console.log(`[Orchestrator] Queueing E2E prompt request for ${project}`);
     eventQueue.add({
@@ -522,7 +582,7 @@ After fixing, the E2E tests will be re-run automatically.`;
       project,
       taskSummary: message,
       testScenarios: session.plan.testPlan[project],
-      devServerUrl: getDevServerUrl(project)
+      devServerUrl
     });
   };
 
@@ -546,12 +606,49 @@ After fixing, the E2E tests will be re-run automatically.`;
     }
   };
 
+  // Container for runTask function reference (set during execution start)
+  const taskRunner: { fn: ((task: TaskDefinition, taskKey: string) => Promise<void>) | null } = { fn: null };
+
+  // Helper to check pending tasks when a project becomes READY
+  const checkPendingTasks = async (completedProject: string) => {
+    const tasksToStart: Array<{ task: TaskDefinition; taskKey: string }> = [];
+
+    for (const [taskKey, { task, waitingOn }] of pendingTasks) {
+      if (waitingOn.includes(completedProject)) {
+        // Remove the completed project from waitingOn
+        const remaining = waitingOn.filter(p => p !== completedProject);
+        if (remaining.length === 0) {
+          // All dependencies satisfied, queue for execution
+          console.log(`[Orchestrator] Task for ${task.project} dependencies satisfied, starting`);
+          pendingTasks.delete(taskKey);
+          tasksToStart.push({ task, taskKey });
+
+          // Update task status
+          statusMonitor.updateTaskStatus(taskKey, 'working', 'Dependencies satisfied, starting...');
+        } else {
+          pendingTasks.set(taskKey, { task, taskKey, waitingOn: remaining });
+          statusMonitor.updateTaskStatus(taskKey, 'waiting', `Waiting on ${remaining.join(', ')}`, remaining);
+        }
+      }
+    }
+
+    // Start all unblocked tasks in parallel
+    if (tasksToStart.length > 0 && taskRunner.fn) {
+      console.log(`[Orchestrator] Starting ${tasksToStart.length} unblocked tasks`);
+      await Promise.all(tasksToStart.map(({ task, taskKey }) => taskRunner.fn!(task, taskKey)));
+    }
+  };
+
   statusMonitor.on('projectReady', async ({ project, message }) => {
     console.log(`[Orchestrator] ${project} is READY: ${message}`);
     await tryTriggerE2E(project, message);
   });
 
   statusMonitor.on('statusChange', async ({ project, status }) => {
+    // When a project becomes READY (tasks complete), check if any pending tasks can start
+    if (status === 'READY') {
+      await checkPendingTasks(project);
+    }
     // When a project becomes IDLE (E2E complete), check if any pending E2E can start
     if (status === 'IDLE') {
       await checkPendingE2E(project);
@@ -658,6 +755,9 @@ After fixing, the E2E tests will be re-run automatically.`;
   chatHandler.on('planApproved', (plan: Plan) => {
     console.log(`[Orchestrator] Plan approved, setting on session`);
     sessionManager.setPlan(plan);
+    statusMonitor.initializeTasks(plan.tasks);  // Initialize task tracking
+    // Broadcast initial task states to all connected clients
+    (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
     sessionLogger?.log('PLAN_APPROVED', { feature: plan.feature, taskCount: plan.tasks.length });
     // Note: sessionStore.setPlan already clears pendingPlan
   });
@@ -768,6 +868,9 @@ After fixing, the E2E tests will be re-run automatically.`;
     // Handle plan approval
     socket.on('approvePlan', (plan: Plan) => {
       sessionManager.setPlan(plan);
+      // Initialize task tracking and broadcast to all clients
+      statusMonitor.initializeTasks(plan.tasks);
+      (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
       // Send updated session to UI so session.plan is set
       const updatedSession = sessionManager.getCurrentSession();
       if (updatedSession) {
@@ -840,14 +943,22 @@ After fixing, the E2E tests will be re-run automatically.`;
         pendingTasksPerProject.set(task.project, current + 1);
       }
 
-      const runTask = async (task: TaskDefinition) => {
+      // Define runTask with taskKey parameter for task-level tracking
+      const runTask = async (task: TaskDefinition, taskKey: string) => {
         const sessionDir = sessionManager.getSessionDir(task.project);
         if (!sessionDir) return;
 
         const projectConfig = config.projects[task.project];
+        const devServerUrl = getDevServerUrl(task.project);
+
+        // Update task status to working
+        statusMonitor.updateTaskStatus(taskKey, 'working', 'Starting agent task...');
 
         // Build task prompt with critical instructions
         let taskPrompt = task.task;
+
+        // Add dev server URL info
+        taskPrompt += `\n\n**DEV SERVER**: The dev server for this project is running at: ${devServerUrl}`;
 
         // Add critical rules that agents must follow
         taskPrompt += `\n\n**CRITICAL RULES - YOU MUST FOLLOW THESE**:
@@ -870,6 +981,9 @@ Do NOT mark this task as complete until the build passes without errors.`;
         try {
           await processManager.startAgent(task.project, sessionDir, taskPrompt);
 
+          // Mark task as completed
+          statusMonitor.updateTaskStatus(taskKey, 'completed', 'Task completed');
+
           // Decrement pending task count for this project
           const remaining = (pendingTasksPerProject.get(task.project) || 1) - 1;
           pendingTasksPerProject.set(task.project, remaining);
@@ -882,17 +996,77 @@ Do NOT mark this task as complete until the build passes without errors.`;
           }
         } catch (err) {
           console.error(`[Orchestrator] Task ${task.project} failed:`, err);
+          statusMonitor.updateTaskStatus(taskKey, 'failed', `Task failed: ${err}`);
           statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', `Task failed: ${err}`);
         } finally {
           stateMachine.markAgentIdle(task.project);
         }
       };
 
-      // Run all tasks in parallel - planning agent already gave each agent the full context
-      console.log(`[Orchestrator] Starting ${tasks.length} tasks in parallel: ${tasks.map(t => t.project).join(', ')}`);
-      await Promise.all(tasks.map(runTask))
+      // Store runTask reference for checkPendingTasks to use
+      taskRunner.fn = runTask;
 
-      chatHandler.systemMessage('All agents started. Monitoring progress...');
+      // ═══════════════════════════════════════════════════════════════
+      // Dependency-aware task execution
+      // ═══════════════════════════════════════════════════════════════
+
+      // Partition tasks: ready (no deps) vs waiting (has deps)
+      const readyTasks: Array<{ task: TaskDefinition; taskKey: string }> = [];
+      const waitingTasksByProject: Map<string, string[]> = new Map();
+
+      tasks.forEach((task, index) => {
+        const taskKey = `${task.project}:${index}`;
+
+        // Debug: Log task dependencies
+        console.log(`[Orchestrator] Task ${task.project}:${index} raw dependencies: ${JSON.stringify(task.dependencies)}`);
+
+        // Filter to valid dependencies (projects that have tasks and aren't already READY)
+        const validDeps = task.dependencies.filter(dep => {
+          const hasTask = projectsWithTasks.has(dep);
+          const depStatus = statusMonitor.getStatus(dep);
+          const isNotReady = depStatus?.status !== 'READY' && depStatus?.status !== 'IDLE';
+          console.log(`[Orchestrator]   Dep "${dep}": hasTask=${hasTask}, status=${depStatus?.status}, isNotReady=${isNotReady}`);
+          if (!hasTask) return false;
+          return isNotReady;
+        });
+
+        if (validDeps.length === 0) {
+          readyTasks.push({ task, taskKey });
+          statusMonitor.updateTaskStatus(taskKey, 'pending', 'Ready to start');
+        } else {
+          // Queue as pending task
+          pendingTasks.set(taskKey, { task, taskKey, waitingOn: validDeps });
+          statusMonitor.updateTaskStatus(taskKey, 'waiting', `Waiting on ${validDeps.join(', ')}`, validDeps);
+
+          // Track that this project has waiting tasks
+          const projectWaiting = waitingTasksByProject.get(task.project) || [];
+          projectWaiting.push(taskKey);
+          waitingTasksByProject.set(task.project, projectWaiting);
+
+          console.log(`[Orchestrator] Task for ${task.project} waiting on: ${validDeps.join(', ')}`);
+        }
+      });
+
+      // Set BLOCKED status for projects where ALL tasks are waiting
+      for (const [project, waitingKeys] of waitingTasksByProject) {
+        const projectTaskCount = tasks.filter(t => t.project === project).length;
+        if (waitingKeys.length === projectTaskCount) {
+          // All tasks for this project are waiting on dependencies
+          statusMonitor.updateStatus(project, 'BLOCKED', 'Waiting on dependencies');
+        }
+      }
+
+      // Start ready tasks in parallel (tasks with no dependencies)
+      if (readyTasks.length > 0) {
+        console.log(`[Orchestrator] Starting ${readyTasks.length} tasks immediately: ${readyTasks.map(t => t.task.project).join(', ')}`);
+        await Promise.all(readyTasks.map(({ task, taskKey }) => runTask(task, taskKey)));
+      }
+
+      if (pendingTasks.size > 0) {
+        console.log(`[Orchestrator] ${pendingTasks.size} tasks waiting on dependencies`);
+      }
+
+      chatHandler.systemMessage('Agents started. Monitoring progress...');
     });
 
     // Handle pause request

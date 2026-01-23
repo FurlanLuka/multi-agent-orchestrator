@@ -20,6 +20,8 @@ import type {
   TestStatusEvent,
   SessionSummary,
   FullSessionData,
+  TaskState,
+  TaskStatusEvent,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -46,6 +48,9 @@ export function useSocket() {
 
   // Test states for E2E test tracking per project
   const [testStates, setTestStates] = useState<Record<string, ProjectTestState>>({});
+
+  // Task states for dependency-aware execution tracking
+  const [taskStates, setTaskStates] = useState<TaskState[]>([]);
 
   // Session persistence state
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -240,6 +245,24 @@ export function useSocket() {
       }
     });
 
+    // Task state events for dependency-aware execution tracking
+    socket.on('taskStates', (states: TaskState[]) => {
+      setTaskStates(states);
+    });
+
+    socket.on('taskStatus', (event: TaskStatusEvent) => {
+      setTaskStates(prev => prev.map(task =>
+        task.taskId === event.taskId
+          ? {
+              ...task,
+              status: event.status,
+              waitingOn: event.waitingOn ?? task.waitingOn,
+              message: event.message
+            }
+          : task
+      ));
+    });
+
     // Test status events for real-time E2E test tracking
     socket.on('testStatus', (event: TestStatusEvent) => {
       setTestStates(prev => {
@@ -314,6 +337,15 @@ export function useSocket() {
 
     socket.on('removeProjectError', ({ error }: { error: string }) => {
       console.error('Failed to remove project:', error);
+    });
+
+    socket.on('updateProjectSuccess', () => {
+      // Auto-refresh projects list
+      socket.emit('getProjects');
+    });
+
+    socket.on('updateProjectError', ({ error }: { error: string }) => {
+      console.error('Failed to update project:', error);
     });
 
     // Session persistence events
@@ -510,9 +542,11 @@ export function useSocket() {
       command: string;
       readyPattern: string;
       env?: Record<string, string>;
+      port?: number;
     };
     buildCommand?: string;
     hasE2E?: boolean;
+    e2eInstructions?: string;
     dependencyInstall?: boolean;
   }
 
@@ -526,6 +560,12 @@ export function useSocket() {
   const removeProject = useCallback((name: string) => {
     if (socketRef.current) {
       socketRef.current.emit('removeProject', { name });
+    }
+  }, []);
+
+  const updateProject = useCallback((name: string, updates: Partial<ProjectConfig>) => {
+    if (socketRef.current) {
+      socketRef.current.emit('updateProject', { name, updates });
     }
   }, []);
 
@@ -611,6 +651,7 @@ export function useSocket() {
     streamingMessages,
     queueStatus,
     testStates,
+    taskStates,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -632,6 +673,7 @@ export function useSocket() {
     createProjectFromTemplate,
     addProject,
     removeProject,
+    updateProject,
     refreshProjects,
     getSessions,
     loadSession,

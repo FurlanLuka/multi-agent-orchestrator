@@ -9,6 +9,7 @@ export interface ProjectConfig {
   };
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
   hasE2E: boolean;
+  e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
 }
 
 export interface Config {
@@ -100,7 +101,8 @@ export interface Session {
 
 export interface TaskDefinition {
   project: string;
-  task: string;
+  name: string;        // Short task name for display (e.g., "Add login form")
+  task: string;        // Full task description (markdown supported)
   dependencies: string[];
 }
 
@@ -399,6 +401,31 @@ export interface TestStatusEvent {
   scenario: string;
   status: TestScenarioStatus;
   error?: string;
+  timestamp: number;
+}
+
+// Task status tracking for dependency-aware execution
+export type TaskStatus = 'pending' | 'waiting' | 'working' | 'completed' | 'failed';
+
+export interface TaskState {
+  taskId: string;
+  project: string;
+  name: string;         // Short task name for display
+  description: string;  // Full task description (markdown)
+  status: TaskStatus;
+  dependencies: string[];
+  waitingOn: string[];  // Remaining dependencies
+  message?: string;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+export interface TaskStatusEvent {
+  taskId: string;
+  project: string;
+  status: TaskStatus;
+  waitingOn?: string[];
+  message?: string;
   timestamp: number;
 }
 

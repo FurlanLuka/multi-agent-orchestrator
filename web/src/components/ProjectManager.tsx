@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Paper,
   TextInput,
+  Textarea,
   Button,
   Stack,
   Text,
@@ -16,8 +17,9 @@ import {
   Alert,
   SegmentedControl,
   ActionIcon,
+  Collapse,
 } from '@mantine/core';
-import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash } from '@tabler/icons-react';
+import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash, IconChevronDown, IconChevronRight, IconDeviceFloppy } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectConfig, ProjectTemplate } from '../types';
 
 interface AddProjectOptions {
@@ -27,9 +29,11 @@ interface AddProjectOptions {
     command: string;
     readyPattern: string;
     env?: Record<string, string>;
+    port?: number;
   };
   buildCommand?: string;
   hasE2E?: boolean;
+  e2eInstructions?: string;
   dependencyInstall?: boolean;
 }
 
@@ -41,11 +45,16 @@ interface ProjectManagerProps {
   onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean) => void;
   onAddProject: (options: AddProjectOptions) => void;
   onRemoveProject: (name: string) => void;
+  onUpdateProject: (name: string, updates: Partial<ProjectConfig>) => void;
 }
 
-export function ProjectManager({ projects, templates, creatingProject, addingProject, onCreateProject, onAddProject, onRemoveProject }: ProjectManagerProps) {
+export function ProjectManager({ projects, templates, creatingProject, addingProject, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
+
+  // Expanded project for editing E2E instructions
+  const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [editingE2EInstructions, setEditingE2EInstructions] = useState<string>('');
 
   // Template form state
   const [name, setName] = useState('');
@@ -60,6 +69,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [manualReadyPattern, setManualReadyPattern] = useState('ready|listening|started|compiled');
   const [manualBuildCommand, setManualBuildCommand] = useState('npm run build');
   const [manualHasE2E, setManualHasE2E] = useState(false);
+  const [manualE2EInstructions, setManualE2EInstructions] = useState('');
   const [manualDependencyInstall, setManualDependencyInstall] = useState(false);
 
   const [creatingName, setCreatingName] = useState<string | null>(null);
@@ -85,6 +95,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setManualReadyPattern('ready|listening|started|compiled');
       setManualBuildCommand('npm run build');
       setManualHasE2E(false);
+      setManualE2EInstructions('');
       setManualDependencyInstall(false);
       setTimeout(() => setJustCreated(null), 3000); // Clear success after 3s
     }
@@ -109,6 +120,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
         },
         buildCommand: manualBuildCommand.trim() || 'npm run build',
         hasE2E: manualHasE2E,
+        e2eInstructions: manualE2EInstructions.trim() || undefined,
         dependencyInstall: manualDependencyInstall,
       });
     }
@@ -168,35 +180,95 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
         {/* Existing Projects */}
         {projectList.length > 0 ? (
           <Stack gap="xs">
-            {projectList.map(([projectName, config]) => (
-              <Card key={projectName} padding="xs" withBorder>
-                <Group justify="space-between">
-                  <Group gap="xs">
-                    <IconFolder size={16} />
-                    <Text fw={500}>{projectName}</Text>
-                  </Group>
-                  <Group gap="xs">
-                    <Badge size="xs" variant="light">
-                      {config.devServer.command}
-                    </Badge>
-                    {config.hasE2E && (
-                      <Badge size="xs" color="green" variant="light">
-                        E2E
+            {projectList.map(([projectName, config]) => {
+              const isExpanded = expandedProject === projectName;
+              return (
+                <Card key={projectName} padding="xs" withBorder>
+                  <Group justify="space-between">
+                    <Group gap="xs">
+                      {config.hasE2E ? (
+                        <ActionIcon
+                          size="xs"
+                          variant="subtle"
+                          onClick={() => {
+                            if (isExpanded) {
+                              setExpandedProject(null);
+                              setEditingE2EInstructions('');
+                            } else {
+                              setExpandedProject(projectName);
+                              setEditingE2EInstructions(config.e2eInstructions || '');
+                            }
+                          }}
+                        >
+                          {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                        </ActionIcon>
+                      ) : (
+                        <IconFolder size={16} />
+                      )}
+                      <Text fw={500}>{projectName}</Text>
+                    </Group>
+                    <Group gap="xs">
+                      <Badge size="xs" variant="light">
+                        {config.devServer.command}
                       </Badge>
-                    )}
-                    <ActionIcon
-                      size="xs"
-                      variant="subtle"
-                      color="red"
-                      onClick={() => onRemoveProject(projectName)}
-                    >
-                      <IconTrash size={12} />
-                    </ActionIcon>
+                      {config.hasE2E && (
+                        <Badge size="xs" color="green" variant="light">
+                          E2E
+                        </Badge>
+                      )}
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => onRemoveProject(projectName)}
+                      >
+                        <IconTrash size={12} />
+                      </ActionIcon>
+                    </Group>
                   </Group>
-                </Group>
-                <Text size="xs" c="dimmed" mt={4}>{config.path}</Text>
-              </Card>
-            ))}
+                  <Text size="xs" c="dimmed" mt={4}>{config.path}</Text>
+
+                  {/* Expandable E2E Instructions Editor */}
+                  <Collapse in={isExpanded}>
+                    <Stack gap="xs" mt="sm">
+                      <Divider />
+                      <Textarea
+                        label="E2E Testing Instructions"
+                        placeholder={`How to run E2E tests for this project. Example:
+
+1. Use Playwright MCP to interact with the browser
+2. Navigate to the dev server URL
+3. Test the user flows described in the test plan
+
+Or for backend:
+1. Use curl to test API endpoints
+2. Check response status codes and JSON bodies`}
+                        description="Custom methodology for running E2E tests (markdown supported). Leave empty to let the Planning Agent decide."
+                        value={editingE2EInstructions}
+                        onChange={(e) => setEditingE2EInstructions(e.target.value)}
+                        minRows={4}
+                        autosize
+                      />
+                      <Group justify="flex-end">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconDeviceFloppy size={14} />}
+                          onClick={() => {
+                            onUpdateProject(projectName, {
+                              e2eInstructions: editingE2EInstructions.trim() || undefined,
+                            });
+                            setExpandedProject(null);
+                          }}
+                        >
+                          Save Instructions
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Collapse>
+                </Card>
+              );
+            })}
           </Stack>
         ) : !isLoading && (
           <Text size="sm" c="dimmed" ta="center" py="md">
@@ -268,6 +340,26 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                     checked={manualHasE2E}
                     onChange={(e) => setManualHasE2E(e.currentTarget.checked)}
                   />
+
+                  <Collapse in={manualHasE2E}>
+                    <Textarea
+                      label="E2E Testing Instructions"
+                      placeholder={`How to run E2E tests for this project. Example:
+
+1. Use Playwright MCP to interact with the browser
+2. Navigate to the dev server URL
+3. Test the user flows described in the test plan
+
+Or for backend:
+1. Use curl to test API endpoints
+2. Check response status codes and JSON bodies`}
+                      description="Custom methodology for running E2E tests (markdown supported). Leave empty to let the Planning Agent decide."
+                      value={manualE2EInstructions}
+                      onChange={(e) => setManualE2EInstructions(e.target.value)}
+                      minRows={4}
+                      autosize
+                    />
+                  </Collapse>
 
                   <Checkbox
                     label="Install dependencies"

@@ -35,13 +35,14 @@ const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
   READY: { color: 'teal', label: 'Ready' },
   E2E: { color: 'violet', label: 'E2E Testing' },
   E2E_FIXING: { color: 'grape', label: 'Fixing E2E' },
-  BLOCKED: { color: 'red', label: 'Blocked' },
+  BLOCKED: { color: 'orange', label: 'Blocked' },
 };
 
 // Progress mapping based on status
 const getStatusProgress = (status: AgentStatus): number => {
   switch (status) {
     case 'PENDING': return 0;
+    case 'BLOCKED': return 5;  // Waiting on dependencies
     case 'WORKING': return 30;
     case 'DEBUGGING': return 40;
     case 'FATAL_DEBUGGING': return 45;
@@ -50,7 +51,6 @@ const getStatusProgress = (status: AgentStatus): number => {
     case 'E2E': return 85;
     case 'E2E_FIXING': return 80;
     case 'IDLE': return 100;
-    case 'BLOCKED': return 100;
     default: return 0;
   }
 };

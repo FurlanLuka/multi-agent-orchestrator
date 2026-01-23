@@ -23,7 +23,8 @@ export interface Session {
 // Plan
 export interface TaskDefinition {
   project: string;
-  task: string;
+  name: string;        // Short task name for display (e.g., "Add login form")
+  task: string;        // Full task description (markdown supported)
   dependencies: string[];
 }
 
@@ -147,9 +148,11 @@ export interface ProjectConfig {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
+    port?: number;
   };
   buildCommand?: string;
   hasE2E: boolean;
+  e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
 }
 
 // Queue status for Planning Agent visibility
@@ -169,6 +172,31 @@ export interface QueueStatus {
     type: string;
     project?: string;
   };
+}
+
+// Task status tracking for dependency-aware execution
+export type TaskStatus = 'pending' | 'waiting' | 'working' | 'completed' | 'failed';
+
+export interface TaskState {
+  taskId: string;
+  project: string;
+  name: string;         // Short task name for display
+  description: string;  // Full task description (markdown)
+  status: TaskStatus;
+  dependencies: string[];
+  waitingOn: string[];  // Remaining dependencies
+  message?: string;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+export interface TaskStatusEvent {
+  taskId: string;
+  project: string;
+  status: TaskStatus;
+  waitingOn?: string[];
+  message?: string;
+  timestamp: number;
 }
 
 // Test status tracking for E2E tests

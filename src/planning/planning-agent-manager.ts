@@ -419,11 +419,25 @@ User: ${newMessage}`;
       projectInfo = `Available projects and their paths:\n${pathList}`;
     }
 
+    // Identify projects with E2E testing disabled
+    const projectsWithoutE2E = projects.filter(p => {
+      const config = this.projectConfig[p];
+      return config && config.hasE2E === false;
+    });
+
+    const e2eExclusionNote = projectsWithoutE2E.length > 0
+      ? `\n\nE2E TESTING EXCLUSIONS:
+The following projects have E2E testing DISABLED (hasE2E: false in config):
+${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
+
+DO NOT include these projects in the "testPlan" section. Only include projects that have E2E testing enabled.`
+      : '';
+
     const prompt = `Create a detailed implementation plan for this feature:
 
 Feature: ${feature}
 
-${projectInfo}
+${projectInfo}${e2eExclusionNote}
 
 IMPORTANT: Before creating the plan, you MUST:
 1. Read projects.config.json to understand project configurations
@@ -441,6 +455,7 @@ CRITICAL RULES FOR TASKS:
 - DO NOT tell agents to start dev servers, run npm start, or run npm run dev - the orchestrator already manages dev servers
 - Testing is handled SEPARATELY via E2E testing after implementation completes
 - The "testPlan" section is for E2E test scenarios only (run via Playwright), NOT unit tests
+- DO NOT include projects with hasE2E: false in the testPlan section
 
 After exploring, create a plan in this JSON format:
 \`\`\`json
@@ -449,8 +464,15 @@ After exploring, create a plan in this JSON format:
   "description": "Brief description",
   "tasks": [
     {
-      "project": "project_name",
-      "task": "Detailed IMPLEMENTATION task (no tests!) that references specific files/patterns found",
+      "project": "backend",
+      "name": "Add API endpoint",
+      "task": "Detailed IMPLEMENTATION task description...",
+      "dependencies": []
+    },
+    {
+      "project": "frontend",
+      "name": "Create UI component",
+      "task": "Detailed IMPLEMENTATION task description (include expected API contract so FE can work in parallel)...",
       "dependencies": []
     }
   ],
@@ -459,6 +481,21 @@ After exploring, create a plan in this JSON format:
   }
 }
 \`\`\`
+
+TASK FORMAT RULES:
+- "name": Short, action-oriented title (3-6 words) shown in collapsed view
+- "task": Full detailed description with markdown formatting, file paths, and implementation details
+- "dependencies": Array of PROJECT NAMES (not task names) that THIS task depends on
+  - IMPORTANT: Dependencies control BOTH task execution AND E2E test order
+  - If project A's task depends on project B, then:
+    1. Task A will wait for Task B to complete before starting
+    2. Project A's E2E tests will wait for Project B's E2E tests to complete
+  - Use dependencies when: Frontend needs backend API to be implemented and tested first
+  - Example: Frontend UI that calls a backend API should have dependencies: ["backend-project-name"]
+  - Tasks with empty dependencies [] start immediately in parallel
+  - For parallel development with a known API contract, you can use empty dependencies, but BE AWARE:
+    - If frontend depends on backend, frontend E2E tests will fail if backend isn't ready
+    - Set dependencies when one project CALLS or USES another project's implementation
 
 Start by exploring the project directories, then create the plan.`;
 

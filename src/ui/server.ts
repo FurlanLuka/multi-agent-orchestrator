@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -113,6 +113,8 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
 
     if (deps?.statusMonitor) {
       socket.emit('statuses', deps.statusMonitor.getStatusesObject());
+      // Send initial task states
+      socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
     }
 
     if (deps?.approvalQueue) {
@@ -195,6 +197,16 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('chatStream', event);
   };
 
+  // Emit task status events
+  const emitTaskStatus = (event: TaskStatusEvent) => {
+    io.emit('taskStatus', event);
+  };
+
+  // Emit all task states (for full sync)
+  const emitTaskStates = (states: TaskState[]) => {
+    io.emit('taskStates', states);
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -205,6 +217,8 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitSessionCreated = emitSessionCreated;
   (io as any).emitPlanProposal = emitPlanProposal;
   (io as any).emitAllComplete = emitAllComplete;
+  (io as any).emitTaskStatus = emitTaskStatus;
+  (io as any).emitTaskStates = emitTaskStates;
 
   return {
     app,

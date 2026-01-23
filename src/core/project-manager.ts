@@ -11,9 +11,11 @@ export interface AddProjectOptions {
     command: string;
     readyPattern: string;
     env?: Record<string, string>;
+    port?: number;
   };
   buildCommand?: string;
   hasE2E?: boolean;
+  e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
   dependencyInstall?: boolean;
 }
 
@@ -76,6 +78,31 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
+   * Ensures an entry exists in .gitignore (creates file if needed)
+   */
+  private ensureGitignoreEntry(projectPath: string, entry: string): void {
+    const gitignorePath = path.join(projectPath, '.gitignore');
+
+    let content = '';
+    if (fs.existsSync(gitignorePath)) {
+      content = fs.readFileSync(gitignorePath, 'utf-8');
+      // Check if entry already exists (as whole line)
+      const lines = content.split('\n').map(l => l.trim());
+      if (lines.includes(entry)) {
+        return; // Already present
+      }
+    }
+
+    // Append entry with newline
+    const newContent = content.endsWith('\n') || content === ''
+      ? `${content}${entry}\n`
+      : `${content}\n${entry}\n`;
+
+    fs.writeFileSync(gitignorePath, newContent);
+    console.log(`[ProjectManager] Added '${entry}' to .gitignore`);
+  }
+
+  /**
    * Gets all configured projects
    */
   getProjects(): Record<string, ProjectConfig> {
@@ -93,7 +120,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, buildCommand, hasE2E, dependencyInstall } = options;
+    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -112,14 +139,16 @@ export class ProjectManager extends EventEmitter {
       devServer: devServer ? {
         command: devServer.command,
         readyPattern: devServer.readyPattern,
-        env: devServer.env || {}
+        env: devServer.env || {},
+        port: devServer.port
       } : {
         command: 'npm run dev',
         readyPattern: 'ready|listening|started|compiled',
         env: {}
       },
       buildCommand: buildCommand || 'npm run build',
-      hasE2E: hasE2E ?? false
+      hasE2E: hasE2E ?? false,
+      e2eInstructions: e2eInstructions
     };
 
     // Add to config
@@ -266,6 +295,9 @@ export class ProjectManager extends EventEmitter {
     }
 
     const projectPath = this.expandPath(projectConfig.path);
+
+    // Add .session to .gitignore if not already present
+    this.ensureGitignoreEntry(projectPath, '.session');
 
     // Ensure .claude directory exists
     const claudeDir = path.join(projectPath, '.claude');

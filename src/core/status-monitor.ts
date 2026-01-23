@@ -1,9 +1,10 @@
 import { EventEmitter } from 'events';
-import { AgentStatus, ProjectState } from '../types';
+import { AgentStatus, ProjectState, TaskState, TaskStatus, TaskDefinition } from '../types';
 import { SessionStore } from './session-store';
 
 export class StatusMonitor extends EventEmitter {
   private states: Map<string, ProjectState> = new Map();
+  private taskStates: Map<string, TaskState> = new Map();
   private sessionStore: SessionStore | null = null;
   private currentSessionId: string | null = null;
 
@@ -184,11 +185,81 @@ export class StatusMonitor extends EventEmitter {
     }
   }
 
+  // ==================== Task State Tracking ====================
+
+  /**
+   * Initializes task states from plan tasks
+   */
+  initializeTasks(tasks: TaskDefinition[]): void {
+    this.taskStates.clear();
+    tasks.forEach((task, index) => {
+      const taskId = `${task.project}:${index}`;
+      this.taskStates.set(taskId, {
+        taskId,
+        project: task.project,
+        name: task.name || `Task ${index + 1}`,  // Fallback for legacy plans without name
+        description: task.task,
+        status: 'pending',
+        dependencies: task.dependencies,
+        waitingOn: []
+      });
+    });
+    console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
+  }
+
+  /**
+   * Updates the status of a task
+   */
+  updateTaskStatus(taskId: string, status: TaskStatus, message?: string, waitingOn?: string[]): void {
+    const task = this.taskStates.get(taskId);
+    if (task) {
+      const prevStatus = task.status;
+      task.status = status;
+      task.message = message;
+      if (waitingOn !== undefined) task.waitingOn = waitingOn;
+      if (status === 'working' && !task.startedAt) task.startedAt = Date.now();
+      if (status === 'completed' || status === 'failed') task.completedAt = Date.now();
+
+      console.log(`[StatusMonitor] Task ${taskId}: ${prevStatus} → ${status}${message ? ` (${message})` : ''}`);
+
+      this.emit('taskStatusChange', {
+        taskId,
+        project: task.project,
+        status,
+        waitingOn: task.waitingOn,
+        message,
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  /**
+   * Gets a task state by ID
+   */
+  getTaskState(taskId: string): TaskState | undefined {
+    return this.taskStates.get(taskId);
+  }
+
+  /**
+   * Gets all task states as an array
+   */
+  getAllTaskStates(): TaskState[] {
+    return Array.from(this.taskStates.values());
+  }
+
+  /**
+   * Gets tasks for a specific project
+   */
+  getTasksForProject(project: string): TaskState[] {
+    return Array.from(this.taskStates.values()).filter(t => t.project === project);
+  }
+
   /**
    * Clears all statuses
    */
   clear(): void {
     this.states.clear();
+    this.taskStates.clear();
     this.currentSessionId = null;
   }
 
