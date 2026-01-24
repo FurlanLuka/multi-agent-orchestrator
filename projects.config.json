@@ -21,32 +21,12 @@
       "hasE2E": true,
       "e2eInstructions": "### 1. Setup Test Credentials\n\n```bash\nnpm run test:e2e:setup\n```\n\nRead credentials from `playwright/.auth/test-data.json`.\n\n### 2. Use playwright MCP to navigate dev server deployment and click through using playwright MCP"
     },
-    "airbnb-frontend": {
-      "path": "~/Documents/airbnb-frontend",
-      "devServer": {
-        "command": "npm run dev",
-        "readyPattern": "Local:.*http|ready in",
-        "env": {}
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true
-    },
-    "airbnb-backend": {
-      "path": "~/Documents/airbnb-backend",
-      "devServer": {
-        "command": "npm run start:dev",
-        "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "env": {}
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true
-    },
     "blog-fe": {
       "path": "~/Documents/blog-fe",
       "devServer": {
         "command": "npm run dev",
         "readyPattern": "Local:.*http|ready in",
-        "port": 5173,                                                                                                                                                                                                      
+        "port": 5173,
         "url": "http://localhost:5173",
         "env": {}
       },
@@ -58,7 +38,7 @@
       "devServer": {
         "command": "npm run start:dev",
         "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "port": 3000,                                                                                                                                                                                                      
+        "port": 3000,
         "url": "http://localhost:3000",
         "env": {}
       },
@@ -70,6 +50,30 @@
       "devServer": {
         "command": "npm run dev",
         "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "airbnb-be": {
+      "path": "~/Documents/airbnb-be",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "port": 3000,
+        "url": "http://localhost:3000",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "airbnb-fe": {
+      "path": "~/Documents/airbnb-fe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "port": 5173,
+        "url": "http://localhost:5173",
         "env": {}
       },
       "buildCommand": "npm run build",

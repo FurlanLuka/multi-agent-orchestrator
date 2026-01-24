@@ -9,13 +9,14 @@ import { StateMachine } from './state-machine';
  */
 const VALID_TRANSITIONS: Record<AgentStatus, AgentStatus[]> = {
   PENDING: ['WORKING', 'BLOCKED', 'IDLE'],
-  WORKING: ['READY', 'DEBUGGING', 'FATAL_DEBUGGING', 'BLOCKED', 'IDLE'],
+  WORKING: ['READY', 'DEBUGGING', 'FATAL_DEBUGGING', 'BLOCKED', 'IDLE', 'FAILED'],
   DEBUGGING: ['WORKING', 'BLOCKED', 'FATAL_DEBUGGING', 'IDLE'],
   FATAL_DEBUGGING: ['WORKING', 'BLOCKED', 'IDLE'],
   READY: ['E2E', 'IDLE', 'BLOCKED'],
-  E2E: ['IDLE', 'E2E_FIXING', 'BLOCKED'],
-  E2E_FIXING: ['E2E', 'IDLE', 'BLOCKED', 'WORKING'],
+  E2E: ['IDLE', 'E2E_FIXING', 'BLOCKED', 'FAILED'],
+  E2E_FIXING: ['E2E', 'IDLE', 'BLOCKED', 'WORKING', 'FAILED'],
   BLOCKED: ['WORKING', 'IDLE', 'PENDING'],
+  FAILED: ['WORKING', 'IDLE', 'BLOCKED'],  // User can retry or skip
   IDLE: ['WORKING', 'PENDING', 'E2E'],  // IDLE can restart if needed
 };
 
@@ -87,7 +88,7 @@ export class StateManager extends EventEmitter {
     // Sync agent activity tracking
     if (status === 'WORKING' || status === 'E2E' || status === 'E2E_FIXING') {
       this.markAgentActive(project);
-    } else if (status === 'IDLE' || status === 'BLOCKED' || status === 'READY') {
+    } else if (status === 'IDLE' || status === 'BLOCKED' || status === 'READY' || status === 'FAILED') {
       this.markAgentIdle(project);
     }
 

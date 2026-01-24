@@ -143,6 +143,8 @@ export class ActionExecutor extends EventEmitter {
 
   /**
    * Sends a prompt to an agent via stdin
+   * Note: This is used for task execution during automatic flow.
+   * For user-initiated fixes, use sendUserFix() instead.
    */
   private async executeSendToAgent(action: SendToAgentAction): Promise<void> {
     console.log(`[ActionExecutor] Sending prompt to ${action.project}`);
@@ -174,7 +176,7 @@ export class ActionExecutor extends EventEmitter {
           return;
         } else {
           // Recovery failed, mark as fatal
-          this.statusMonitor.updateStatus(action.project, 'FATAL_DEBUGGING',
+          this.statusMonitor.updateStatus(action.project, 'FAILED',
             'Dev server not responding after recovery attempts');
           this.stateMachine.markAgentIdle(action.project);
           this.retryCount.delete(action.project);
@@ -195,6 +197,47 @@ export class ActionExecutor extends EventEmitter {
     } catch (err) {
       console.error(`[ActionExecutor] Failed to send prompt to ${action.project}:`, err);
       this.emit('error', { action, error: 'Failed to send prompt' });
+    }
+  }
+
+  /**
+   * Sends a user-initiated fix prompt to an agent.
+   * Does NOT automatically update status - returns result for verification.
+   * Used when user provides a fix for a FAILED task.
+   */
+  async sendUserFix(project: string, prompt: string): Promise<string> {
+    console.log(`[ActionExecutor] Sending user fix to ${project}`);
+
+    // Update to WORKING while processing
+    this.statusMonitor.updateStatus(project, 'WORKING', 'Applying user fix...');
+    this.stateMachine.markAgentActive(project);
+    this.emit('userFixPromptSent', { project });
+
+    try {
+      const result = await this.processManager.sendToAgent(project, prompt);
+      console.log(`[ActionExecutor] User fix completed for ${project} (${result.length} chars)`);
+
+      // Check for dev server issues
+      if (this.detectsDevServerIssue(result)) {
+        console.log(`[ActionExecutor] Detected dev server issue during user fix for ${project}`);
+        const recovered = await this.attemptDevServerRecovery(project);
+        if (!recovered) {
+          this.statusMonitor.updateStatus(project, 'FAILED', 'Dev server not responding');
+          this.stateMachine.markAgentIdle(project);
+          throw new Error('Dev server recovery failed');
+        }
+        // Retry with recovered server
+        return this.sendUserFix(project, prompt);
+      }
+
+      // Don't update status here - let caller handle verification result
+      this.stateMachine.markAgentIdle(project);
+      return result;
+    } catch (err) {
+      console.error(`[ActionExecutor] User fix failed for ${project}:`, err);
+      this.statusMonitor.updateStatus(project, 'FAILED', `Fix failed: ${err}`);
+      this.stateMachine.markAgentIdle(project);
+      throw err;
     }
   }
 

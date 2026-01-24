@@ -408,7 +408,7 @@ export class ProcessManager extends EventEmitter {
           this.currentAgentProcess.delete(project);
           reject(new Error('Agent timeout'));
         }
-      }, 300000); // 5 minute timeout for agent tasks
+      }, 300000 * 3); // 15 minute timeout for agent tasks
 
       proc.on('exit', () => clearTimeout(timeout));
     });

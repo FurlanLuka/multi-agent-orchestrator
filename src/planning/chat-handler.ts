@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent, ChatStreamEvent } from '../types';
+import { Plan, ChatEvent, ChatStreamEvent, PlanningAction } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -114,7 +114,19 @@ export class ChatHandler extends EventEmitter {
 
     // Send to Planning Agent (now async)
     try {
-      await this.planningAgent.sendChat(message);
+      const response = await this.planningAgent.sendChat(message);
+
+      // Check for action marker in response
+      const actionMatch = response.match(/\[ACTION\]\s*(\{.*\})/);
+      if (actionMatch) {
+        try {
+          const action = JSON.parse(actionMatch[1]) as PlanningAction;
+          console.log('[ChatHandler] User-requested action detected:', action.type);
+          this.emit('userAction', action);
+        } catch (parseErr) {
+          console.error('[ChatHandler] Failed to parse action JSON:', parseErr);
+        }
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${error.message}`);
@@ -177,11 +189,11 @@ export class ChatHandler extends EventEmitter {
   /**
    * Requests E2E prompt for a project
    */
-  async requestE2EPrompt(project: string, taskSummary: string, testScenarios: string[]): Promise<string> {
+  async requestE2EPrompt(project: string, taskSummary: string, testScenarios: string[], devServerUrl?: string): Promise<string> {
     this.addMessage('system', `Generating E2E test prompt for ${project}...`);
 
     try {
-      return await this.planningAgent.requestE2EPrompt({ project, taskSummary, testScenarios });
+      return await this.planningAgent.requestE2EPrompt({ project, taskSummary, testScenarios, devServerUrl });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${error.message}`);

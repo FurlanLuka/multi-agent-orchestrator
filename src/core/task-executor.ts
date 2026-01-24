@@ -128,10 +128,11 @@ export class TaskExecutor extends EventEmitter {
         console.log(`[TaskExecutor] Suggested action: ${analysis.suggestedAction}`);
 
         if (fixAttempts >= this.MAX_FIX_ATTEMPTS || analysis.suggestedAction === 'escalate') {
-          console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} attempts`);
+          console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} attempts - requires user intervention`);
           this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
-          this.statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', analysis.analysis);
-          this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis });
+          // Use FAILED status to indicate user intervention required
+          this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
+          this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis, requiresUserAction: true });
           return {
             success: false,
             taskIndex,
@@ -173,8 +174,9 @@ export class TaskExecutor extends EventEmitter {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[TaskExecutor] Task #${taskIndex} (${task.project}) failed:`, err);
       this.statusMonitor.updateTaskStatus(taskIndex, 'failed', `Task failed: ${errorMsg}`);
-      this.statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', `Task failed: ${errorMsg}`);
-      this.emit('taskFailed', { taskIndex, project: task.project, error: errorMsg });
+      // Use FAILED status to indicate user intervention required
+      this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${errorMsg}. User intervention required.`);
+      this.emit('taskFailed', { taskIndex, project: task.project, error: errorMsg, requiresUserAction: true });
       return {
         success: false,
         taskIndex,

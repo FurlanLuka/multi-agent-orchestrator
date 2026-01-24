@@ -240,12 +240,16 @@ async function main() {
   }));
 
   // Handle E2E prompt requests from queue
-  eventQueue.on('e2ePromptRequest', wrapHandler('e2ePromptRequest', async ({ project, taskSummary, testScenarios }: {
+  eventQueue.on('e2ePromptRequest', wrapHandler('e2ePromptRequest', async ({ project, taskSummary, testScenarios, devServerUrl }: {
     project: string;
     taskSummary: string;
     testScenarios: string[];
+    devServerUrl?: string;
   }) => {
-    const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios);
+    // Clear tracking now that we're processing this E2E request
+    e2eQueuedProjects.delete(project);
+
+    const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios, devServerUrl);
     if (e2ePrompt && e2ePrompt.trim()) {
       console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
       await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
@@ -460,6 +464,8 @@ After fixing, the E2E tests will be re-run automatically.`;
   stateMachine.on('stateChange', ({ previous, current }) => {
     console.log(`[Orchestrator] State: ${previous} → ${current}`);
     (ui.io as any).emit('stateChange', { state: current });
+    // Keep Planning Agent informed of orchestrator state
+    planningAgent.setOrchestratorState(current);
   });
 
   stateMachine.on('paused', () => {
@@ -476,6 +482,15 @@ After fixing, the E2E tests will be re-run automatically.`;
 
   statusMonitor.on('statusChange', ({ project, status, message }) => {
     (ui.io as any).emitStatus(project, status, message);
+    // Keep Planning Agent informed of project statuses for user action requests
+    const allStatuses: Record<string, { status: any; message: string }> = {};
+    for (const proj of Object.keys(config.projects)) {
+      const projStatus = statusMonitor.getStatus(proj);
+      if (projStatus) {
+        allStatuses[proj] = { status: projStatus.status, message: projStatus.message };
+      }
+    }
+    planningAgent.setProjectStatuses(allStatuses);
   });
 
   // Forward task status changes to UI
@@ -485,6 +500,9 @@ After fixing, the E2E tests will be re-run automatically.`;
 
   // Track projects waiting for E2E (waiting on other projects)
   const pendingE2E: Map<string, { message: string; waitingOn: string[] }> = new Map();
+
+  // Track projects with E2E requests already in the queue (prevents duplicates)
+  const e2eQueuedProjects: Set<string> = new Set();
 
   // Helper to get dev server URL for a project
   const getDevServerUrl = (project: string): string => {
@@ -511,6 +529,18 @@ After fixing, the E2E tests will be re-run automatically.`;
   const tryTriggerE2E = async (project: string, message: string) => {
     const session = sessionManager.getCurrentSession();
     const projectConfig = config.projects[project];
+
+    // Guard: Skip if project already has E2E queued or is running E2E
+    const currentStatus = statusMonitor.getStatus(project)?.status;
+    if (currentStatus === 'E2E' || currentStatus === 'E2E_FIXING') {
+      console.log(`[Orchestrator] Skipping E2E for ${project} - already in ${currentStatus} status`);
+      return;
+    }
+
+    if (e2eQueuedProjects.has(project)) {
+      console.log(`[Orchestrator] Skipping E2E for ${project} - already has E2E request queued`);
+      return;
+    }
 
     // Skip E2E if project has hasE2E: false
     if (projectConfig && projectConfig.hasE2E === false) {
@@ -591,6 +621,7 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
     // Queue E2E prompt request - will be processed when Planning Agent is free
     console.log(`[Orchestrator] Queueing E2E prompt request for ${project}`);
+    e2eQueuedProjects.add(project);  // Track to prevent duplicates
     eventQueue.add({
       type: 'e2e_prompt_request',
       project,
@@ -627,6 +658,15 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
     // The E2E completion handler manages the re-run explicitly to avoid duplicate prompts
     if (previous === 'E2E_FIXING') {
       console.log(`[Orchestrator] Skipping auto E2E trigger for ${project} - E2E re-run is managed by e2eComplete handler`);
+      return;
+    }
+
+    // Skip E2E for ad-hoc work on already-completed projects
+    // When a user sends a prompt to an IDLE project, it goes IDLE → WORKING → READY
+    // We don't want to re-run E2E for these ad-hoc tasks
+    if (previous === 'IDLE') {
+      console.log(`[Orchestrator] Skipping E2E for ad-hoc work on completed project ${project}`);
+      statusMonitor.updateStatus(project, 'IDLE', 'Ad-hoc task completed');
       return;
     }
 
@@ -740,6 +780,148 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
     // Note: sessionStore.setPlan already clears pendingPlan
   });
 
+  // Track failed task index per project for continuation after user fix
+  const failedTaskIndex: Map<string, number> = new Map();
+
+  // Handle user-requested actions from chat
+  chatHandler.on('userAction', async (action: any) => {
+    console.log(`[Orchestrator] Executing user-requested action: ${action.type}`);
+
+    try {
+      // Handle restart_server - always allowed
+      if (action.type === 'restart_server') {
+        await actionExecutor.execute(action);
+        return;
+      }
+
+      // For send_to_agent and send_e2e, check project status
+      if (action.type === 'send_to_agent' || action.type === 'send_e2e') {
+        const projectStatus = statusMonitor.getStatus(action.project);
+        const status = projectStatus?.status;
+
+        // Only allow when FAILED or IDLE
+        if (status !== 'FAILED' && status !== 'IDLE') {
+          chatHandler.systemMessage(
+            `Cannot send prompt to ${action.project} - project is ${status}. ` +
+            `Prompts can only be sent when project is FAILED (needs fix) or IDLE (completed).`
+          );
+          return;
+        }
+
+        if (status === 'IDLE') {
+          // Ad-hoc work on completed project - just run it, no verification
+          console.log(`[Orchestrator] Ad-hoc prompt to IDLE project ${action.project}`);
+          try {
+            await actionExecutor.sendUserFix(action.project, action.prompt);
+            // Keep status as IDLE (handled by projectReady skip for previous=IDLE)
+            statusMonitor.updateStatus(action.project, 'IDLE', 'Ad-hoc task completed');
+            chatHandler.systemMessage(`Ad-hoc task completed for ${action.project}.`);
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            chatHandler.systemMessage(`Ad-hoc task failed: ${errorMsg}`);
+          }
+          return;
+        }
+
+        if (status === 'FAILED') {
+          // User is providing a fix for failed task - run with verification
+          console.log(`[Orchestrator] User fix for FAILED project ${action.project}`);
+          chatHandler.systemMessage(`Applying fix to ${action.project}...`);
+
+          try {
+            // Run the user's fix
+            await actionExecutor.sendUserFix(action.project, action.prompt);
+
+            // Run verification using TaskExecutor's logic
+            if (!taskExecutor) {
+              throw new Error('TaskExecutor not initialized');
+            }
+
+            const session = sessionManager.getCurrentSession();
+            const failedIdx = failedTaskIndex.get(action.project);
+            const failedTask = failedIdx !== undefined && session?.plan?.tasks[failedIdx];
+
+            if (!failedTask) {
+              // No specific task context, just mark as ready
+              statusMonitor.updateStatus(action.project, 'READY', 'User fix applied');
+              return;
+            }
+
+            // Collect verification context
+            chatHandler.systemMessage(`Verifying fix for ${action.project}...`);
+            const verificationContext = await (taskExecutor as any).collectVerificationContext(
+              action.project,
+              failedTask.name,
+              failedTask.task
+            );
+
+            // Let Planning Agent analyze
+            const analysis = await planningAgent.analyzeTaskResult(verificationContext);
+
+            if (analysis.passed) {
+              // Fix worked! Check if there are more tasks for this project
+              console.log(`[Orchestrator] User fix PASSED for ${action.project}`);
+              chatHandler.systemMessage(`✓ Fix verified!`);
+              failedTaskIndex.delete(action.project);
+              statusMonitor.updateTaskStatus(failedIdx, 'completed', 'Fixed by user');
+
+              // Check for remaining tasks after the fixed one
+              const allTasks = session?.plan?.tasks || [];
+              const remainingTasks = allTasks
+                .map((t, idx) => ({ task: t, taskIndex: idx }))
+                .filter(({ task, taskIndex }) =>
+                  task.project === action.project && taskIndex > failedIdx
+                );
+
+              if (remainingTasks.length > 0) {
+                // Continue with remaining tasks
+                chatHandler.systemMessage(`Continuing with ${remainingTasks.length} remaining task(s)...`);
+                for (const { task, taskIndex } of remainingTasks) {
+                  console.log(`[Orchestrator] Resuming task #${taskIndex} (${action.project}:${task.name})`);
+                  statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Starting...');
+
+                  const result = await taskExecutor!.executeTask(task, taskIndex);
+
+                  if (!result.success) {
+                    console.log(`[Orchestrator] Task #${taskIndex} failed, stopping for user intervention`);
+                    chatHandler.systemMessage(
+                      `Task "${task.name}" failed. Execution stopped. Please provide a fix instruction.`
+                    );
+                    return; // Stop and wait for user
+                  }
+                }
+                // All remaining tasks completed
+                statusMonitor.updateStatus(action.project, 'READY', 'All tasks completed');
+              } else {
+                // No more tasks, go to READY (triggers E2E)
+                statusMonitor.updateStatus(action.project, 'READY', 'User fix verified');
+              }
+            } else {
+              // Fix didn't work - back to FAILED
+              console.log(`[Orchestrator] User fix FAILED for ${action.project}: ${analysis.analysis}`);
+              chatHandler.systemMessage(`✗ Fix verification failed: ${analysis.analysis}`);
+              statusMonitor.updateStatus(action.project, 'FAILED', analysis.analysis);
+            }
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[Orchestrator] User fix failed:`, err);
+            chatHandler.systemMessage(`Fix failed: ${errorMsg}`);
+            statusMonitor.updateStatus(action.project, 'FAILED', errorMsg);
+          }
+          return;
+        }
+      }
+
+      // Fallback for other action types
+      await actionExecutor.execute(action);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Orchestrator] Failed to execute user action:`, err);
+      chatHandler.systemMessage(`Failed to execute action: ${errorMsg}`);
+    }
+  });
+
+  
   // Forward streaming events to UI for agentic chat
   // Also persist chat messages on message_complete
   chatHandler.on('stream', (event) => {
@@ -928,6 +1110,12 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
         getDevServerUrl
       });
 
+      // Track failed tasks for user fix continuation
+      taskExecutor.on('taskFailed', ({ taskIndex, project }: { taskIndex: number; project: string }) => {
+        console.log(`[Orchestrator] Tracking failed task #${taskIndex} for ${project}`);
+        failedTaskIndex.set(project, taskIndex);
+      });
+
       // Run tasks: parallel across projects, sequential within each project
       const projectPromises = Array.from(tasksByProject.entries()).map(async ([project, projectTasks]) => {
         console.log(`[Orchestrator] Starting ${projectTasks.length} task(s) for ${project}`);
@@ -941,7 +1129,13 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
           if (!result.success) {
             console.error(`[Orchestrator] Task #${taskIndex} failed: ${result.message}`);
-            // Continue with next task even if one fails
+            // STOP execution on this project - status is FAILED, wait for user intervention
+            console.log(`[Orchestrator] Stopping execution for ${project} - requires user intervention`);
+            chatHandler.systemMessage(
+              `Task "${task.name}" failed for ${project}. Execution stopped. ` +
+              `Please provide a fix instruction to continue.`
+            );
+            return; // Exit the task loop for this project
           }
         }
 

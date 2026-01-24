@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus } from '../types';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -50,6 +50,10 @@ export class PlanningAgentManager extends EventEmitter {
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
   private projectConfig: Record<string, ProjectConfig> = {};
 
+  // State tracking for user action requests
+  private orchestratorState: OrchestratorState = 'IDLE';
+  private projectStatuses: Record<string, { status: AgentStatus; message: string }> = {};
+
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
     CHAT: 120000,           // 2 min - general chat responses
@@ -70,6 +74,45 @@ export class PlanningAgentManager extends EventEmitter {
    */
   setProjectConfig(config: Record<string, ProjectConfig>): void {
     this.projectConfig = config;
+  }
+
+  /**
+   * Sets the current orchestrator state (IDLE, RUNNING, PAUSED, etc.)
+   */
+  setOrchestratorState(state: OrchestratorState): void {
+    this.orchestratorState = state;
+  }
+
+  /**
+   * Sets the current project statuses
+   */
+  setProjectStatuses(statuses: Record<string, { status: AgentStatus; message: string }>): void {
+    this.projectStatuses = statuses;
+  }
+
+  /**
+   * Builds a human-readable state context for the Planning Agent
+   */
+  private buildStateContext(): string {
+    const lines: string[] = [];
+
+    // Orchestrator state
+    lines.push(`Orchestrator State: ${this.orchestratorState}`);
+
+    // Project statuses
+    if (Object.keys(this.projectStatuses).length > 0) {
+      lines.push('\nProject Statuses:');
+      for (const [project, info] of Object.entries(this.projectStatuses)) {
+        lines.push(`- ${project}: ${info.status}${info.message ? ` (${info.message})` : ''}`);
+      }
+    }
+
+    // Queue status note
+    if (this.orchestratorState === 'RUNNING') {
+      lines.push('\nNote: The orchestrator is currently running tasks. User-requested actions will go through the event queue.');
+    }
+
+    return lines.join('\n');
   }
 
   /**
@@ -137,12 +180,55 @@ When a user asks you to implement a feature:
 3. Present the plan for approval
 4. Never start implementing yourself - worker agents will do the actual coding
 
-IMPORTANT: The user might ask about features like "comments", "authentication", etc. These features exist in the PROJECT codebases, not in the orchestrator. Always look in the registered project directories.`;
+IMPORTANT: The user might ask about features like "comments", "authentication", etc. These features exist in the PROJECT codebases, not in the orchestrator. Always look in the registered project directories.
+
+## USER ACTION REQUESTS
+
+Users may ask you to perform actions like:
+- "restart backend server"
+- "send a prompt to frontend agent"
+- "run e2e tests on backend"
+
+### Available Actions
+- {"type": "restart_server", "project": "projectName"} - Always allowed
+- {"type": "send_to_agent", "project": "projectName", "prompt": "..."} - Only when FAILED or IDLE
+- {"type": "send_e2e", "project": "projectName", "prompt": "..."} - Only when FAILED or IDLE
+
+### CRITICAL: When Can You Send Prompts to Agents?
+
+**ONLY send prompts to project agents (send_to_agent, send_e2e) when:**
+- Project status is **FAILED** - Task failed, user is providing a fix
+- Project status is **IDLE** - All tasks complete, user wants refinements
+
+**NEVER send prompts when project is:**
+- **WORKING** - Automatic task execution in progress
+- **E2E** - E2E tests running
+- **E2E_FIXING** - Automatic E2E fix in progress
+- **PENDING** - Not started yet
+
+If user asks to send a prompt during automatic execution, explain:
+"The [project] agent is currently executing a task automatically. Please wait for it to complete or fail before sending instructions."
+
+### Response Format
+When executing an action, respond with BOTH:
+1. A brief explanation of what you're doing
+2. The action JSON on its own line with the [ACTION] marker:
+   [ACTION] {"type": "restart_server", "project": "backend"}
+
+When NOT executing (refusing):
+- Explain why based on the current project status
+- Tell user what status would allow the action`;
+
+    // Build state context for user action requests
+    const stateContext = this.buildStateContext();
 
     if (this.conversationHistory.length === 0) {
       return `${systemPrompt}
 
-${newMessage}`;
+## Current Orchestrator State
+${stateContext}
+
+User: ${newMessage}`;
     }
 
     // Include recent conversation history for context
@@ -152,6 +238,9 @@ ${newMessage}`;
       .join('\n\n');
 
     return `${systemPrompt}
+
+## Current Orchestrator State
+${stateContext}
 
 Previous conversation:
 ${historyText}

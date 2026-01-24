@@ -32,6 +32,7 @@ export type AgentStatus =
   | 'READY'
   | 'E2E'
   | 'E2E_FIXING'    // Fixing issues found in E2E tests
+  | 'FAILED'        // Task failed, requires user intervention to continue
   | 'BLOCKED';
 
 // Outbox event types (agent → orchestrator)
