@@ -282,6 +282,8 @@ export class ActionExecutor extends EventEmitter {
       const result = await this.processManager.sendToAgent(project, fixPrompt);
       console.log(`[ActionExecutor] Agent ${project} completed E2E fix (${result.length} chars)`);
 
+      // Update status to READY - fix is complete, waiting for E2E re-run to verify
+      this.statusMonitor.updateStatus(project, 'READY', 'Fix applied, awaiting E2E verification');
       this.stateMachine.markAgentIdle(project);
       this.emit('e2eFixComplete', { project, result });
 

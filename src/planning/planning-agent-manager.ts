@@ -447,31 +447,55 @@ ${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
 DO NOT include these projects in the "testPlan" section. Only include projects that have E2E testing enabled.`
       : '';
 
-    const prompt = `Create a detailed implementation plan for this feature:
+    const prompt = `You are a senior software architect planning an implementation.
 
-Feature: ${feature}
+## YOUR TASK
+Create a detailed implementation plan for: ${feature}
 
 ${projectInfo}${e2eExclusionNote}
 
-IMPORTANT: Before creating the plan, you MUST:
-1. Read projects.config.json to understand project configurations
-2. Explore each project directory to understand its structure:
-   - Read package.json to see dependencies and scripts
-   - Look at the src/ directory structure
-   - Check for existing patterns, components, services, etc.
-   - Review any existing .claude/skills/ files for context
-3. Based on your exploration, create tasks that fit the existing codebase patterns
+## PHASE 1: EXPLORATION (Required - Do this FIRST)
 
-CRITICAL RULES FOR TASKS:
-- Tasks should be IMPLEMENTATION ONLY - write the actual feature code
-- DO NOT include any unit tests, Jest tests, or test file creation in tasks
-- DO NOT tell agents to "write tests" or "add test coverage"
-- DO NOT tell agents to start dev servers, run npm start, or run npm run dev - the orchestrator already manages dev servers
-- Testing is handled SEPARATELY via E2E testing after implementation completes
-- The "testPlan" section is for E2E test scenarios only (run via Playwright), NOT unit tests
-- DO NOT include projects with hasE2E: false in the testPlan section
+Before writing ANY plan, you MUST thoroughly explore the codebase. Use these tools:
 
-After exploring, create a plan in this JSON format:
+1. **Understand Project Structure**
+   - Use Glob to find key files: "**/{package.json,tsconfig.json}"
+   - Read each project's package.json for dependencies and scripts
+   - Map out the directory structure with Glob: "src/**/*"
+
+2. **Analyze Existing Code Patterns**
+   - Read existing source files to understand conventions
+   - Look for: API patterns, component structure, state management, styling
+   - Check for existing similar features you can follow as examples
+
+3. **Identify Integration Points**
+   - How does frontend communicate with backend? (REST, GraphQL, etc.)
+   - What authentication/authorization exists?
+   - What shared types or contracts exist?
+
+DO NOT SKIP EXPLORATION. Poor plans come from not understanding the codebase.
+
+## PHASE 2: ANALYSIS
+
+After exploration, analyze:
+- What patterns should new code follow?
+- What dependencies exist between projects?
+- What's the logical order of implementation?
+
+## PHASE 3: PLAN CREATION
+
+Only after completing exploration and analysis, create the plan.
+
+CRITICAL RULES:
+- Tasks = IMPLEMENTATION ONLY (write feature code)
+- NO unit tests, Jest tests, or test files in tasks
+- NO "write tests" or "add test coverage" instructions
+- NO starting dev servers (orchestrator manages these)
+- Testing is handled via E2E after implementation
+- "testPlan" is for E2E scenarios only (Playwright)
+- Exclude hasE2E: false projects from testPlan
+
+## OUTPUT FORMAT
 \`\`\`json
 {
   "feature": "Feature name",
@@ -522,7 +546,9 @@ E2E TESTING:
 - E2E tests for dependent projects (e.g., frontend) wait for dependency projects (e.g., backend) to complete E2E first
 - testPlan defines what scenarios to test for each project
 
-Start by exploring the project directories, then create the plan.`;
+## BEGIN
+
+Start with PHASE 1: Use Glob and Read tools to explore each project NOW. Then proceed to create the plan.`;
 
     await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.PLAN_CREATION);
   }

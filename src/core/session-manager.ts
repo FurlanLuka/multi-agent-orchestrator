@@ -328,19 +328,45 @@ export class SessionManager {
   }
 
   /**
-   * Marks the current session as completed
+   * Marks the current session as completed and clears it as active
    */
   markSessionCompleted(): void {
     if (!this.currentSession) return;
+
+    // Mark as completed in the store
     this.sessionStore.markCompleted(this.currentSession.id);
+
+    // Remove global active registry
+    const globalPath = '/tmp/orchestrator/sessions/active.json';
+    if (fs.existsSync(globalPath)) {
+      fs.unlinkSync(globalPath);
+    }
+
+    console.log(`[SessionManager] Session ${this.currentSession.id} marked as completed`);
+
+    // Clear current session reference
+    this.currentSession = null;
   }
 
   /**
-   * Marks the current session as interrupted
+   * Marks the current session as interrupted and clears it as active
    */
   markSessionInterrupted(): void {
     if (!this.currentSession) return;
+
+    // Mark as interrupted in the store
     this.sessionStore.markInterrupted(this.currentSession.id);
+
+    // Remove global active registry
+    const globalPath = '/tmp/orchestrator/sessions/active.json';
+    if (fs.existsSync(globalPath)) {
+      fs.unlinkSync(globalPath);
+    }
+
+    console.log(`[SessionManager] Session ${this.currentSession.id} marked as interrupted`);
+
+    // Clear current session reference
+    this.currentSession = null;
   }
 
   /**

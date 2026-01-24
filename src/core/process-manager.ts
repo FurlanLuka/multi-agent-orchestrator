@@ -454,14 +454,98 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
+   * Safely kills node/npm processes using a specific port
+   * Only kills processes that look like dev servers (node, npm, tsx, ts-node, nest)
+   */
+  private async killProcessOnPort(port: number): Promise<void> {
+    const { exec } = require('child_process');
+
+    return new Promise((resolve) => {
+      // Find PIDs on the port and check if they're node-related before killing
+      exec(`lsof -ti:${port}`, (error: Error | null, stdout: string) => {
+        if (error || !stdout.trim()) {
+          resolve();
+          return;
+        }
+
+        const pids = stdout.trim().split('\n').filter(Boolean);
+
+        // For each PID, check if it's a node-related process before killing
+        let checked = 0;
+        for (const pid of pids) {
+          // Get the command name for this PID
+          exec(`ps -p ${pid} -o comm=`, (psError: Error | null, psStdout: string) => {
+            checked++;
+            const cmd = psStdout?.trim().toLowerCase() || '';
+
+            // Only kill if it looks like a dev server process
+            const safeToKill = ['node', 'npm', 'tsx', 'ts-node', 'nest', 'vite', 'esbuild', 'next'].some(
+              name => cmd.includes(name)
+            );
+
+            if (safeToKill) {
+              console.log(`[ProcessManager] Killing ${cmd} (PID ${pid}) on port ${port}`);
+              try {
+                process.kill(parseInt(pid), 'SIGKILL');
+              } catch {
+                // Process may already be dead
+              }
+            } else if (cmd) {
+              console.warn(`[ProcessManager] Port ${port} used by "${cmd}" (PID ${pid}) - not killing (not a known dev server)`);
+            }
+
+            if (checked === pids.length) {
+              resolve();
+            }
+          });
+        }
+
+        // Safety timeout
+        setTimeout(resolve, 2000);
+      });
+    });
+  }
+
+  /**
+   * Waits for a port to be free
+   */
+  private async waitForPortFree(port: number, maxWaitMs: number = 10000): Promise<boolean> {
+    const net = require('net');
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const isFree = await new Promise<boolean>((resolve) => {
+        const server = net.createServer();
+        server.once('error', () => resolve(false));
+        server.once('listening', () => {
+          server.close();
+          resolve(true);
+        });
+        server.listen(port);
+      });
+
+      if (isFree) {
+        return true;
+      }
+
+      // Wait 200ms before retrying
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    return false;
+  }
+
+  /**
    * Restarts a dev server
    */
   async restartDevServer(project: string): Promise<void> {
     const key = this.getKey(project, 'devServer');
     const info = this.processes.get(key);
+    const projectConfig = this.config.projects[project];
+    const port = projectConfig?.devServer?.port || 3000;
 
     if (info) {
-      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${info.process.pid})`);
+      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${info.process.pid}, port: ${port})`);
 
       // Kill the entire process tree (npm spawns child processes)
       const pid = info.process.pid;
@@ -486,7 +570,7 @@ export class ProcessManager extends EventEmitter {
           }
         }, 100);
 
-        // Force kill after 5 seconds
+        // Force kill after 3 seconds
         setTimeout(() => {
           if (this.processes.has(key)) {
             console.log(`[ProcessManager] Force killing dev server for ${project}`);
@@ -499,17 +583,31 @@ export class ProcessManager extends EventEmitter {
             } else {
               info.process.kill('SIGKILL');
             }
+            this.processes.delete(key);
+            clearInterval(checkInterval);
+            resolve();
           }
-        }, 5000);
+        }, 3000);
       });
+    }
 
-      // Extra wait to ensure port is released
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // Kill any lingering processes on the port
+    await this.killProcessOnPort(port);
+
+    // Wait for port to be actually free
+    console.log(`[ProcessManager] Waiting for port ${port} to be free...`);
+    const portFree = await this.waitForPortFree(port, 10000);
+
+    if (!portFree) {
+      console.error(`[ProcessManager] Port ${port} still in use after 10s, forcing kill`);
+      await this.killProcessOnPort(port);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // Reset crash count for clean restart
     this.crashCounts.delete(key);
 
+    console.log(`[ProcessManager] Starting dev server for ${project}`);
     await this.startDevServer(project);
   }
 
@@ -519,9 +617,26 @@ export class ProcessManager extends EventEmitter {
   stopAll(): void {
     console.log(`[ProcessManager] Stopping all processes`);
 
+    // Collect ports to clean up
+    const portsToClean: number[] = [];
+    for (const project of Object.keys(this.config.projects)) {
+      const port = this.config.projects[project]?.devServer?.port;
+      if (port) portsToClean.push(port);
+    }
+
+    // Kill all tracked processes
     for (const [key, info] of this.processes) {
-      console.log(`[ProcessManager] Stopping ${key}`);
-      info.process.kill('SIGTERM');
+      console.log(`[ProcessManager] Stopping ${key} (PID: ${info.process.pid})`);
+      const pid = info.process.pid;
+      if (pid) {
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          info.process.kill('SIGTERM');
+        }
+      } else {
+        info.process.kill('SIGTERM');
+      }
     }
 
     for (const [project, proc] of this.currentAgentProcess) {
@@ -529,15 +644,41 @@ export class ProcessManager extends EventEmitter {
       proc.kill('SIGTERM');
     }
 
-    // Force kill after 5 seconds
-    setTimeout(() => {
-      for (const [, info] of this.processes) {
-        info.process.kill('SIGKILL');
+    // Force kill and clean up ports after 3 seconds
+    setTimeout(async () => {
+      for (const [key, info] of this.processes) {
+        try {
+          const pid = info.process.pid;
+          if (pid) {
+            try {
+              process.kill(-pid, 'SIGKILL');
+            } catch {
+              info.process.kill('SIGKILL');
+            }
+          } else {
+            info.process.kill('SIGKILL');
+          }
+        } catch {
+          // Process may already be dead
+        }
       }
       for (const [, proc] of this.currentAgentProcess) {
-        proc.kill('SIGKILL');
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // Process may already be dead
+        }
       }
-    }, 5000);
+
+      // Clean up any processes still holding ports
+      for (const port of portsToClean) {
+        await this.killProcessOnPort(port);
+      }
+
+      // Clear maps
+      this.processes.clear();
+      this.currentAgentProcess.clear();
+    }, 3000);
   }
 
   /**
