@@ -256,7 +256,6 @@ export function useSocket() {
           ? {
               ...task,
               status: event.status,
-              waitingOn: event.waitingOn ?? task.waitingOn,
               message: event.message
             }
           : task

@@ -504,26 +504,22 @@ CRITICAL RULES:
     {
       "project": "backend",
       "name": "Auth API",
-      "task": "Create /auth/register and /auth/login endpoints...",
-      "dependencies": []
+      "task": "Create /auth/register and /auth/login endpoints..."
     },
     {
       "project": "backend",
       "name": "User API",
-      "task": "Add /users/profile endpoint with auth middleware...",
-      "dependencies": [0]
+      "task": "Add /users/profile endpoint with auth middleware..."
     },
     {
       "project": "frontend",
       "name": "Auth components",
-      "task": "Create LoginForm and RegisterForm components...",
-      "dependencies": []
+      "task": "Create LoginForm and RegisterForm components..."
     },
     {
       "project": "frontend",
       "name": "API integration",
-      "task": "Connect auth forms to backend API...",
-      "dependencies": [0, 2]
+      "task": "Connect auth forms to backend API..."
     }
   ],
   "testPlan": {
@@ -536,10 +532,9 @@ CRITICAL RULES:
 TASK FORMAT RULES:
 - "name": Short, action-oriented title (3-6 words) shown in collapsed view
 - "task": Full detailed description with markdown formatting, file paths, and implementation details
-- "dependencies": Array of TASK INDICES (numbers, not names) that THIS task depends on
-  - Example: [0, 2] means this task depends on tasks at index 0 and 2
-  - Tasks with empty dependencies [] start immediately in parallel
-  - Use dependencies when a task needs another task's output (e.g., frontend needs backend API)
+- Tasks for different projects run IN PARALLEL
+- Tasks for the SAME project run SEQUENTIALLY (in the order listed)
+- Group related tasks by project for clarity
 
 E2E TESTING:
 - E2E tests run automatically AFTER all tasks for a project complete

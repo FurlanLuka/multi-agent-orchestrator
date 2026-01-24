@@ -46,6 +46,8 @@
       "devServer": {
         "command": "npm run dev",
         "readyPattern": "Local:.*http|ready in",
+        "port": 5173,                                                                                                                                                                                                      
+        "url": "http://localhost:5173",
         "env": {}
       },
       "buildCommand": "npm run build",
@@ -56,6 +58,8 @@
       "devServer": {
         "command": "npm run start:dev",
         "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "port": 3000,                                                                                                                                                                                                      
+        "url": "http://localhost:3000",
         "env": {}
       },
       "buildCommand": "npm run build",

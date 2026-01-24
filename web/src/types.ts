@@ -24,7 +24,6 @@ export interface TaskDefinition {
   project: string;
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
-  dependencies: number[];  // Task indices this task depends on (e.g., [0, 2] means depends on tasks 0 and 2)
 }
 
 export interface Plan {
@@ -192,8 +191,6 @@ export interface TaskState {
   name: string;          // Short task name for display
   description: string;   // Full task description (markdown)
   status: TaskStatus;
-  dependencies: number[];  // Task indices this depends on
-  waitingOn: number[];     // Remaining dependency indices not yet complete
   message?: string;
   startedAt?: number;
   completedAt?: number;
@@ -203,7 +200,6 @@ export interface TaskStatusEvent {
   taskIndex: number;
   project: string;
   status: TaskStatus;
-  waitingOn?: number[];
   message?: string;
   timestamp: number;
 }

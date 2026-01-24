@@ -54,7 +54,7 @@ export class StatusMonitor extends EventEmitter {
     // Trigger special actions based on status
     switch (status) {
       case 'READY':
-        this.emit('projectReady', { project, message });
+        this.emit('projectReady', { project, message, previous: prev?.status });
         break;
 
       case 'DEBUGGING':
@@ -194,9 +194,7 @@ export class StatusMonitor extends EventEmitter {
         project: task.project,
         name: task.name || `Task ${index + 1}`,  // Fallback for legacy plans without name
         description: task.task,
-        status: 'pending',
-        dependencies: task.dependencies,
-        waitingOn: []
+        status: 'pending'
       });
     });
     console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
@@ -205,13 +203,12 @@ export class StatusMonitor extends EventEmitter {
   /**
    * Updates the status of a task
    */
-  updateTaskStatus(taskIndex: number, status: TaskStatus, message?: string, waitingOn?: number[]): void {
+  updateTaskStatus(taskIndex: number, status: TaskStatus, message?: string): void {
     const task = this.taskStates.get(taskIndex);
     if (task) {
       const prevStatus = task.status;
       task.status = status;
       task.message = message;
-      if (waitingOn !== undefined) task.waitingOn = waitingOn;
       if (status === 'working' && !task.startedAt) task.startedAt = Date.now();
       if (status === 'completed' || status === 'failed') {
         task.completedAt = Date.now();
@@ -223,12 +220,11 @@ export class StatusMonitor extends EventEmitter {
         taskIndex,
         project: task.project,
         status,
-        waitingOn: task.waitingOn,
         message,
         timestamp: Date.now()
       });
 
-      // Emit task completion event for dependency checking
+      // Emit task completion event
       if (status === 'completed') {
         this.emit('taskComplete', { taskIndex, project: task.project });
       }

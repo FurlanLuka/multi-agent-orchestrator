@@ -473,11 +473,6 @@ function App() {
                                             <Text size="sm" fw={500} style={{ flex: 1 }} lineClamp={1}>
                                               {taskName}
                                             </Text>
-                                            {taskState?.waitingOn && taskState.waitingOn.length > 0 && (
-                                              <Badge size="xs" variant="outline" color="yellow" style={{ flexShrink: 0 }}>
-                                                waiting: #{taskState.waitingOn.join(', #')}
-                                              </Badge>
-                                            )}
                                             <ActionIcon size="sm" variant="subtle" color="gray">
                                               {isExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                                             </ActionIcon>
@@ -486,12 +481,7 @@ function App() {
                                           {/* Expanded View: Full Description */}
                                           <Collapse in={isExpanded}>
                                             <Box mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}>
-                                              {task.dependencies.length > 0 && (
-                                                <Text size="xs" c="dimmed" mb="xs">
-                                                  Dependencies: {task.dependencies.map(d => `#${d}`).join(', ')}
-                                                </Text>
-                                              )}
-                                              <MarkdownMessage content={task.task} />
+                                                <MarkdownMessage content={task.task} />
                                             </Box>
                                           </Collapse>
                                         </Box>
