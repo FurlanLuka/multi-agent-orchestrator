@@ -314,10 +314,11 @@ export class ProcessManager extends EventEmitter {
                         this.emit('log', { project, type: 'agent', stream: 'stdout', text: textLine, timestamp: Date.now() });
 
                         // Detect test status markers for real-time tracking
-                        if (textLine.startsWith('[TEST_STATUS]')) {
+                        // Handle both plain and markdown-formatted output (with backticks)
+                        const testStatusMatch = textLine.match(/`?\[TEST_STATUS\]\s*(\{.*\})`?/);
+                        if (testStatusMatch) {
                           try {
-                            const json = textLine.substring('[TEST_STATUS]'.length).trim();
-                            const testStatus = JSON.parse(json);
+                            const testStatus = JSON.parse(testStatusMatch[1]);
                             this.emit('testStatus', {
                               project,
                               scenario: testStatus.scenario,
