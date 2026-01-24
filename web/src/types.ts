@@ -26,7 +26,6 @@ export interface TaskDefinition {
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
   dependencies: number[];  // Task indices this task depends on (e.g., [0, 2] means depends on tasks 0 and 2)
-  runE2E?: boolean;    // If true, run E2E tests for this project AFTER this task completes
 }
 
 export interface Plan {
@@ -150,6 +149,7 @@ export interface ProjectConfig {
     readyPattern: string;
     env: Record<string, string>;
     port?: number;
+    url?: string;  // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
   buildCommand?: string;
   hasE2E: boolean;
@@ -195,8 +195,6 @@ export interface TaskState {
   status: TaskStatus;
   dependencies: number[];  // Task indices this depends on
   waitingOn: number[];     // Remaining dependency indices not yet complete
-  runE2E: boolean;         // Whether to run E2E after this task
-  e2eAttempts?: number;    // Track E2E retry attempts
   message?: string;
   startedAt?: number;
   completedAt?: number;

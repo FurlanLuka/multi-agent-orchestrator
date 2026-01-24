@@ -6,6 +6,7 @@ export interface ProjectConfig {
     readyPattern: string;
     env: Record<string, string>;
     port?: number;  // Dev server port (default: 5173 for frontend, 3000 for backend)
+    url?: string;   // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
   hasE2E: boolean;
@@ -104,7 +105,6 @@ export interface TaskDefinition {
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
   dependencies: number[];  // Task indices this task depends on (e.g., [0, 2] means depends on tasks 0 and 2)
-  runE2E?: boolean;    // If true, run E2E tests for this project AFTER this task completes
 }
 
 export interface Plan {
@@ -426,8 +426,6 @@ export interface TaskState {
   status: TaskStatus;
   dependencies: number[];  // Task indices this depends on
   waitingOn: number[];     // Remaining dependency indices not yet complete
-  runE2E: boolean;         // Whether to run E2E after this task
-  e2eAttempts?: number;    // Track E2E retry attempts
   message?: string;
   startedAt?: number;
   completedAt?: number;
@@ -450,6 +448,32 @@ export interface VerificationResult {
   step: VerificationStep;
   error?: string;
   logs?: string;
+}
+
+// Context collected after task execution for Planning Agent analysis
+export interface TaskVerificationContext {
+  project: string;
+  taskName: string;
+  taskDescription: string;
+  agentResponse?: string;        // What the agent did
+  buildOutput?: {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+  };
+  devServerLogs?: string;        // Recent dev server output
+  healthCheck?: {
+    healthy: boolean;
+    error?: string;
+  };
+}
+
+// Planning Agent's analysis result
+export interface TaskAnalysisResult {
+  passed: boolean;
+  analysis: string;              // Explanation of what happened
+  fixPrompt?: string;            // If failed, intelligent fix instructions
+  suggestedAction?: 'retry' | 'escalate' | 'skip';
 }
 
 // Work redistribution types

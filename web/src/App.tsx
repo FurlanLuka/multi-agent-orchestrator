@@ -470,11 +470,6 @@ function App() {
                                             <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
                                               {task.project}
                                             </Badge>
-                                            {task.runE2E && (
-                                              <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>
-                                                +E2E
-                                              </Badge>
-                                            )}
                                             <Text size="sm" fw={500} style={{ flex: 1 }} lineClamp={1}>
                                               {taskName}
                                             </Text>

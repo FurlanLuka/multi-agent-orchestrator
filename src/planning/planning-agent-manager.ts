@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult } from '../types';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -467,29 +467,25 @@ After exploring, create a plan in this JSON format:
       "project": "backend",
       "name": "Auth API",
       "task": "Create /auth/register and /auth/login endpoints...",
-      "dependencies": [],
-      "runE2E": true
+      "dependencies": []
     },
     {
       "project": "backend",
       "name": "User API",
       "task": "Add /users/profile endpoint with auth middleware...",
-      "dependencies": [0],
-      "runE2E": true
+      "dependencies": [0]
     },
     {
       "project": "frontend",
       "name": "Auth components",
       "task": "Create LoginForm and RegisterForm components...",
-      "dependencies": [],
-      "runE2E": false
+      "dependencies": []
     },
     {
       "project": "frontend",
       "name": "API integration",
       "task": "Connect auth forms to backend API...",
-      "dependencies": [0, 2],
-      "runE2E": true
+      "dependencies": [0, 2]
     }
   ],
   "testPlan": {
@@ -506,18 +502,11 @@ TASK FORMAT RULES:
   - Example: [0, 2] means this task depends on tasks at index 0 and 2
   - Tasks with empty dependencies [] start immediately in parallel
   - Use dependencies when a task needs another task's output (e.g., frontend needs backend API)
-- "runE2E": Boolean - whether to run E2E tests AFTER this task completes
-  - Set true on tasks that complete a testable milestone
-  - For backend: Run E2E after each API endpoint group is complete
-  - For frontend: Run E2E after integration with backend is done
-  - Multiple E2E runs catch issues early - don't wait until the end
-  - E2E tests automatically wait for dependent projects' E2E to pass first
 
-INTERLEAVED E2E STRATEGY:
-- Backend tasks can have runE2E: true after each major feature
-- Frontend tasks that DON'T call backend can have runE2E: false
-- Frontend tasks that integrate with backend should have runE2E: true AND depend on backend tasks
-- This allows: backend task → backend E2E → frontend integration → frontend E2E
+E2E TESTING:
+- E2E tests run automatically AFTER all tasks for a project complete
+- E2E tests for dependent projects (e.g., frontend) wait for dependency projects (e.g., backend) to complete E2E first
+- testPlan defines what scenarios to test for each project
 
 Start by exploring the project directories, then create the plan.`;
 
@@ -539,6 +528,13 @@ ${request.testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 Generate an E2E test prompt that instructs the agent to:
 
+**CRITICAL RULES - THE AGENT MUST FOLLOW THESE:**
+- DO NOT start, build, or restart any servers - the orchestrator manages all servers
+- DO NOT run npm install, npm run build, npm run dev, or similar commands
+- The dev server is ALREADY RUNNING at the URL above - just run tests against it
+- If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
+- The agent's ONLY job is to run E2E tests and report results
+
 1. READ the project's E2E testing skill at: ~/${request.project}/.claude/skills/e2e-testing.md
    - This skill contains project-specific testing instructions (Playwright MCP for frontend, curl for backend, etc.)
    - Follow the testing methodology described in that skill file
@@ -553,12 +549,17 @@ Generate an E2E test prompt that instructs the agent to:
    - Immediately fail all tests with error explaining the missing tools
    - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Required testing tools not available"}
 
-4. If ANY tests fail, ANALYZE the codebase to understand WHY:
+4. If the server is NOT RESPONDING:
+   - DO NOT try to start or fix the server
+   - Immediately fail all tests with error explaining the server is not available
+   - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Dev server not responding at ${request.devServerUrl || 'http://localhost:5173'}"}
+
+5. If ANY tests fail, ANALYZE the codebase to understand WHY:
    - Trace the failing scenario to the relevant code
    - Identify what the code is trying to do and where it fails
    - Determine if the issue is in THIS project or another
 
-5. Return a structured response at the END:
+6. Return a structured response at the END:
 
 \`\`\`json
 {
@@ -598,6 +599,100 @@ Focus on:
 3. How to prevent it in the future`;
 
     return await this.sendChat(prompt);
+  }
+
+  /**
+   * Analyzes task execution results to determine if task completed successfully.
+   * Uses intelligent analysis of build output, dev server logs, and health check.
+   * Returns pass/fail decision with context-aware fix prompt if needed.
+   */
+  async analyzeTaskResult(context: TaskVerificationContext): Promise<TaskAnalysisResult> {
+    const prompt = `## TASK VERIFICATION ANALYSIS
+
+You are analyzing whether a task completed successfully. Review ALL the context below and make an intelligent decision.
+
+**Project:** ${context.project}
+**Task:** ${context.taskName}
+
+**Task Description:**
+${context.taskDescription}
+
+${context.buildOutput ? `
+---
+**BUILD RESULT:**
+- Exit code: ${context.buildOutput.exitCode}
+${context.buildOutput.stdout ? `- Stdout (last 2000 chars):
+\`\`\`
+${context.buildOutput.stdout.slice(-2000)}
+\`\`\`` : ''}
+${context.buildOutput.stderr ? `- Stderr (last 2000 chars):
+\`\`\`
+${context.buildOutput.stderr.slice(-2000)}
+\`\`\`` : ''}
+` : '**BUILD:** No build command configured'}
+
+---
+**DEV SERVER LOGS (recent):**
+\`\`\`
+${context.devServerLogs ? context.devServerLogs.slice(-3000) : 'No logs available'}
+\`\`\`
+
+---
+**HEALTH CHECK:** ${context.healthCheck?.healthy ? '✅ PASSED - Server responding' : `❌ FAILED: ${context.healthCheck?.error || 'Unknown error'}`}
+
+---
+
+## YOUR ANALYSIS
+
+Consider carefully:
+1. **Build errors**: Type errors, missing imports, syntax errors, compilation failures
+2. **Runtime errors**: Check dev server logs for crashes, Prisma errors, module not found, unhandled exceptions
+3. **Health check context**: Is it failing due to code issues or just timing? Check if dev server logs show the app started successfully
+4. **Hidden issues**: Warnings that might cause problems, deprecated APIs, potential runtime issues
+
+Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
+
+**RESPOND WITH ONLY THIS JSON (no other text):**
+{
+  "passed": true or false,
+  "analysis": "1-2 sentence explanation of what you found",
+  "fixPrompt": "If failed: detailed, specific instructions for the agent to fix the issue. Include file names, line numbers from errors, and exact steps. If passed: omit this field.",
+  "suggestedAction": "retry" or "escalate" or "skip"
+}`;
+
+    console.log(`[PlanningAgent] Analyzing task result for ${context.project}:${context.taskName}`);
+
+    try {
+      const response = await this.sendChat(prompt);
+
+      // Parse JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*?"passed"\s*:[\s\S]*?\}/);
+      if (jsonMatch) {
+        try {
+          const result = JSON.parse(jsonMatch[0]) as TaskAnalysisResult;
+          console.log(`[PlanningAgent] Analysis result: passed=${result.passed}, action=${result.suggestedAction}`);
+          return result;
+        } catch (parseErr) {
+          console.error('[PlanningAgent] Failed to parse analysis JSON:', parseErr);
+        }
+      }
+
+      // Fallback: if we can't parse, assume failure and use raw response as fix prompt
+      console.log('[PlanningAgent] Could not parse structured response, using fallback');
+      return {
+        passed: false,
+        analysis: 'Failed to parse analysis response - treating as failure',
+        fixPrompt: response,
+        suggestedAction: 'retry'
+      };
+    } catch (err) {
+      console.error('[PlanningAgent] Error analyzing task result:', err);
+      return {
+        passed: false,
+        analysis: `Analysis failed: ${err}`,
+        suggestedAction: 'escalate'
+      };
+    }
   }
 
   /**
@@ -896,7 +991,6 @@ IMPORTANT:
 - Task indices in the new plan start fresh (0, 1, 2...) - don't reference old indices
 - If a completed task is broken, create a FIX task that patches it
 - Be specific about what went wrong and how to fix it
-- Keep runE2E: true on tasks that should be tested
 
 Start by exploring the current state, then create the new plan.`;
 

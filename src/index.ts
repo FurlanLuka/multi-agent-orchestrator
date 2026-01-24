@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, VerificationResult, VerificationStep } from './types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, TaskVerificationContext } from './types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -466,6 +466,11 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Helper to get dev server URL for a project
   const getDevServerUrl = (project: string): string => {
     const projectConfig = config.projects[project];
+    // Use explicit URL if configured (takes precedence)
+    if (projectConfig?.devServer?.url) {
+      return projectConfig.devServer.url;
+    }
+    // Fall back to port-based URL
     if (projectConfig?.devServer?.port) {
       return `http://localhost:${projectConfig.devServer.port}`;
     }
@@ -479,7 +484,16 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Used after tasks complete and before E2E tests run
   // ═══════════════════════════════════════════════════════════════
 
-  const runBuildCommand = (project: string, command: string): Promise<{ success: boolean; error?: string }> => {
+  // Build result with full output for Planning Agent analysis
+  interface BuildResult {
+    success: boolean;
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    error?: string;
+  }
+
+  const runBuildCommand = (project: string, command: string): Promise<BuildResult> => {
     return new Promise((resolve) => {
       // Expand ~ to home directory (same as project-manager does)
       let projectPath = config.projects[project].path;
@@ -493,14 +507,6 @@ After fixing, the E2E tests will be re-run automatically.`;
       const args = parts.slice(1);
 
       console.log(`[Orchestrator] Running build: ${command} in ${projectPath}`);
-      console.log(`[Orchestrator] Build spawn details:`, {
-        cmd,
-        args,
-        cwd: projectPath,
-        shell: true,
-        SHELL: process.env.SHELL,
-        PATH: process.env.PATH?.split(':').slice(0, 5).join(':') + '...'  // First 5 PATH entries
-      });
 
       // Use shell: true to let Node find npm via PATH
       const child = spawn(cmd, args, {
@@ -535,91 +541,84 @@ After fixing, the E2E tests will be re-run automatically.`;
       });
 
       child.on('close', (code) => {
-        if (code === 0) {
+        const exitCode = code ?? 1;
+        if (exitCode === 0) {
           console.log(`[Orchestrator] Build succeeded for ${project}`);
-          resolve({ success: true });
+          resolve({ success: true, stdout, stderr, exitCode });
         } else {
-          const errorMsg = stderr || stdout || `Build exited with code ${code}`;
+          const errorMsg = stderr || stdout || `Build exited with code ${exitCode}`;
           console.log(`[Orchestrator] Build failed for ${project}: ${errorMsg}`);
-          resolve({ success: false, error: errorMsg });
+          resolve({ success: false, stdout, stderr, exitCode, error: errorMsg });
         }
       });
 
       child.on('error', (err) => {
         console.error(`[Orchestrator] Build spawn error for ${project}:`, err);
-        resolve({ success: false, error: String(err) });
+        resolve({ success: false, stdout, stderr, exitCode: 1, error: String(err) });
       });
     });
   };
 
-  // Lock to prevent concurrent verifications on the same project
-  const verificationLocks = new Map<string, Promise<VerificationResult>>();
+  // Collect all verification context for Planning Agent intelligent analysis
+  const collectVerificationContext = async (
+    project: string,
+    taskName: string,
+    taskDescription: string
+  ): Promise<TaskVerificationContext> => {
+    const context: TaskVerificationContext = {
+      project,
+      taskName,
+      taskDescription
+    };
 
-  const verifyProjectHealth = async (project: string): Promise<VerificationResult> => {
-    // If verification is already running for this project, wait for it
-    const existingLock = verificationLocks.get(project);
-    if (existingLock) {
-      console.log(`[Orchestrator] Waiting for existing verification on ${project} to complete...`);
-      return existingLock;
-    }
-
-    // Create a new verification promise and store it
-    const verificationPromise = doVerifyProjectHealth(project);
-    verificationLocks.set(project, verificationPromise);
-
-    try {
-      const result = await verificationPromise;
-      return result;
-    } finally {
-      verificationLocks.delete(project);
-    }
-  };
-
-  const doVerifyProjectHealth = async (project: string): Promise<VerificationResult> => {
     const projectConfig = config.projects[project];
 
     // Step 1: Install dependencies
-    console.log(`[Orchestrator] Installing dependencies for ${project}...`);
+    console.log(`[Orchestrator] [Context] Installing dependencies for ${project}...`);
     statusMonitor.updateStatus(project, 'WORKING', 'Installing dependencies...');
     try {
       await projectManager.installDependencies(project);
-      console.log(`[Orchestrator] Dependencies installed for ${project}`);
     } catch (err) {
-      console.error(`[Orchestrator] Dependency install failed for ${project}:`, err);
-      return { success: false, step: 'deps', error: String(err) };
+      console.log(`[Orchestrator] [Context] Dependency install failed: ${err}`);
+      // Continue to collect more context even if deps fail
     }
 
-    // Step 2: Run build (if configured)
+    // Step 2: Run build and capture full output
     if (projectConfig?.buildCommand) {
-      console.log(`[Orchestrator] Running build for ${project}...`);
+      console.log(`[Orchestrator] [Context] Running build for ${project}...`);
       statusMonitor.updateStatus(project, 'WORKING', 'Running build...');
       const buildResult = await runBuildCommand(project, projectConfig.buildCommand);
-      if (!buildResult.success) {
-        return { success: false, step: 'build', error: buildResult.error };
-      }
+      context.buildOutput = {
+        stdout: buildResult.stdout,
+        stderr: buildResult.stderr,
+        exitCode: buildResult.exitCode
+      };
     }
 
     // Step 3: Restart dev server
-    console.log(`[Orchestrator] Restarting dev server for ${project}...`);
+    console.log(`[Orchestrator] [Context] Restarting dev server for ${project}...`);
     statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
     try {
       await processManager.restartDevServer(project);
-      console.log(`[Orchestrator] Dev server restarted for ${project}`);
     } catch (err) {
-      console.error(`[Orchestrator] Dev server restart failed for ${project}:`, err);
-      return { success: false, step: 'restart', error: String(err) };
+      console.log(`[Orchestrator] [Context] Dev server restart failed: ${err}`);
     }
 
-    // Step 4: Health check
-    console.log(`[Orchestrator] Health check for ${project}...`);
+    // Step 4: Collect dev server logs (recent output)
+    const devLogs = logAggregator.getLogsByType(project, 'devServer', 100);
+    context.devServerLogs = devLogs.map(l => l.text).join('\n');
+
+    // Step 5: Health check
+    console.log(`[Orchestrator] [Context] Health check for ${project}...`);
     statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
     const health = await processManager.checkDevServerHealthWithRetry(project, 5, 2000);
-    if (!health.healthy) {
-      return { success: false, step: 'health', error: health.error };
-    }
+    context.healthCheck = {
+      healthy: health.healthy,
+      error: health.error
+    };
 
-    console.log(`[Orchestrator] Verification passed for ${project}`);
-    return { success: true, step: 'health' };
+    console.log(`[Orchestrator] [Context] Collection complete for ${project}. Health: ${health.healthy ? 'OK' : 'FAILED'}`);
+    return context;
   };
 
   // Helper to check and trigger E2E for a project (queues the request)
@@ -676,17 +675,7 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
-    // Full verification before E2E: deps, build, restart, health check
-    console.log(`[Orchestrator] Running full verification for ${project} before E2E...`);
-    const verification = await verifyProjectHealth(project);
-
-    if (!verification.success) {
-      console.error(`[Orchestrator] Verification failed for ${project} before E2E: ${verification.step} - ${verification.error}`);
-      statusMonitor.updateStatus(project, 'FATAL_DEBUGGING',
-        `Pre-E2E verification failed (${verification.step}): ${verification.error}`);
-      return;
-    }
-
+    // No pre-E2E verification needed - all tasks for this project already passed verification
     const devServerUrl = getDevServerUrl(project);
 
     // Check if project has custom E2E instructions
@@ -697,6 +686,13 @@ After fixing, the E2E tests will be re-run automatically.`;
       const e2ePrompt = `# E2E Testing for ${project}
 
 Dev Server URL: ${devServerUrl}
+
+## CRITICAL RULES - YOU MUST FOLLOW THESE
+1. DO NOT start, build, or restart any servers - the orchestrator manages all servers
+2. DO NOT run npm install, npm run build, npm run dev, or similar commands
+3. The dev server is ALREADY RUNNING at the URL above - just run tests against it
+4. If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
+5. Your ONLY job is to run E2E tests and report results
 
 ## Custom Testing Instructions
 
@@ -1115,42 +1111,8 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
         pendingTasksPerProject.set(task.project, current + 1);
       }
 
-      // Helper to build fix prompt when verification fails
-      const buildFixPrompt = (verification: VerificationResult, task: TaskDefinition, originalPrompt: string): string => {
-        const stepDescriptions: Record<VerificationStep, string> = {
-          deps: 'dependency installation',
-          build: 'build/compilation',
-          restart: 'dev server restart',
-          health: 'dev server health check'
-        };
-
-        return `## FIX REQUIRED
-
-Your previous implementation for task "${task.name}" caused a **${stepDescriptions[verification.step]}** error.
-
-**Error:**
-\`\`\`
-${verification.error || 'Unknown error'}
-\`\`\`
-
-**Original Task:**
-${originalPrompt}
-
-**Instructions:**
-1. Analyze the error above
-2. Fix the issue in the code
-3. The verification will automatically run again after you complete
-
-**Do NOT:**
-- Start the dev server manually
-- Run npm install manually
-- These are handled automatically by the orchestrator
-
-Focus on fixing the code that caused this error.`;
-      };
-
       // Define runTask with taskIndex parameter for task-level tracking
-      // Includes verification loop: agent runs → verify (deps, build, restart, health) → if fail, agent fixes
+      // Includes verification loop: agent runs → collect context → Planning Agent analyzes → if fail, agent fixes
       const runTask = async (task: TaskDefinition, taskIndex: number) => {
         const sessionDir = sessionManager.getSessionDir(task.project);
         if (!sessionDir) return;
@@ -1204,37 +1166,63 @@ Focus on fixing the code that caused this error.`;
               throw agentErr;
             }
 
-            // Agent completed - now verify project health
-            statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Installing deps, building, restarting...');
-            console.log(`[Orchestrator] Task #${taskIndex} agent done, running verification...`);
+            // Agent completed - collect verification context and let Planning Agent analyze
+            statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Collecting context for analysis...');
+            console.log(`[Orchestrator] Task #${taskIndex} agent done, collecting verification context...`);
 
-            const verification = await verifyProjectHealth(task.project);
+            // Collect all context: deps, build output, dev server logs, health check
+            const verificationContext = await collectVerificationContext(
+              task.project,
+              task.name,
+              originalTaskDescription
+            );
 
-            if (verification.success) {
-              // Verification passed - task is complete!
-              console.log(`[Orchestrator] Task #${taskIndex} verification passed`);
+            // Let Planning Agent intelligently analyze all context
+            statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Planning Agent analyzing results...');
+            console.log(`[Orchestrator] Task #${taskIndex} sending context to Planning Agent for analysis...`);
+            const analysis = await planningAgent.analyzeTaskResult(verificationContext);
+
+            if (analysis.passed) {
+              // Planning Agent determined task is complete!
+              console.log(`[Orchestrator] Task #${taskIndex} PASSED: ${analysis.analysis}`);
               taskCompleted = true;
               break;
             }
 
-            // Verification failed
+            // Planning Agent determined task needs fixes
             fixAttempts++;
-            console.log(`[Orchestrator] Task #${taskIndex} verification failed at ${verification.step}: ${verification.error}`);
+            console.log(`[Orchestrator] Task #${taskIndex} FAILED: ${analysis.analysis}`);
+            console.log(`[Orchestrator] Suggested action: ${analysis.suggestedAction}`);
 
-            if (fixAttempts >= MAX_FIX_ATTEMPTS) {
-              // Max attempts reached - fail the task
-              console.error(`[Orchestrator] Task #${taskIndex} failed after ${MAX_FIX_ATTEMPTS} fix attempts`);
-              statusMonitor.updateTaskStatus(taskIndex, 'failed',
-                `Verification failed after ${MAX_FIX_ATTEMPTS} attempts: ${verification.step} - ${verification.error}`);
+            if (fixAttempts >= MAX_FIX_ATTEMPTS || analysis.suggestedAction === 'escalate') {
+              // Max attempts reached or Planning Agent says to escalate
+              console.error(`[Orchestrator] Task #${taskIndex} failed after ${fixAttempts} attempts`);
+              statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
               failedTasks.add(taskIndex);
-              statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING',
-                `Task verification failed: ${verification.error}`);
+              statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', analysis.analysis);
               return;
             }
 
-            // Build fix prompt for next iteration
-            currentPrompt = buildFixPrompt(verification, task, originalTaskDescription);
-            console.log(`[Orchestrator] Asking agent to fix ${verification.step} error (attempt ${fixAttempts}/${MAX_FIX_ATTEMPTS})`);
+            if (analysis.suggestedAction === 'skip') {
+              // Planning Agent says issue is minor, mark as complete anyway
+              console.log(`[Orchestrator] Task #${taskIndex} - Planning Agent suggests skipping issue`);
+              taskCompleted = true;
+              break;
+            }
+
+            // Use Planning Agent's intelligent fix prompt
+            statusMonitor.updateTaskStatus(taskIndex, 'fixing', `Fix attempt ${fixAttempts}/${MAX_FIX_ATTEMPTS}`);
+            currentPrompt = analysis.fixPrompt || `## FIX REQUIRED
+
+Your previous implementation for task "${task.name}" has issues.
+
+**Problem:** ${analysis.analysis}
+
+**Original Task:**
+${originalTaskDescription}
+
+Please fix the issue and try again.`;
+            console.log(`[Orchestrator] Asking agent to fix (attempt ${fixAttempts}/${MAX_FIX_ATTEMPTS})`);
           }
 
           if (taskCompleted) {

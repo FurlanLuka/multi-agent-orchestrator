@@ -200,8 +200,7 @@ export class StatusMonitor extends EventEmitter {
         description: task.task,
         status: 'pending',
         dependencies: task.dependencies,
-        waitingOn: [],
-        runE2E: task.runE2E ?? false
+        waitingOn: []
       });
     });
     console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
@@ -218,11 +217,8 @@ export class StatusMonitor extends EventEmitter {
       task.message = message;
       if (waitingOn !== undefined) task.waitingOn = waitingOn;
       if (status === 'working' && !task.startedAt) task.startedAt = Date.now();
-      if (status === 'completed' || status === 'failed' || status === 'e2e_failed') {
+      if (status === 'completed' || status === 'failed') {
         task.completedAt = Date.now();
-      }
-      if (status === 'e2e') {
-        task.e2eAttempts = (task.e2eAttempts || 0) + 1;
       }
 
       console.log(`[StatusMonitor] Task #${taskIndex} (${task.project}): ${prevStatus} → ${status}${message ? ` (${message})` : ''}`);

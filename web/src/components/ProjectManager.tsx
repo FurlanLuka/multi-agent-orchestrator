@@ -30,6 +30,7 @@ interface AddProjectOptions {
     readyPattern: string;
     env?: Record<string, string>;
     port?: number;
+    url?: string;
   };
   buildCommand?: string;
   hasE2E?: boolean;
@@ -52,9 +53,10 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
 
-  // Expanded project for editing E2E instructions
+  // Expanded project for editing E2E instructions and dev server URL
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [editingE2EInstructions, setEditingE2EInstructions] = useState<string>('');
+  const [editingDevServerUrl, setEditingDevServerUrl] = useState<string>('');
 
   // Template form state
   const [name, setName] = useState('');
@@ -68,6 +70,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [manualCommand, setManualCommand] = useState('npm run dev');
   const [manualReadyPattern, setManualReadyPattern] = useState('ready|listening|started|compiled');
   const [manualBuildCommand, setManualBuildCommand] = useState('npm run build');
+  const [manualDevServerUrl, setManualDevServerUrl] = useState('');
   const [manualHasE2E, setManualHasE2E] = useState(false);
   const [manualE2EInstructions, setManualE2EInstructions] = useState('');
   const [manualDependencyInstall, setManualDependencyInstall] = useState(false);
@@ -94,6 +97,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setManualCommand('npm run dev');
       setManualReadyPattern('ready|listening|started|compiled');
       setManualBuildCommand('npm run build');
+      setManualDevServerUrl('');
       setManualHasE2E(false);
       setManualE2EInstructions('');
       setManualDependencyInstall(false);
@@ -117,6 +121,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
         devServer: {
           command: manualCommand.trim() || 'npm run dev',
           readyPattern: manualReadyPattern.trim() || 'ready|listening|started|compiled',
+          url: manualDevServerUrl.trim() || undefined,
         },
         buildCommand: manualBuildCommand.trim() || 'npm run build',
         hasE2E: manualHasE2E,
@@ -186,25 +191,23 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                 <Card key={projectName} padding="xs" withBorder>
                   <Group justify="space-between">
                     <Group gap="xs">
-                      {config.hasE2E ? (
-                        <ActionIcon
-                          size="xs"
-                          variant="subtle"
-                          onClick={() => {
-                            if (isExpanded) {
-                              setExpandedProject(null);
-                              setEditingE2EInstructions('');
-                            } else {
-                              setExpandedProject(projectName);
-                              setEditingE2EInstructions(config.e2eInstructions || '');
-                            }
-                          }}
-                        >
-                          {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-                        </ActionIcon>
-                      ) : (
-                        <IconFolder size={16} />
-                      )}
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        onClick={() => {
+                          if (isExpanded) {
+                            setExpandedProject(null);
+                            setEditingE2EInstructions('');
+                            setEditingDevServerUrl('');
+                          } else {
+                            setExpandedProject(projectName);
+                            setEditingE2EInstructions(config.e2eInstructions || '');
+                            setEditingDevServerUrl(config.devServer?.url || '');
+                          }
+                        }}
+                      >
+                        {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                      </ActionIcon>
                       <Text fw={500}>{projectName}</Text>
                     </Group>
                     <Group gap="xs">
@@ -228,13 +231,21 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                   </Group>
                   <Text size="xs" c="dimmed" mt={4}>{config.path}</Text>
 
-                  {/* Expandable E2E Instructions Editor */}
+                  {/* Expandable Project Settings Editor */}
                   <Collapse in={isExpanded}>
                     <Stack gap="xs" mt="sm">
                       <Divider />
-                      <Textarea
-                        label="E2E Testing Instructions"
-                        placeholder={`How to run E2E tests for this project. Example:
+                      <TextInput
+                        label="Dev Server URL"
+                        placeholder="e.g., http://localhost:3000"
+                        description="Full URL for the dev server. Leave empty to auto-detect based on project type"
+                        value={editingDevServerUrl}
+                        onChange={(e) => setEditingDevServerUrl(e.target.value)}
+                      />
+                      {config.hasE2E && (
+                        <Textarea
+                          label="E2E Testing Instructions"
+                          placeholder={`How to run E2E tests for this project. Example:
 
 1. Use Playwright MCP to interact with the browser
 2. Navigate to the dev server URL
@@ -243,12 +254,13 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
 Or for backend:
 1. Use curl to test API endpoints
 2. Check response status codes and JSON bodies`}
-                        description="Custom methodology for running E2E tests (markdown supported). Leave empty to let the Planning Agent decide."
-                        value={editingE2EInstructions}
-                        onChange={(e) => setEditingE2EInstructions(e.target.value)}
-                        minRows={4}
-                        autosize
-                      />
+                          description="Custom methodology for running E2E tests (markdown supported). Leave empty to let the Planning Agent decide."
+                          value={editingE2EInstructions}
+                          onChange={(e) => setEditingE2EInstructions(e.target.value)}
+                          minRows={4}
+                          autosize
+                        />
+                      )}
                       <Group justify="flex-end">
                         <Button
                           size="xs"
@@ -257,11 +269,15 @@ Or for backend:
                           onClick={() => {
                             onUpdateProject(projectName, {
                               e2eInstructions: editingE2EInstructions.trim() || undefined,
+                              devServer: {
+                                ...config.devServer,
+                                url: editingDevServerUrl.trim() || undefined,
+                              },
                             });
                             setExpandedProject(null);
                           }}
                         >
-                          Save Instructions
+                          Save Settings
                         </Button>
                       </Group>
                     </Stack>
@@ -333,6 +349,14 @@ Or for backend:
                     description="Command to build the project for production"
                     value={manualBuildCommand}
                     onChange={(e) => setManualBuildCommand(e.target.value)}
+                  />
+
+                  <TextInput
+                    label="Dev Server URL"
+                    placeholder="e.g., http://localhost:3000"
+                    description="Full URL for the dev server. Leave empty to auto-detect based on project type"
+                    value={manualDevServerUrl}
+                    onChange={(e) => setManualDevServerUrl(e.target.value)}
                   />
 
                   <Checkbox
