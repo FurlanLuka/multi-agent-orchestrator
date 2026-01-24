@@ -249,12 +249,20 @@ export class ProcessManager extends EventEmitter {
   async sendToAgent(project: string, prompt: string): Promise<string> {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) {
-      throw new Error(`Unknown project: ${project}`);
+      const availableProjects = Object.keys(this.config.projects).join(', ');
+      throw new Error(`Unknown project: "${project}". Available projects: ${availableProjects}`);
     }
 
     const projectPath = this.expandPath(projectConfig.path);
 
-    console.log(`[ProcessManager] Sending to ${project} (one-shot): ${prompt.substring(0, 100)}...`);
+    // Validate the path exists
+    const fs = require('fs');
+    if (!fs.existsSync(projectPath)) {
+      throw new Error(`Project path does not exist: ${projectPath} (for project "${project}")`);
+    }
+
+    console.log(`[ProcessManager] Sending to project "${project}" at path: ${projectPath}`);
+    console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
 
     return new Promise((resolve, reject) => {
       let responseBuffer = '';

@@ -31,7 +31,6 @@ const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
   WORKING: { color: 'blue', label: 'Working' },
   DEBUGGING: { color: 'yellow', label: 'Debugging' },
   FATAL_DEBUGGING: { color: 'red', label: 'Fatal Debug' },
-  FATAL_RECOVERY: { color: 'orange', label: 'Recovering' },
   READY: { color: 'teal', label: 'Ready' },
   E2E: { color: 'violet', label: 'E2E Testing' },
   E2E_FIXING: { color: 'grape', label: 'Fixing E2E' },
@@ -46,7 +45,6 @@ const getStatusProgress = (status: AgentStatus): number => {
     case 'WORKING': return 30;
     case 'DEBUGGING': return 40;
     case 'FATAL_DEBUGGING': return 45;
-    case 'FATAL_RECOVERY': return 50;
     case 'READY': return 70;
     case 'E2E': return 85;
     case 'E2E_FIXING': return 80;

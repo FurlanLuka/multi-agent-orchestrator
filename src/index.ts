@@ -17,6 +17,8 @@ import { PlanningAgentManager } from './planning/planning-agent-manager';
 import { ChatHandler } from './planning/chat-handler';
 import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
+import { detectCycles } from './utils/dependency-graph';
+import { TaskExecutor } from './core/task-executor';
 
 // Get orchestrator directory (where this code lives)
 const ORCHESTRATOR_DIR = path.resolve(__dirname, '..');
@@ -216,51 +218,49 @@ async function main() {
     (ui.io as any).emit('queueProcessing', null);
   });
 
+  // Helper to wrap async event handlers with error handling
+  const wrapHandler = <T>(eventName: string, handler: (data: T) => Promise<void>) => {
+    return async (data: T) => {
+      try {
+        await handler(data);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Error in ${eventName}:`, err);
+        chatHandler?.systemMessage(`Error in ${eventName}: ${errorMsg}`);
+      } finally {
+        eventQueue.triggerProcessing(); // Always continue processing
+      }
+    };
+  };
+
   // Handle user chat events from queue
-  eventQueue.on('userChat', async ({ message }: { message: string }) => {
-    try {
-      await chatHandler.handleUserMessage(message);
-      // After message completes, check if there are queued messages to process
-      eventQueue.triggerProcessing();
-    } catch (err) {
-      console.error('[Orchestrator] Error handling user chat:', err);
-      eventQueue.triggerProcessing();
-    }
-  });
+  eventQueue.on('userChat', wrapHandler('userChat', async ({ message }: { message: string }) => {
+    await chatHandler.handleUserMessage(message);
+  }));
 
   // Handle E2E prompt requests from queue
-  eventQueue.on('e2ePromptRequest', async ({ project, taskSummary, testScenarios }: {
+  eventQueue.on('e2ePromptRequest', wrapHandler('e2ePromptRequest', async ({ project, taskSummary, testScenarios }: {
     project: string;
     taskSummary: string;
     testScenarios: string[];
   }) => {
-    try {
-      const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios);
-      if (e2ePrompt && e2ePrompt.trim()) {
-        console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
-        await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
-      } else {
-        console.warn(`[Orchestrator] No E2E prompt generated for ${project}`);
-      }
-    } catch (err) {
-      console.error(`[Orchestrator] E2E prompt request failed for ${project}:`, err);
+    const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios);
+    if (e2ePrompt && e2ePrompt.trim()) {
+      console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
+      await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
+    } else {
+      console.warn(`[Orchestrator] No E2E prompt generated for ${project}`);
     }
-    eventQueue.triggerProcessing();
-  });
+  }));
 
   // Handle failure analysis requests from queue
-  eventQueue.on('failureAnalysis', async ({ project, error, context }: {
+  eventQueue.on('failureAnalysis', wrapHandler('failureAnalysis', async ({ project, error, context }: {
     project: string;
     error: string;
     context: string[];
   }) => {
-    try {
-      await chatHandler.requestFailureAnalysis(project, error, context);
-    } catch (err) {
-      console.error(`[Orchestrator] Failure analysis failed for ${project}:`, err);
-    }
-    eventQueue.triggerProcessing();
-  });
+    await chatHandler.requestFailureAnalysis(project, error, context);
+  }));
 
   // ═══════════════════════════════════════════════════════════════
   // Wire up ActionExecutor events
@@ -312,75 +312,98 @@ async function main() {
   });
 
   // Handle E2E complete events from queue
-  eventQueue.on('e2eComplete', async ({ project, result, testScenarios, devServerLogs, allProjects }: {
+  eventQueue.on('e2eComplete', wrapHandler('e2eComplete', async ({ project, result, testScenarios, devServerLogs, allProjects }: {
     project: string;
     result: string;
     testScenarios: string[];
     devServerLogs: string;
     allProjects: string[];
   }) => {
-    try {
-      // Ask Planning Agent to analyze the E2E results
-      const analysis = await chatHandler.analyzeE2EResult(project, result, testScenarios, devServerLogs, allProjects);
+    // Ask Planning Agent to analyze the E2E results
+    const analysis = await chatHandler.analyzeE2EResult(project, result, testScenarios, devServerLogs, allProjects);
 
-      if (analysis.passed) {
-        // E2E passed! Mark as complete
-        console.log(`[Orchestrator] E2E tests PASSED for ${project}`);
-        statusMonitor.updateStatus(project, 'IDLE', 'E2E tests passed');
-        e2eRetryCount.delete(project); // Reset retry count on success
-      } else {
-        // E2E failed - check retry count
-        const retries = e2eRetryCount.get(project) || 0;
+    if (analysis.passed) {
+      // E2E passed! Mark as complete
+      console.log(`[Orchestrator] E2E tests PASSED for ${project}`);
+      statusMonitor.updateStatus(project, 'IDLE', 'E2E tests passed');
+      e2eRetryCount.delete(project); // Reset retry count on success
+      // Reset any E2E_FIXING projects back to IDLE since tests passed
+      for (const proj of allProjects) {
+        const status = statusMonitor.getStatus(proj);
+        if (status?.status === 'E2E_FIXING') {
+          statusMonitor.updateStatus(proj, 'IDLE', 'E2E tests passed');
+        }
+      }
+      return;
+    }
 
-        if (retries >= MAX_E2E_RETRIES) {
-          console.error(`[Orchestrator] E2E tests failed for ${project} after ${retries} retries, giving up`);
-          chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
-          statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
-          return;
+    // E2E failed - check retry count
+    const retries = e2eRetryCount.get(project) || 0;
+
+    if (retries >= MAX_E2E_RETRIES) {
+      console.error(`[Orchestrator] E2E tests failed for ${project} after ${retries} retries, giving up`);
+      chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
+      statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
+      return;
+    }
+
+    // Try to fix
+    console.log(`[Orchestrator] E2E tests FAILED for ${project}, attempting fix (retry ${retries + 1}/${MAX_E2E_RETRIES})`);
+    e2eRetryCount.set(project, retries + 1);
+
+    // Check for new multi-project fixes format first
+    if (analysis.fixes && analysis.fixes.length > 0) {
+      // Get session to check valid project names
+      const session = sessionManager.getCurrentSession();
+      const validProjects = new Set(session?.projects || allProjects);
+
+      // Debug: Log the fixes array
+      console.log(`[Orchestrator] E2E analysis returned ${analysis.fixes.length} fix(es):`);
+      analysis.fixes.forEach((f, i) => {
+        console.log(`[Orchestrator]   Fix ${i}: project="${f.project}", prompt length=${f.prompt?.length || 0}`);
+      });
+
+      // Send fixes to all targeted projects SEQUENTIALLY to avoid any race conditions
+      for (const fix of analysis.fixes) {
+        const targetProject = fix.project;
+
+        // Debug: Triple-check the project name
+        console.log(`[Orchestrator] Processing fix for project: "${targetProject}" (type: ${typeof targetProject})`);
+
+        // Validate that target project exists in current session
+        if (!validProjects.has(targetProject)) {
+          console.error(`[Orchestrator] E2E fix target project "${targetProject}" not found in session projects: ${Array.from(validProjects).join(', ')}`);
+          chatHandler.systemMessage(`Error: Cannot apply fix - project "${targetProject}" not found. Available projects: ${Array.from(validProjects).join(', ')}`);
+          continue; // Skip this fix
         }
 
-        // Try to fix
-        console.log(`[Orchestrator] E2E tests FAILED for ${project}, attempting fix (retry ${retries + 1}/${MAX_E2E_RETRIES})`);
-        e2eRetryCount.set(project, retries + 1);
-
-        // Check for new multi-project fixes format first
-        if (analysis.fixes && analysis.fixes.length > 0) {
-          try {
-            // Send fixes to all targeted projects in parallel
-            const fixPromises = analysis.fixes.map(async (fix) => {
-              const targetProject = fix.project;
-              const fixPrompt = `The E2E tests for ${project} failed. Analysis: ${analysis.analysis}
+        const fixPrompt = `The E2E tests for ${project} failed. Analysis: ${analysis.analysis}
 
 You need to fix the following in ${targetProject}:
 ${fix.prompt}
 
 After fixing, the E2E tests will be re-run automatically.`;
 
-              console.log(`[Orchestrator] Sending fix to ${targetProject} (E2E failed in ${project})`);
-              statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
-              await actionExecutor.sendE2EFix(targetProject, fixPrompt);
-            });
+        console.log(`[Orchestrator] >>> SENDING FIX TO: "${targetProject}" (E2E failed in "${project}")`);
+        statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
+        await actionExecutor.sendE2EFix(targetProject, fixPrompt);
+        console.log(`[Orchestrator] <<< FIX SENT TO: "${targetProject}"`);
+      }
 
-            await Promise.all(fixPromises);
+      // After all fixes complete, re-run E2E on the original project
+      console.log(`[Orchestrator] Fixes applied, re-running E2E tests for ${project}`);
+      const e2ePrompt = await chatHandler.requestE2EPrompt(
+        project,
+        `Re-running E2E after fix attempt ${retries + 1}`,
+        testScenarios
+      );
 
-            // After all fixes complete, re-run E2E on the original project
-            console.log(`[Orchestrator] Fixes applied, re-running E2E tests for ${project}`);
-            const e2ePrompt = await chatHandler.requestE2EPrompt(
-              project,
-              `Re-running E2E after fix attempt ${retries + 1}`,
-              testScenarios
-            );
-
-            if (e2ePrompt && e2ePrompt.trim()) {
-              await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
-            }
-          } catch (err) {
-            console.error(`[Orchestrator] E2E fix failed:`, err);
-            statusMonitor.updateStatus(project, 'BLOCKED', 'E2E fix failed');
-          }
-        } else if (analysis.fixPrompt) {
-          // Legacy: single project fix
-          const fixPrompt = `The E2E tests failed with the following issues:
+      if (e2ePrompt && e2ePrompt.trim()) {
+        await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
+      }
+    } else if (analysis.fixPrompt) {
+      // Legacy: single project fix
+      const fixPrompt = `The E2E tests failed with the following issues:
 
 ${analysis.analysis}
 
@@ -389,37 +412,24 @@ ${analysis.fixPrompt}
 
 After fixing, the E2E tests will be re-run automatically.`;
 
-          try {
-            await actionExecutor.sendE2EFix(project, fixPrompt);
+      await actionExecutor.sendE2EFix(project, fixPrompt);
 
-            // After fix completes, re-run E2E
-            console.log(`[Orchestrator] Fix applied for ${project}, re-running E2E tests`);
-            const e2ePrompt = await chatHandler.requestE2EPrompt(
-              project,
-              `Re-running E2E after fix attempt ${retries + 1}`,
-              testScenarios
-            );
+      // After fix completes, re-run E2E
+      console.log(`[Orchestrator] Fix applied for ${project}, re-running E2E tests`);
+      const e2ePrompt = await chatHandler.requestE2EPrompt(
+        project,
+        `Re-running E2E after fix attempt ${retries + 1}`,
+        testScenarios
+      );
 
-            if (e2ePrompt && e2ePrompt.trim()) {
-              await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
-            }
-          } catch (err) {
-            console.error(`[Orchestrator] E2E fix failed for ${project}:`, err);
-            statusMonitor.updateStatus(project, 'BLOCKED', 'E2E fix failed');
-          }
-        } else {
-          // No fix prompt available, mark as blocked
-          statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
-        }
+      if (e2ePrompt && e2ePrompt.trim()) {
+        await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
       }
-    } catch (err) {
-      console.error(`[Orchestrator] E2E analysis failed for ${project}:`, err);
-      // On analysis error, mark as blocked
-      statusMonitor.updateStatus(project, 'BLOCKED', 'E2E analysis failed');
+    } else {
+      // No fix prompt available, mark as blocked
+      statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
     }
-    // Trigger processing of next queued event
-    eventQueue.triggerProcessing();
-  });
+  }));
 
   // ═══════════════════════════════════════════════════════════════
   // Wire up State Machine events
@@ -805,6 +815,63 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
     }
   };
 
+  // Helper to check if all remaining tasks are blocked by failures
+  const checkAllTasksFailed = (tasks: TaskDefinition[]) => {
+    // If no tasks or no pending tasks, nothing to check
+    if (tasks.length === 0 || pendingTasks.size === 0) {
+      return;
+    }
+
+    // Check if any tasks are still in progress (not completed, not failed, not pending)
+    const inProgressTasks = tasks.filter((_task, idx) =>
+      !completedTasks.has(idx) && !failedTasks.has(idx) && !pendingTasks.has(idx)
+    );
+
+    if (inProgressTasks.length > 0) {
+      // Some tasks are still running, don't declare stuck yet
+      return;
+    }
+
+    // Check if all pending tasks are blocked by failed tasks
+    let allBlocked = true;
+    for (const [_taskIdx, pending] of pendingTasks) {
+      // Check if any of the waiting-on tasks are not failed (still possible to complete)
+      const hasNonFailedDep = pending.waitingOn.some(depIdx =>
+        !failedTasks.has(depIdx) && !completedTasks.has(depIdx)
+      );
+      if (hasNonFailedDep) {
+        allBlocked = false;
+        break;
+      }
+      // All dependencies are either failed or this shouldn't be pending
+      // If all deps are complete but task is still pending, it will be started soon
+      const allDepsComplete = pending.waitingOn.every(depIdx => completedTasks.has(depIdx));
+      if (allDepsComplete) {
+        allBlocked = false;
+        break;
+      }
+    }
+
+    if (allBlocked && pendingTasks.size > 0 && failedTasks.size > 0) {
+      console.error('[Orchestrator] Execution stuck: all remaining tasks blocked by failures');
+      const failedTaskNames = Array.from(failedTasks)
+        .map(idx => `#${idx} (${tasks[idx]?.name || 'unknown'})`)
+        .join(', ');
+      const pendingTaskNames = Array.from(pendingTasks.keys())
+        .map(idx => `#${idx} (${tasks[idx]?.name || 'unknown'})`)
+        .join(', ');
+
+      const message = `Execution stuck: ${failedTasks.size} task(s) failed [${failedTaskNames}], blocking ${pendingTasks.size} pending task(s) [${pendingTaskNames}]`;
+      chatHandler.systemMessage(message);
+      (ui.io as any).emit('executionStuck', {
+        failedTasks: Array.from(failedTasks),
+        pendingTasks: Array.from(pendingTasks.keys()),
+        completedTasks: Array.from(completedTasks),
+        message
+      });
+    }
+  };
+
   statusMonitor.on('projectReady', async ({ project, message }) => {
     console.log(`[Orchestrator] ${project} is READY: ${message}`);
     await tryTriggerE2E(project, message);
@@ -821,13 +888,6 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
     if (status === 'IDLE') {
       await checkPendingE2E(project);
     }
-  });
-
-  statusMonitor.on('fatalRecovery', ({ project }) => {
-    console.log(`[Orchestrator] ${project} reports FATAL_RECOVERY, restarting dev server`);
-    processManager.restartDevServer(project).catch(err => {
-      console.error(`[Orchestrator] Failed to restart ${project}:`, err);
-    });
   });
 
   statusMonitor.on('allComplete', () => {
@@ -1055,6 +1115,19 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
         return;
       }
 
+      // Check for circular dependencies before starting
+      const cycleResult = detectCycles(session.plan.tasks);
+      if (cycleResult.hasCycle) {
+        console.error('[Orchestrator] Circular dependency detected:', cycleResult.message);
+        chatHandler.systemMessage(`Cannot start execution: ${cycleResult.message}`);
+        (ui.io as any).emit('executionError', {
+          type: 'circular_dependency',
+          message: cycleResult.message,
+          cycle: cycleResult.cycle
+        });
+        return;
+      }
+
       // Reset statuses for all projects to PENDING before starting
       for (const project of session.projects) {
         statusMonitor.initializeProject(project);
@@ -1200,6 +1273,7 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
               statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
               failedTasks.add(taskIndex);
               statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', analysis.analysis);
+              checkAllTasksFailed(tasks);
               return;
             }
 
@@ -1245,6 +1319,7 @@ Please fix the issue and try again.`;
           statusMonitor.updateTaskStatus(taskIndex, 'failed', `Task failed: ${err}`);
           failedTasks.add(taskIndex);
           statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', `Task failed: ${err}`);
+          checkAllTasksFailed(tasks);
         } finally {
           stateMachine.markAgentIdle(task.project);
         }
@@ -1478,51 +1553,31 @@ Please fix the issue and try again.`;
       socket.emit('sessionList', sessions);
     });
 
-    // Load a specific session
+    // Load a specific session (view only - does NOT modify global state)
     socket.on('loadSession', ({ sessionId }: { sessionId: string }) => {
       try {
         // Check if this session is the currently active one
         const currentSession = sessionManager.getCurrentSession();
         const isActiveSession = currentSession?.id === sessionId;
 
-        // For viewing (not activating), just get the data without modifying state
+        // Get session data WITHOUT modifying global state
+        // This allows viewing old sessions while another session is running
         const fullData = sessionStore.getFullSessionData(sessionId);
         if (!fullData) {
           socket.emit('loadSessionError', { error: 'Session not found' });
           return;
         }
 
-        // Only update monitors/watchers if this is NOT an active session view request
-        // (active sessions already have these set up)
-        if (!isActiveSession) {
-          // Set current session ID on StatusMonitor and LogAggregator for viewing
-          statusMonitor.setCurrentSessionId(sessionId);
-          logAggregator.setCurrentSessionId(sessionId);
-
-          // Restore statuses and logs to in-memory stores
-          statusMonitor.restoreStatuses(fullData.session.statuses);
-          logAggregator.restoreLogs(fullData.logs);
-
-          // Initialize event watchers for each project
-          for (const project of fullData.session.projects) {
-            const sessionDir = sessionManager.getSessionDir(project);
-            if (sessionDir) {
-              eventWatcher.watchProject(project, sessionDir);
-            }
-          }
-
-          // Create session logger
-          sessionLogger = new SessionLogger(ORCHESTRATOR_DIR, sessionId);
-        }
-
-        // Send full session data to client (include pending plan and active status)
+        // Send full session data to client
+        // readOnly=true indicates this is just a view, not an active session
         socket.emit('sessionLoaded', {
           ...fullData,
           pendingPlan: fullData.session.pendingPlan,
           isActive: isActiveSession,
+          readOnly: !isActiveSession,  // True when viewing inactive sessions
         });
 
-        console.log(`[Orchestrator] Session ${sessionId} loaded (active: ${isActiveSession})`);
+        console.log(`[Orchestrator] Session ${sessionId} loaded (active: ${isActiveSession}, readOnly: ${!isActiveSession})`);
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Failed to load session:', error);

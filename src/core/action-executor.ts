@@ -258,7 +258,21 @@ export class ActionExecutor extends EventEmitter {
    * Sends a fix prompt to an agent after E2E failure
    */
   async sendE2EFix(project: string, fixPrompt: string): Promise<string> {
-    console.log(`[ActionExecutor] Sending E2E fix prompt to ${project}`);
+    console.log(`[ActionExecutor] Sending E2E fix prompt to project: "${project}"`);
+
+    // Validate project exists in config
+    const config = (this.processManager as any).config;
+    if (config?.projects && !config.projects[project]) {
+      const availableProjects = Object.keys(config.projects || {}).join(', ');
+      const error = `Project "${project}" not found in config. Available: ${availableProjects}`;
+      console.error(`[ActionExecutor] ${error}`);
+      throw new Error(error);
+    }
+
+    // Log the project path for debugging
+    if (config?.projects?.[project]?.path) {
+      console.log(`[ActionExecutor] Project "${project}" path: ${config.projects[project].path}`);
+    }
 
     try {
       this.statusMonitor.updateStatus(project, 'E2E_FIXING', 'Fixing E2E test failures');

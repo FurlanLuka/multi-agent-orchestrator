@@ -50,6 +50,16 @@ export class PlanningAgentManager extends EventEmitter {
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
   private projectConfig: Record<string, ProjectConfig> = {};
 
+  // Per-method timeouts (ms)
+  private static readonly TIMEOUTS = {
+    CHAT: 120000,           // 2 min - general chat responses
+    PLAN_CREATION: 600000,  // 10 min - explores codebase extensively
+    TASK_ANALYSIS: 180000,  // 3 min - analyzing task results
+    E2E_PROMPT: 180000,     // 3 min - generating E2E prompts
+    E2E_ANALYSIS: 300000,   // 5 min - analyzing E2E results
+    FAILURE_ANALYSIS: 180000, // 3 min - analyzing failures
+  };
+
   constructor(orchestratorDir: string) {
     super();
     this.orchestratorDir = orchestratorDir;
@@ -152,10 +162,12 @@ User: ${newMessage}`;
   /**
    * Executes a one-shot Claude call and returns the result
    * Uses spawn with streaming output parsing
+   * @param prompt The prompt to send
+   * @param timeoutMs Timeout in milliseconds (defaults to CHAT timeout)
    */
-  private async executeOneShot(prompt: string): Promise<string> {
+  private async executeOneShot(prompt: string, timeoutMs: number = PlanningAgentManager.TIMEOUTS.CHAT): Promise<string> {
     return new Promise((resolve, reject) => {
-      console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars)`);
+      console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
 
       // Use full path to ensure claude is found
       const claudePath = process.env.HOME + '/.local/bin/claude';
@@ -349,12 +361,12 @@ User: ${newMessage}`;
       // Set timeout for the entire operation
       const timeout = setTimeout(() => {
         if (this.currentProcess) {
-          console.error('[PlanningAgent] Timeout - killing process');
+          console.error(`[PlanningAgent] Timeout after ${timeoutMs}ms - killing process`);
           this.currentProcess.kill('SIGKILL');
           this.currentProcess = null;
-          reject(new Error('Planning Agent timeout'));
+          reject(new Error(`Planning Agent timeout after ${timeoutMs}ms`));
         }
-      }, 300000); // 5 minute timeout for complex tasks
+      }, timeoutMs);
 
       proc.on('exit', () => clearTimeout(timeout));
     });
@@ -379,8 +391,10 @@ User: ${newMessage}`;
 
   /**
    * Sends a chat message and waits for response
+   * @param message The message to send
+   * @param timeoutMs Optional custom timeout (defaults to CHAT timeout)
    */
-  async sendChat(message: string): Promise<string> {
+  async sendChat(message: string, timeoutMs: number = PlanningAgentManager.TIMEOUTS.CHAT): Promise<string> {
     console.log(`[PlanningAgent] Sending: ${message.substring(0, 100)}...`);
 
     // Build prompt with context BEFORE adding to history (to avoid duplication)
@@ -390,8 +404,8 @@ User: ${newMessage}`;
     this.conversationHistory.push({ role: 'user', content: message });
 
     try {
-      // Execute one-shot
-      const result = await this.executeOneShot(contextPrompt);
+      // Execute one-shot with specified timeout
+      const result = await this.executeOneShot(contextPrompt, timeoutMs);
 
       // Add assistant response to history
       this.conversationHistory.push({ role: 'assistant', content: result });
@@ -510,7 +524,7 @@ E2E TESTING:
 
 Start by exploring the project directories, then create the plan.`;
 
-    await this.sendChat(prompt);
+    await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.PLAN_CREATION);
   }
 
   /**
@@ -578,7 +592,7 @@ Generate an E2E test prompt that instructs the agent to:
 
 Output the E2E prompt that should be sent to the agent.`;
 
-    return await this.sendChat(prompt);
+    return await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_PROMPT);
   }
 
   /**
@@ -598,7 +612,7 @@ Focus on:
 2. Specific steps to fix it
 3. How to prevent it in the future`;
 
-    return await this.sendChat(prompt);
+    return await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.FAILURE_ANALYSIS);
   }
 
   /**
@@ -663,7 +677,7 @@ Be intelligent - a passing build with runtime errors in logs should FAIL. A heal
     console.log(`[PlanningAgent] Analyzing task result for ${context.project}:${context.taskName}`);
 
     try {
-      const response = await this.sendChat(prompt);
+      const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.TASK_ANALYSIS);
 
       // Parse JSON from response
       const jsonMatch = response.match(/\{[\s\S]*?"passed"\s*:[\s\S]*?\}/);
@@ -813,30 +827,35 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
 The "fixes" array should contain an entry for EACH project that needs changes. Use the agent's codeAnalysis to provide specific, actionable fix instructions.`;
 
     try {
-      const result = await this.sendChat(prompt);
+      const result = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
 
       // Extract JSON from response - handle nested objects with fixes array
       const jsonMatch = result.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*\}/);
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
+          console.log(`[PlanningAgent] Parsed E2E analysis: passed=${parsed.passed}, fixes=${JSON.stringify(parsed.fixes)}`);
 
           // Handle new format with fixes array
           if (parsed.fixes && Array.isArray(parsed.fixes)) {
+            const validFixes = parsed.fixes.filter((f: any) => f.project && f.prompt);
+            console.log(`[PlanningAgent] Valid fixes after filtering: ${validFixes.map((f: any) => f.project).join(', ')}`);
             return {
               passed: !!parsed.passed,
               analysis: parsed.analysis || 'No analysis provided',
-              fixes: parsed.fixes.filter((f: any) => f.project && f.prompt)
+              fixes: validFixes
             };
           }
 
           // Legacy format with fixPrompt
+          console.log(`[PlanningAgent] Using legacy format (no fixes array)`);
           return {
             passed: !!parsed.passed,
             analysis: parsed.analysis || 'No analysis provided',
             fixPrompt: parsed.fixPrompt
           };
-        } catch {
+        } catch (parseErr) {
+          console.error(`[PlanningAgent] JSON parse error:`, parseErr);
           // Fall through to default
         }
       }
@@ -994,6 +1013,6 @@ IMPORTANT:
 
 Start by exploring the current state, then create the new plan.`;
 
-    await this.sendChat(prompt);
+    await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.PLAN_CREATION);
   }
 }

@@ -29,7 +29,6 @@ export type AgentStatus =
   | 'WORKING'
   | 'DEBUGGING'
   | 'FATAL_DEBUGGING'
-  | 'FATAL_RECOVERY'
   | 'READY'
   | 'E2E'
   | 'E2E_FIXING'    // Fixing issues found in E2E tests

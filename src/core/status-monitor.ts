@@ -57,10 +57,6 @@ export class StatusMonitor extends EventEmitter {
         this.emit('projectReady', { project, message });
         break;
 
-      case 'FATAL_RECOVERY':
-        this.emit('fatalRecovery', { project });
-        break;
-
       case 'DEBUGGING':
         this.emit('debugging', { project, message });
         break;

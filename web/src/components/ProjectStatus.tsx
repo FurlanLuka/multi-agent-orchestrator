@@ -20,7 +20,6 @@ const statusConfig: Record<AgentStatus, { color: string; icon: React.ReactNode; 
   WORKING: { color: 'blue', icon: <IconLoader size={16} />, label: 'Working' },
   DEBUGGING: { color: 'yellow', icon: <IconBug size={16} />, label: 'Debugging' },
   FATAL_DEBUGGING: { color: 'red', icon: <IconAlertTriangle size={16} />, label: 'Fatal Debug' },
-  FATAL_RECOVERY: { color: 'orange', icon: <IconAlertTriangle size={16} />, label: 'Recovering' },
   READY: { color: 'green', icon: <IconCircleCheck size={16} />, label: 'Ready' },
   E2E: { color: 'violet', icon: <IconTestPipe size={16} />, label: 'E2E Testing' },
   E2E_FIXING: { color: 'orange', icon: <IconBug size={16} />, label: 'Fixing E2E' },
@@ -38,8 +37,6 @@ function getStatusProgress(status: AgentStatus): number {
     case 'DEBUGGING':
     case 'FATAL_DEBUGGING':
       return 30;
-    case 'FATAL_RECOVERY':
-      return 50;
     case 'READY':
       return 80;
     case 'E2E':
