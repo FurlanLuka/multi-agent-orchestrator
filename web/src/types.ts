@@ -25,7 +25,8 @@ export interface TaskDefinition {
   project: string;
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
-  dependencies: string[];
+  dependencies: number[];  // Task indices this task depends on (e.g., [0, 2] means depends on tasks 0 and 2)
+  runE2E?: boolean;    // If true, run E2E tests for this project AFTER this task completes
 }
 
 export interface Plan {
@@ -175,26 +176,37 @@ export interface QueueStatus {
 }
 
 // Task status tracking for dependency-aware execution
-export type TaskStatus = 'pending' | 'waiting' | 'working' | 'completed' | 'failed';
+export type TaskStatus =
+  | 'pending'      // Not started yet
+  | 'waiting'      // Waiting on dependency tasks
+  | 'working'      // Agent is implementing
+  | 'verifying'    // Running deps install, build, restart, health check
+  | 'fixing'       // Agent fixing verification errors
+  | 'completed'    // Implementation done (no E2E or E2E passed)
+  | 'e2e'          // Running E2E tests after implementation
+  | 'e2e_failed'   // E2E tests failed (may retry or redistribute)
+  | 'failed';      // Implementation failed
 
 export interface TaskState {
-  taskId: string;
+  taskIndex: number;     // Index in the tasks array
   project: string;
-  name: string;         // Short task name for display
-  description: string;  // Full task description (markdown)
+  name: string;          // Short task name for display
+  description: string;   // Full task description (markdown)
   status: TaskStatus;
-  dependencies: string[];
-  waitingOn: string[];  // Remaining dependencies
+  dependencies: number[];  // Task indices this depends on
+  waitingOn: number[];     // Remaining dependency indices not yet complete
+  runE2E: boolean;         // Whether to run E2E after this task
+  e2eAttempts?: number;    // Track E2E retry attempts
   message?: string;
   startedAt?: number;
   completedAt?: number;
 }
 
 export interface TaskStatusEvent {
-  taskId: string;
+  taskIndex: number;
   project: string;
   status: TaskStatus;
-  waitingOn?: string[];
+  waitingOn?: number[];
   message?: string;
   timestamp: number;
 }

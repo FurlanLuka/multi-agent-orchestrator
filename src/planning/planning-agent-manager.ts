@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext } from '../types';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -465,19 +465,36 @@ After exploring, create a plan in this JSON format:
   "tasks": [
     {
       "project": "backend",
-      "name": "Add API endpoint",
-      "task": "Detailed IMPLEMENTATION task description...",
-      "dependencies": []
+      "name": "Auth API",
+      "task": "Create /auth/register and /auth/login endpoints...",
+      "dependencies": [],
+      "runE2E": true
+    },
+    {
+      "project": "backend",
+      "name": "User API",
+      "task": "Add /users/profile endpoint with auth middleware...",
+      "dependencies": [0],
+      "runE2E": true
     },
     {
       "project": "frontend",
-      "name": "Create UI component",
-      "task": "Detailed IMPLEMENTATION task description (include expected API contract so FE can work in parallel)...",
-      "dependencies": []
+      "name": "Auth components",
+      "task": "Create LoginForm and RegisterForm components...",
+      "dependencies": [],
+      "runE2E": false
+    },
+    {
+      "project": "frontend",
+      "name": "API integration",
+      "task": "Connect auth forms to backend API...",
+      "dependencies": [0, 2],
+      "runE2E": true
     }
   ],
   "testPlan": {
-    "project_name": ["E2E test scenario 1", "E2E test scenario 2"]
+    "backend": ["Register new user returns 201", "Login returns JWT token"],
+    "frontend": ["User can register and login", "Profile page shows user data"]
   }
 }
 \`\`\`
@@ -485,17 +502,22 @@ After exploring, create a plan in this JSON format:
 TASK FORMAT RULES:
 - "name": Short, action-oriented title (3-6 words) shown in collapsed view
 - "task": Full detailed description with markdown formatting, file paths, and implementation details
-- "dependencies": Array of PROJECT NAMES (not task names) that THIS task depends on
-  - IMPORTANT: Dependencies control BOTH task execution AND E2E test order
-  - If project A's task depends on project B, then:
-    1. Task A will wait for Task B to complete before starting
-    2. Project A's E2E tests will wait for Project B's E2E tests to complete
-  - Use dependencies when: Frontend needs backend API to be implemented and tested first
-  - Example: Frontend UI that calls a backend API should have dependencies: ["backend-project-name"]
+- "dependencies": Array of TASK INDICES (numbers, not names) that THIS task depends on
+  - Example: [0, 2] means this task depends on tasks at index 0 and 2
   - Tasks with empty dependencies [] start immediately in parallel
-  - For parallel development with a known API contract, you can use empty dependencies, but BE AWARE:
-    - If frontend depends on backend, frontend E2E tests will fail if backend isn't ready
-    - Set dependencies when one project CALLS or USES another project's implementation
+  - Use dependencies when a task needs another task's output (e.g., frontend needs backend API)
+- "runE2E": Boolean - whether to run E2E tests AFTER this task completes
+  - Set true on tasks that complete a testable milestone
+  - For backend: Run E2E after each API endpoint group is complete
+  - For frontend: Run E2E after integration with backend is done
+  - Multiple E2E runs catch issues early - don't wait until the end
+  - E2E tests automatically wait for dependent projects' E2E to pass first
+
+INTERLEAVED E2E STRATEGY:
+- Backend tasks can have runE2E: true after each major feature
+- Frontend tasks that DON'T call backend can have runE2E: false
+- Frontend tasks that integrate with backend should have runE2E: true AND depend on backend tasks
+- This allows: backend task → backend E2E → frontend integration → frontend E2E
 
 Start by exploring the project directories, then create the plan.`;
 
@@ -814,5 +836,70 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
   clearHistory(): void {
     this.conversationHistory = [];
     console.log('[PlanningAgent] Conversation history cleared');
+  }
+
+  /**
+   * Requests a redistribution plan when execution is stuck
+   * This happens when tasks fail and other tasks are blocked
+   */
+  async requestRedistribution(context: RedistributionContext): Promise<void> {
+    const completedSection = context.completedWork.length > 0
+      ? `## Completed Work (DO NOT REDO - these are done)\n${context.completedWork.map(w =>
+          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Status: ${w.status}`
+        ).join('\n')}`
+      : '## Completed Work\nNo tasks completed yet.';
+
+    const failedSection = context.failedWork.length > 0
+      ? `## Failed Work (NEEDS FIXING)\n${context.failedWork.map(w =>
+          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Error: ${w.error || 'Unknown error'}\n  Original task: ${w.task.task.slice(0, 200)}...`
+        ).join('\n\n')}`
+      : '## Failed Work\nNo tasks failed.';
+
+    const pendingSection = context.pendingWork.length > 0
+      ? `## Pending Work (BLOCKED)\n${context.pendingWork.map(w =>
+          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Blocked by tasks: ${w.blockedBy?.join(', ') || 'unknown'}`
+        ).join('\n')}`
+      : '## Pending Work\nNo tasks pending.';
+
+    const prompt = `# EXECUTION STUCK - REDISTRIBUTION NEEDED
+
+The current execution is STUCK and cannot continue. Please analyze and create a NEW plan.
+
+## Original Feature
+${context.feature}
+
+${completedSection}
+
+${failedSection}
+
+${pendingSection}
+
+## Your Task
+
+1. **EXPLORE** the current state of the codebase to see what was actually implemented
+   - Check the projects to see what code exists
+   - Look at error logs, build output, etc.
+
+2. **ANALYZE** why tasks failed
+   - Check build errors, missing dependencies, incorrect code
+   - Understand what went wrong
+
+3. **CREATE A NEW PLAN** that:
+   - Does NOT redo completed work (assume it's correct)
+   - Fixes the issues in failed tasks (create new fix tasks)
+   - May reorganize pending tasks if dependencies changed
+   - May add new tasks to address discovered issues
+
+4. **Use the same JSON format** as before with task indices
+
+IMPORTANT:
+- Task indices in the new plan start fresh (0, 1, 2...) - don't reference old indices
+- If a completed task is broken, create a FIX task that patches it
+- Be specific about what went wrong and how to fix it
+- Keep runE2E: true on tasks that should be tested
+
+Start by exploring the current state, then create the new plan.`;
+
+    await this.sendChat(prompt);
   }
 }

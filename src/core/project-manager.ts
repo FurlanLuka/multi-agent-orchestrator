@@ -241,12 +241,23 @@ export class ProjectManager extends EventEmitter {
 
     const { cmd, args } = this.detectPackageManager(projectPath);
     console.log(`[ProjectManager] Running ${cmd} ${args.join(' ')} for ${projectName}...`);
+    console.log(`[ProjectManager] Install spawn details:`, {
+      cmd,
+      args,
+      cwd: projectPath,
+      shell: true,
+      SHELL: process.env.SHELL,
+      PATH: process.env.PATH?.split(':').slice(0, 5).join(':') + '...'  // First 5 PATH entries
+    });
     this.emit('dependencyInstallStart', { project: projectName, packageManager: cmd });
 
     return new Promise((resolve, reject) => {
+      // Use shell: true to let Node find npm via PATH
       const proc = spawn(cmd, args, {
         cwd: projectPath,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        env: process.env
       });
 
       let stdout = '';

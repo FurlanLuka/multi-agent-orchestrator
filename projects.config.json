@@ -20,6 +20,56 @@
       "buildCommand": "npm run build",
       "hasE2E": true,
       "e2eInstructions": "### 1. Setup Test Credentials\n\n```bash\nnpm run test:e2e:setup\n```\n\nRead credentials from `playwright/.auth/test-data.json`.\n\n### 2. Use playwright MCP to navigate dev server deployment and click through using playwright MCP"
+    },
+    "airbnb-frontend": {
+      "path": "~/Documents/airbnb-frontend",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "airbnb-backend": {
+      "path": "~/Documents/airbnb-backend",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "blog-fe": {
+      "path": "~/Documents/blog-fe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "blog-be": {
+      "path": "~/Documents/blog-be",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "test": {
+      "path": "~/Documents/test-project",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
     }
   },
   "defaults": {

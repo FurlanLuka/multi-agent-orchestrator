@@ -400,17 +400,20 @@ function App() {
                                   <Text size="xs" fw={600} c="dimmed" mb="xs">Tasks</Text>
                                   <Stack gap="xs">
                                     {session.plan.tasks.map((task, idx) => {
-                                      const taskId = `${task.project}:${idx}`;
-                                      const taskState = taskStates.find(t => t.taskId === taskId);
+                                      const taskState = taskStates.find(t => t.taskIndex === idx);
                                       const status = taskState?.status || 'pending';
-                                      const isExpanded = expandedTasks.has(taskId);
+                                      const isExpanded = expandedTasks.has(String(idx));
 
                                       // Get status icon and color
                                       const getStatusIcon = () => {
                                         switch (status) {
                                           case 'completed': return <IconCircleCheck size={16} />;
                                           case 'working': return <IconLoader size={16} className="animate-spin" />;
+                                          case 'verifying': return <IconLoader size={16} className="animate-spin" />;
+                                          case 'fixing': return <IconLoader size={16} className="animate-spin" />;
                                           case 'waiting': return <IconClock size={16} />;
+                                          case 'e2e': return <IconLoader size={16} className="animate-spin" />;
+                                          case 'e2e_failed': return <IconCircleX size={16} />;
                                           case 'failed': return <IconCircleX size={16} />;
                                           default: return <IconCircle size={16} />;
                                         }
@@ -420,7 +423,11 @@ function App() {
                                         switch (status) {
                                           case 'completed': return 'green';
                                           case 'working': return 'blue';
+                                          case 'verifying': return 'cyan';
+                                          case 'fixing': return 'orange';
                                           case 'waiting': return 'yellow';
+                                          case 'e2e': return 'violet';
+                                          case 'e2e_failed': return 'red';
                                           case 'failed': return 'red';
                                           default: return 'gray';
                                         }
@@ -436,18 +443,24 @@ function App() {
                                           style={{
                                             backgroundColor: status === 'working'
                                               ? 'var(--mantine-color-blue-0)'
+                                              : status === 'verifying'
+                                              ? 'var(--mantine-color-cyan-0)'
+                                              : status === 'fixing'
+                                              ? 'var(--mantine-color-orange-0)'
                                               : status === 'completed'
                                               ? 'var(--mantine-color-green-0)'
                                               : status === 'waiting'
                                               ? 'var(--mantine-color-yellow-0)'
-                                              : status === 'failed'
+                                              : status === 'e2e'
+                                              ? 'var(--mantine-color-violet-0)'
+                                              : status === 'e2e_failed' || status === 'failed'
                                               ? 'var(--mantine-color-red-0)'
                                               : 'var(--mantine-color-gray-0)',
                                             borderRadius: 'var(--mantine-radius-md)',
                                             border: `1px solid var(--mantine-color-${getStatusColor()}-2)`,
                                             cursor: 'pointer',
                                           }}
-                                          onClick={() => toggleTaskExpanded(taskId)}
+                                          onClick={() => toggleTaskExpanded(String(idx))}
                                         >
                                           {/* Collapsed View: Status + Project + Task Name */}
                                           <Group gap="xs" wrap="nowrap">
@@ -457,12 +470,17 @@ function App() {
                                             <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
                                               {task.project}
                                             </Badge>
+                                            {task.runE2E && (
+                                              <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>
+                                                +E2E
+                                              </Badge>
+                                            )}
                                             <Text size="sm" fw={500} style={{ flex: 1 }} lineClamp={1}>
                                               {taskName}
                                             </Text>
                                             {taskState?.waitingOn && taskState.waitingOn.length > 0 && (
                                               <Badge size="xs" variant="outline" color="yellow" style={{ flexShrink: 0 }}>
-                                                waiting: {taskState.waitingOn.join(', ')}
+                                                waiting: #{taskState.waitingOn.join(', #')}
                                               </Badge>
                                             )}
                                             <ActionIcon size="sm" variant="subtle" color="gray">
@@ -475,7 +493,7 @@ function App() {
                                             <Box mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}>
                                               {task.dependencies.length > 0 && (
                                                 <Text size="xs" c="dimmed" mb="xs">
-                                                  Dependencies: {task.dependencies.join(', ')}
+                                                  Dependencies: {task.dependencies.map(d => `#${d}`).join(', ')}
                                                 </Text>
                                               )}
                                               <MarkdownMessage content={task.task} />

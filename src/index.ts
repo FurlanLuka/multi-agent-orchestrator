@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock } from './types';
+import { spawn } from 'child_process';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, VerificationResult, VerificationStep } from './types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -451,10 +452,16 @@ After fixing, the E2E tests will be re-run automatically.`;
   });
 
   // Track projects waiting for E2E (waiting on dependencies)
-  const pendingE2E: Map<string, { message: string; waitingOn: string[] }> = new Map();
+  const pendingE2E: Map<string, { message: string; waitingOn: string[]; taskIndex?: number }> = new Map();
 
-  // Track tasks waiting for dependencies (task execution)
-  const pendingTasks: Map<string, { task: TaskDefinition; taskKey: string; waitingOn: string[] }> = new Map();
+  // Track tasks waiting for dependencies (task execution) - keyed by task index
+  const pendingTasks: Map<number, { task: TaskDefinition; taskIndex: number; waitingOn: number[] }> = new Map();
+
+  // Track completed task indices
+  const completedTasks: Set<number> = new Set();
+
+  // Track failed task indices
+  const failedTasks: Set<number> = new Set();
 
   // Helper to get dev server URL for a project
   const getDevServerUrl = (project: string): string => {
@@ -465,6 +472,154 @@ After fixing, the E2E tests will be re-run automatically.`;
     // Default: frontend projects use 5173, backend uses 3000
     const isFrontend = project.toLowerCase().includes('frontend');
     return isFrontend ? 'http://localhost:5173' : 'http://localhost:3000';
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Project verification: deps, build, restart, health check
+  // Used after tasks complete and before E2E tests run
+  // ═══════════════════════════════════════════════════════════════
+
+  const runBuildCommand = (project: string, command: string): Promise<{ success: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      // Expand ~ to home directory (same as project-manager does)
+      let projectPath = config.projects[project].path;
+      if (projectPath.startsWith('~')) {
+        projectPath = projectPath.replace('~', process.env.HOME || '');
+      }
+
+      // Parse command into cmd + args (same pattern as installDependencies which works)
+      const parts = command.split(' ');
+      const cmd = parts[0];
+      const args = parts.slice(1);
+
+      console.log(`[Orchestrator] Running build: ${command} in ${projectPath}`);
+      console.log(`[Orchestrator] Build spawn details:`, {
+        cmd,
+        args,
+        cwd: projectPath,
+        shell: true,
+        SHELL: process.env.SHELL,
+        PATH: process.env.PATH?.split(':').slice(0, 5).join(':') + '...'  // First 5 PATH entries
+      });
+
+      // Use shell: true to let Node find npm via PATH
+      const child = spawn(cmd, args, {
+        cwd: projectPath,
+        shell: true,
+        env: process.env
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => {
+        stdout += data.toString();
+        logAggregator.addLog({
+          project,
+          type: 'agent',
+          stream: 'stdout',
+          text: data.toString(),
+          timestamp: Date.now()
+        });
+      });
+
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
+        logAggregator.addLog({
+          project,
+          type: 'agent',
+          stream: 'stderr',
+          text: data.toString(),
+          timestamp: Date.now()
+        });
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[Orchestrator] Build succeeded for ${project}`);
+          resolve({ success: true });
+        } else {
+          const errorMsg = stderr || stdout || `Build exited with code ${code}`;
+          console.log(`[Orchestrator] Build failed for ${project}: ${errorMsg}`);
+          resolve({ success: false, error: errorMsg });
+        }
+      });
+
+      child.on('error', (err) => {
+        console.error(`[Orchestrator] Build spawn error for ${project}:`, err);
+        resolve({ success: false, error: String(err) });
+      });
+    });
+  };
+
+  // Lock to prevent concurrent verifications on the same project
+  const verificationLocks = new Map<string, Promise<VerificationResult>>();
+
+  const verifyProjectHealth = async (project: string): Promise<VerificationResult> => {
+    // If verification is already running for this project, wait for it
+    const existingLock = verificationLocks.get(project);
+    if (existingLock) {
+      console.log(`[Orchestrator] Waiting for existing verification on ${project} to complete...`);
+      return existingLock;
+    }
+
+    // Create a new verification promise and store it
+    const verificationPromise = doVerifyProjectHealth(project);
+    verificationLocks.set(project, verificationPromise);
+
+    try {
+      const result = await verificationPromise;
+      return result;
+    } finally {
+      verificationLocks.delete(project);
+    }
+  };
+
+  const doVerifyProjectHealth = async (project: string): Promise<VerificationResult> => {
+    const projectConfig = config.projects[project];
+
+    // Step 1: Install dependencies
+    console.log(`[Orchestrator] Installing dependencies for ${project}...`);
+    statusMonitor.updateStatus(project, 'WORKING', 'Installing dependencies...');
+    try {
+      await projectManager.installDependencies(project);
+      console.log(`[Orchestrator] Dependencies installed for ${project}`);
+    } catch (err) {
+      console.error(`[Orchestrator] Dependency install failed for ${project}:`, err);
+      return { success: false, step: 'deps', error: String(err) };
+    }
+
+    // Step 2: Run build (if configured)
+    if (projectConfig?.buildCommand) {
+      console.log(`[Orchestrator] Running build for ${project}...`);
+      statusMonitor.updateStatus(project, 'WORKING', 'Running build...');
+      const buildResult = await runBuildCommand(project, projectConfig.buildCommand);
+      if (!buildResult.success) {
+        return { success: false, step: 'build', error: buildResult.error };
+      }
+    }
+
+    // Step 3: Restart dev server
+    console.log(`[Orchestrator] Restarting dev server for ${project}...`);
+    statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
+    try {
+      await processManager.restartDevServer(project);
+      console.log(`[Orchestrator] Dev server restarted for ${project}`);
+    } catch (err) {
+      console.error(`[Orchestrator] Dev server restart failed for ${project}:`, err);
+      return { success: false, step: 'restart', error: String(err) };
+    }
+
+    // Step 4: Health check
+    console.log(`[Orchestrator] Health check for ${project}...`);
+    statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
+    const health = await processManager.checkDevServerHealthWithRetry(project, 5, 2000);
+    if (!health.healthy) {
+      return { success: false, step: 'health', error: health.error };
+    }
+
+    console.log(`[Orchestrator] Verification passed for ${project}`);
+    return { success: true, step: 'health' };
   };
 
   // Helper to check and trigger E2E for a project (queues the request)
@@ -492,12 +647,15 @@ After fixing, the E2E tests will be re-run automatically.`;
     // E2E tests wait for any project that this project's tasks depend on
     const projectDependencies = new Set<string>();
 
-    // Collect dependencies: if any task for THIS project depends on another project, wait for that project
+    // Collect dependencies: if any task for THIS project depends on a task from another project,
+    // wait for that other project's E2E to complete
     for (const task of session.plan.tasks) {
       if (task.project === project) {
-        for (const dep of task.dependencies) {
-          if (session.projects.includes(dep) && dep !== project) {
-            projectDependencies.add(dep);
+        for (const depIndex of task.dependencies) {
+          // Get the project of the dependency task
+          const depTask = session.plan.tasks[depIndex];
+          if (depTask && depTask.project !== project && session.projects.includes(depTask.project)) {
+            projectDependencies.add(depTask.project);
           }
         }
       }
@@ -518,33 +676,15 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
-    // Health check before E2E - verify dev server is actually responding
-    console.log(`[Orchestrator] Running health check for ${project} before E2E...`);
-    const health = await processManager.checkDevServerHealthWithRetry(project, 3, 2000);
+    // Full verification before E2E: deps, build, restart, health check
+    console.log(`[Orchestrator] Running full verification for ${project} before E2E...`);
+    const verification = await verifyProjectHealth(project);
 
-    if (!health.healthy) {
-      console.log(`[Orchestrator] Dev server unhealthy for ${project}: ${health.error}`);
-      console.log(`[Orchestrator] Attempting restart for ${project}...`);
-
-      try {
-        await processManager.restartDevServer(project);
-
-        // Re-check health after restart
-        const retryHealth = await processManager.checkDevServerHealthWithRetry(project, 3, 2000);
-        if (!retryHealth.healthy) {
-          console.error(`[Orchestrator] Dev server still unhealthy after restart for ${project}`);
-          statusMonitor.updateStatus(project, 'FATAL_DEBUGGING',
-            `Dev server failed health check: ${retryHealth.error}`);
-          return;
-        }
-
-        console.log(`[Orchestrator] Dev server for ${project} recovered after restart`);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] Failed to restart dev server for ${project}:`, err);
-        statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', `Dev server restart failed: ${errorMsg}`);
-        return;
-      }
+    if (!verification.success) {
+      console.error(`[Orchestrator] Verification failed for ${project} before E2E: ${verification.step} - ${verification.error}`);
+      statusMonitor.updateStatus(project, 'FATAL_DEBUGGING',
+        `Pre-E2E verification failed (${verification.step}): ${verification.error}`);
+      return;
     }
 
     const devServerUrl = getDevServerUrl(project);
@@ -607,35 +747,65 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
   };
 
   // Container for runTask function reference (set during execution start)
-  const taskRunner: { fn: ((task: TaskDefinition, taskKey: string) => Promise<void>) | null } = { fn: null };
+  const taskRunner: { fn: ((task: TaskDefinition, taskIndex: number) => Promise<void>) | null } = { fn: null };
 
-  // Helper to check pending tasks when a project becomes READY
-  const checkPendingTasks = async (completedProject: string) => {
-    const tasksToStart: Array<{ task: TaskDefinition; taskKey: string }> = [];
+  // Helper to check pending tasks when a task completes
+  const checkPendingTasks = async (completedTaskIndex: number) => {
+    completedTasks.add(completedTaskIndex);
+    const tasksToStart: Array<{ task: TaskDefinition; taskIndex: number }> = [];
 
-    for (const [taskKey, { task, waitingOn }] of pendingTasks) {
-      if (waitingOn.includes(completedProject)) {
-        // Remove the completed project from waitingOn
-        const remaining = waitingOn.filter(p => p !== completedProject);
+    for (const [taskIndex, pending] of pendingTasks) {
+      if (pending.waitingOn.includes(completedTaskIndex)) {
+        // Remove the completed task from waitingOn
+        const remaining = pending.waitingOn.filter(i => !completedTasks.has(i));
         if (remaining.length === 0) {
           // All dependencies satisfied, queue for execution
-          console.log(`[Orchestrator] Task for ${task.project} dependencies satisfied, starting`);
-          pendingTasks.delete(taskKey);
-          tasksToStart.push({ task, taskKey });
+          console.log(`[Orchestrator] Task #${taskIndex} (${pending.task.project}) dependencies satisfied, starting`);
+          pendingTasks.delete(taskIndex);
+          tasksToStart.push({ task: pending.task, taskIndex });
 
           // Update task status
-          statusMonitor.updateTaskStatus(taskKey, 'working', 'Dependencies satisfied, starting...');
+          statusMonitor.updateTaskStatus(taskIndex, 'working', 'Dependencies satisfied, starting...');
         } else {
-          pendingTasks.set(taskKey, { task, taskKey, waitingOn: remaining });
-          statusMonitor.updateTaskStatus(taskKey, 'waiting', `Waiting on ${remaining.join(', ')}`, remaining);
+          pendingTasks.set(taskIndex, { ...pending, waitingOn: remaining });
+          statusMonitor.updateTaskStatus(taskIndex, 'waiting', `Waiting on tasks: ${remaining.join(', ')}`, remaining);
         }
       }
     }
 
-    // Start all unblocked tasks in parallel
+    // Start unblocked tasks - only one per project at a time
     if (tasksToStart.length > 0 && taskRunner.fn) {
-      console.log(`[Orchestrator] Starting ${tasksToStart.length} unblocked tasks`);
-      await Promise.all(tasksToStart.map(({ task, taskKey }) => taskRunner.fn!(task, taskKey)));
+      // Group by project - only start one task per project
+      const tasksByProject = new Map<string, { task: TaskDefinition; taskIndex: number }[]>();
+      for (const t of tasksToStart) {
+        const existing = tasksByProject.get(t.task.project) || [];
+        existing.push(t);
+        tasksByProject.set(t.task.project, existing);
+      }
+
+      // Take only the first task from each project
+      const tasksToRun: { task: TaskDefinition; taskIndex: number }[] = [];
+      const deferredTasks: { task: TaskDefinition; taskIndex: number }[] = [];
+
+      for (const [_project, tasks] of tasksByProject) {
+        tasksToRun.push(tasks[0]); // First task runs now
+        if (tasks.length > 1) {
+          // Put remaining tasks back in pending
+          for (let i = 1; i < tasks.length; i++) {
+            deferredTasks.push(tasks[i]);
+          }
+        }
+      }
+
+      // Put deferred tasks back into pendingTasks
+      for (const { task, taskIndex } of deferredTasks) {
+        console.log(`[Orchestrator] Deferring task #${taskIndex} (${task.project}) - another task for same project is running`);
+        pendingTasks.set(taskIndex, { task, taskIndex, waitingOn: [] });
+        statusMonitor.updateTaskStatus(taskIndex, 'waiting', 'Waiting for other task on same project');
+      }
+
+      console.log(`[Orchestrator] Starting ${tasksToRun.length} unblocked tasks (${deferredTasks.length} deferred)`);
+      await Promise.all(tasksToRun.map(({ task, taskIndex }) => taskRunner.fn!(task, taskIndex)));
     }
   };
 
@@ -644,11 +814,13 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
     await tryTriggerE2E(project, message);
   });
 
+  // Listen for task completion to check pending task dependencies
+  statusMonitor.on('taskComplete', async ({ taskIndex, project }) => {
+    console.log(`[Orchestrator] Task #${taskIndex} (${project}) completed, checking pending tasks`);
+    await checkPendingTasks(taskIndex);
+  });
+
   statusMonitor.on('statusChange', async ({ project, status }) => {
-    // When a project becomes READY (tasks complete), check if any pending tasks can start
-    if (status === 'READY') {
-      await checkPendingTasks(project);
-    }
     // When a project becomes IDLE (E2E complete), check if any pending E2E can start
     if (status === 'IDLE') {
       await checkPendingE2E(project);
@@ -943,60 +1115,147 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
         pendingTasksPerProject.set(task.project, current + 1);
       }
 
-      // Define runTask with taskKey parameter for task-level tracking
-      const runTask = async (task: TaskDefinition, taskKey: string) => {
+      // Helper to build fix prompt when verification fails
+      const buildFixPrompt = (verification: VerificationResult, task: TaskDefinition, originalPrompt: string): string => {
+        const stepDescriptions: Record<VerificationStep, string> = {
+          deps: 'dependency installation',
+          build: 'build/compilation',
+          restart: 'dev server restart',
+          health: 'dev server health check'
+        };
+
+        return `## FIX REQUIRED
+
+Your previous implementation for task "${task.name}" caused a **${stepDescriptions[verification.step]}** error.
+
+**Error:**
+\`\`\`
+${verification.error || 'Unknown error'}
+\`\`\`
+
+**Original Task:**
+${originalPrompt}
+
+**Instructions:**
+1. Analyze the error above
+2. Fix the issue in the code
+3. The verification will automatically run again after you complete
+
+**Do NOT:**
+- Start the dev server manually
+- Run npm install manually
+- These are handled automatically by the orchestrator
+
+Focus on fixing the code that caused this error.`;
+      };
+
+      // Define runTask with taskIndex parameter for task-level tracking
+      // Includes verification loop: agent runs → verify (deps, build, restart, health) → if fail, agent fixes
+      const runTask = async (task: TaskDefinition, taskIndex: number) => {
         const sessionDir = sessionManager.getSessionDir(task.project);
         if (!sessionDir) return;
 
-        const projectConfig = config.projects[task.project];
         const devServerUrl = getDevServerUrl(task.project);
+        const MAX_FIX_ATTEMPTS = 3;
+        let fixAttempts = 0;
+        let taskCompleted = false;
 
-        // Update task status to working
-        statusMonitor.updateTaskStatus(taskKey, 'working', 'Starting agent task...');
+        // Build initial task prompt with critical instructions
+        const buildTaskPrompt = (basePrompt: string): string => {
+          let prompt = basePrompt;
 
-        // Build task prompt with critical instructions
-        let taskPrompt = task.task;
+          // Add dev server URL info
+          prompt += `\n\n**DEV SERVER**: The dev server for this project is running at: ${devServerUrl}`;
 
-        // Add dev server URL info
-        taskPrompt += `\n\n**DEV SERVER**: The dev server for this project is running at: ${devServerUrl}`;
-
-        // Add critical rules that agents must follow
-        taskPrompt += `\n\n**CRITICAL RULES - YOU MUST FOLLOW THESE**:
-1. DO NOT write any tests (unit tests, Jest tests, integration tests, etc.) - testing is handled separately
+          // Add critical rules that agents must follow
+          prompt += `\n\n**CRITICAL RULES - YOU MUST FOLLOW THESE**:
+1. DO NOT write any tests (unit tests, Jest tests, integration tests, etc.) - testing is handled separately by the orchestrator
 2. DO NOT start dev servers (npm start, npm run dev, etc.) - the orchestrator already manages dev servers
-3. Focus ONLY on implementing the feature code`;
+3. DO NOT run npm install - the orchestrator handles dependency installation
+4. DO NOT use browser automation tools (Playwright, browser_*, mcp__playwright__*) to test or verify your work - the orchestrator handles all testing
+5. Focus ONLY on implementing the feature code - write the code and nothing else`;
 
-        // Append build requirement if buildCommand is configured
-        if (projectConfig?.buildCommand) {
-          taskPrompt += `\n\n**BUILD REQUIREMENT**: Before completing this task, you MUST run the build command and ensure it passes:
-\`\`\`bash
-${projectConfig.buildCommand}
-\`\`\`
-Do NOT mark this task as complete until the build passes without errors.`;
-        }
+          return prompt;
+        };
+
+        let currentPrompt = buildTaskPrompt(task.task);
+        const originalTaskDescription = task.task;
 
         statusMonitor.updateStatus(task.project, 'WORKING', 'Starting agent task...');
         stateMachine.markAgentActive(task.project);
 
         try {
-          await processManager.startAgent(task.project, sessionDir, taskPrompt);
+          // Verification loop: run agent → verify → fix if needed
+          while (fixAttempts < MAX_FIX_ATTEMPTS && !taskCompleted) {
+            // Update status based on whether this is initial run or fix attempt
+            if (fixAttempts === 0) {
+              statusMonitor.updateTaskStatus(taskIndex, 'working', 'Agent implementing...');
+            } else {
+              statusMonitor.updateTaskStatus(taskIndex, 'fixing',
+                `Fixing errors (attempt ${fixAttempts}/${MAX_FIX_ATTEMPTS})`);
+            }
 
-          // Mark task as completed
-          statusMonitor.updateTaskStatus(taskKey, 'completed', 'Task completed');
+            // Run the agent
+            try {
+              await processManager.startAgent(task.project, sessionDir, currentPrompt);
+            } catch (agentErr) {
+              console.error(`[Orchestrator] Agent error for task #${taskIndex}:`, agentErr);
+              // Agent itself failed - this is a hard failure
+              throw agentErr;
+            }
 
-          // Decrement pending task count for this project
-          const remaining = (pendingTasksPerProject.get(task.project) || 1) - 1;
-          pendingTasksPerProject.set(task.project, remaining);
+            // Agent completed - now verify project health
+            statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Installing deps, building, restarting...');
+            console.log(`[Orchestrator] Task #${taskIndex} agent done, running verification...`);
 
-          // Only set READY when ALL tasks for this project are complete
-          if (remaining === 0) {
-            statusMonitor.updateStatus(task.project, 'READY', 'All tasks completed');
-          } else {
-            console.log(`[Orchestrator] ${task.project} task completed, ${remaining} task(s) remaining`);
+            const verification = await verifyProjectHealth(task.project);
+
+            if (verification.success) {
+              // Verification passed - task is complete!
+              console.log(`[Orchestrator] Task #${taskIndex} verification passed`);
+              taskCompleted = true;
+              break;
+            }
+
+            // Verification failed
+            fixAttempts++;
+            console.log(`[Orchestrator] Task #${taskIndex} verification failed at ${verification.step}: ${verification.error}`);
+
+            if (fixAttempts >= MAX_FIX_ATTEMPTS) {
+              // Max attempts reached - fail the task
+              console.error(`[Orchestrator] Task #${taskIndex} failed after ${MAX_FIX_ATTEMPTS} fix attempts`);
+              statusMonitor.updateTaskStatus(taskIndex, 'failed',
+                `Verification failed after ${MAX_FIX_ATTEMPTS} attempts: ${verification.step} - ${verification.error}`);
+              failedTasks.add(taskIndex);
+              statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING',
+                `Task verification failed: ${verification.error}`);
+              return;
+            }
+
+            // Build fix prompt for next iteration
+            currentPrompt = buildFixPrompt(verification, task, originalTaskDescription);
+            console.log(`[Orchestrator] Asking agent to fix ${verification.step} error (attempt ${fixAttempts}/${MAX_FIX_ATTEMPTS})`);
+          }
+
+          if (taskCompleted) {
+            // Mark task as completed (this emits taskComplete event which triggers checkPendingTasks)
+            statusMonitor.updateTaskStatus(taskIndex, 'completed', 'Task completed and verified');
+
+            // Decrement pending task count for this project
+            const remaining = (pendingTasksPerProject.get(task.project) || 1) - 1;
+            pendingTasksPerProject.set(task.project, remaining);
+
+            // Only set READY when ALL tasks for this project are complete
+            if (remaining === 0) {
+              statusMonitor.updateStatus(task.project, 'READY', 'All tasks completed');
+            } else {
+              console.log(`[Orchestrator] ${task.project} task completed, ${remaining} task(s) remaining`);
+            }
           }
         } catch (err) {
-          console.error(`[Orchestrator] Task ${task.project} failed:`, err);
-          statusMonitor.updateTaskStatus(taskKey, 'failed', `Task failed: ${err}`);
+          console.error(`[Orchestrator] Task #${taskIndex} (${task.project}) failed:`, err);
+          statusMonitor.updateTaskStatus(taskIndex, 'failed', `Task failed: ${err}`);
+          failedTasks.add(taskIndex);
           statusMonitor.updateStatus(task.project, 'FATAL_DEBUGGING', `Task failed: ${err}`);
         } finally {
           stateMachine.markAgentIdle(task.project);
@@ -1007,59 +1266,84 @@ Do NOT mark this task as complete until the build passes without errors.`;
       taskRunner.fn = runTask;
 
       // ═══════════════════════════════════════════════════════════════
-      // Dependency-aware task execution
+      // Dependency-aware task execution (task-to-task dependencies)
       // ═══════════════════════════════════════════════════════════════
 
       // Partition tasks: ready (no deps) vs waiting (has deps)
-      const readyTasks: Array<{ task: TaskDefinition; taskKey: string }> = [];
-      const waitingTasksByProject: Map<string, string[]> = new Map();
+      const readyTasks: Array<{ task: TaskDefinition; taskIndex: number }> = [];
+      const waitingTasksByProject: Map<string, number[]> = new Map();
 
-      tasks.forEach((task, index) => {
-        const taskKey = `${task.project}:${index}`;
-
+      tasks.forEach((task, taskIndex) => {
         // Debug: Log task dependencies
-        console.log(`[Orchestrator] Task ${task.project}:${index} raw dependencies: ${JSON.stringify(task.dependencies)}`);
+        console.log(`[Orchestrator] Task #${taskIndex} (${task.project}:${task.name}) dependencies: ${JSON.stringify(task.dependencies)}`);
 
-        // Filter to valid dependencies (projects that have tasks and aren't already READY)
-        const validDeps = task.dependencies.filter(dep => {
-          const hasTask = projectsWithTasks.has(dep);
-          const depStatus = statusMonitor.getStatus(dep);
-          const isNotReady = depStatus?.status !== 'READY' && depStatus?.status !== 'IDLE';
-          console.log(`[Orchestrator]   Dep "${dep}": hasTask=${hasTask}, status=${depStatus?.status}, isNotReady=${isNotReady}`);
-          if (!hasTask) return false;
-          return isNotReady;
+        // Filter to valid dependencies (task indices that haven't completed yet)
+        const validDeps = task.dependencies.filter(depIndex => {
+          // Check if dependency index is valid
+          if (depIndex < 0 || depIndex >= tasks.length) {
+            console.warn(`[Orchestrator]   Invalid dependency index ${depIndex} for task #${taskIndex}`);
+            return false;
+          }
+          // Check if dependency task is already completed
+          const isCompleted = completedTasks.has(depIndex);
+          console.log(`[Orchestrator]   Dep task #${depIndex}: completed=${isCompleted}`);
+          return !isCompleted;
         });
 
         if (validDeps.length === 0) {
-          readyTasks.push({ task, taskKey });
-          statusMonitor.updateTaskStatus(taskKey, 'pending', 'Ready to start');
+          readyTasks.push({ task, taskIndex });
+          statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Ready to start');
         } else {
           // Queue as pending task
-          pendingTasks.set(taskKey, { task, taskKey, waitingOn: validDeps });
-          statusMonitor.updateTaskStatus(taskKey, 'waiting', `Waiting on ${validDeps.join(', ')}`, validDeps);
+          pendingTasks.set(taskIndex, { task, taskIndex, waitingOn: validDeps });
+          statusMonitor.updateTaskStatus(taskIndex, 'waiting', `Waiting on tasks: ${validDeps.join(', ')}`, validDeps);
 
           // Track that this project has waiting tasks
           const projectWaiting = waitingTasksByProject.get(task.project) || [];
-          projectWaiting.push(taskKey);
+          projectWaiting.push(taskIndex);
           waitingTasksByProject.set(task.project, projectWaiting);
 
-          console.log(`[Orchestrator] Task for ${task.project} waiting on: ${validDeps.join(', ')}`);
+          console.log(`[Orchestrator] Task #${taskIndex} (${task.project}) waiting on tasks: ${validDeps.join(', ')}`);
         }
       });
 
       // Set BLOCKED status for projects where ALL tasks are waiting
-      for (const [project, waitingKeys] of waitingTasksByProject) {
+      for (const [project, waitingIndices] of waitingTasksByProject) {
         const projectTaskCount = tasks.filter(t => t.project === project).length;
-        if (waitingKeys.length === projectTaskCount) {
+        if (waitingIndices.length === projectTaskCount) {
           // All tasks for this project are waiting on dependencies
           statusMonitor.updateStatus(project, 'BLOCKED', 'Waiting on dependencies');
         }
       }
 
-      // Start ready tasks in parallel (tasks with no dependencies)
+      // Start ready tasks - only one per project at a time
       if (readyTasks.length > 0) {
-        console.log(`[Orchestrator] Starting ${readyTasks.length} tasks immediately: ${readyTasks.map(t => t.task.project).join(', ')}`);
-        await Promise.all(readyTasks.map(({ task, taskKey }) => runTask(task, taskKey)));
+        // Group by project - only start one task per project
+        const tasksByProject = new Map<string, { task: TaskDefinition; taskIndex: number }[]>();
+        for (const t of readyTasks) {
+          const existing = tasksByProject.get(t.task.project) || [];
+          existing.push(t);
+          tasksByProject.set(t.task.project, existing);
+        }
+
+        // Take only the first task from each project
+        const tasksToRun: { task: TaskDefinition; taskIndex: number }[] = [];
+
+        for (const [_project, projectTasks] of tasksByProject) {
+          tasksToRun.push(projectTasks[0]); // First task runs now
+          if (projectTasks.length > 1) {
+            // Put remaining tasks in pending (with no deps, they'll start when current task finishes)
+            for (let i = 1; i < projectTasks.length; i++) {
+              const { task, taskIndex } = projectTasks[i];
+              console.log(`[Orchestrator] Deferring task #${taskIndex} (${task.project}) - another task for same project starting first`);
+              pendingTasks.set(taskIndex, { task, taskIndex, waitingOn: [] });
+              statusMonitor.updateTaskStatus(taskIndex, 'waiting', 'Waiting for other task on same project');
+            }
+          }
+        }
+
+        console.log(`[Orchestrator] Starting ${tasksToRun.length} tasks immediately: ${tasksToRun.map(t => `#${t.taskIndex}(${t.task.project})`).join(', ')}`);
+        await Promise.all(tasksToRun.map(({ task, taskIndex }) => runTask(task, taskIndex)));
       }
 
       if (pendingTasks.size > 0) {

@@ -97,10 +97,14 @@ export class ProcessManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       console.log(`[ProcessManager] Starting dev server for ${project}: ${projectConfig.devServer.command}`);
 
-      const proc = spawn('sh', ['-c', projectConfig.devServer.command], {
+      // Use user's shell or fall back to /bin/bash (avoid /bin/sh which may not exist)
+      const shellPath = process.env.SHELL || '/bin/bash';
+      const proc = spawn(projectConfig.devServer.command, [], {
         cwd: projectPath,
         env: { ...process.env, ...projectConfig.devServer.env },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: shellPath,
+        detached: true  // Create process group so we can kill all children
       });
 
       const info: ManagedProcess = {
@@ -448,8 +452,21 @@ export class ProcessManager extends EventEmitter {
     const info = this.processes.get(key);
 
     if (info) {
-      console.log(`[ProcessManager] Stopping dev server for ${project}`);
-      info.process.kill('SIGTERM');
+      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${info.process.pid})`);
+
+      // Kill the entire process tree (npm spawns child processes)
+      const pid = info.process.pid;
+      if (pid) {
+        try {
+          // Use negative PID to kill process group on Unix
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          // Fallback to regular kill if process group kill fails
+          info.process.kill('SIGTERM');
+        }
+      } else {
+        info.process.kill('SIGTERM');
+      }
 
       // Wait for process to exit
       await new Promise<void>((resolve) => {
@@ -463,10 +480,22 @@ export class ProcessManager extends EventEmitter {
         // Force kill after 5 seconds
         setTimeout(() => {
           if (this.processes.has(key)) {
-            info.process.kill('SIGKILL');
+            console.log(`[ProcessManager] Force killing dev server for ${project}`);
+            if (pid) {
+              try {
+                process.kill(-pid, 'SIGKILL');
+              } catch {
+                info.process.kill('SIGKILL');
+              }
+            } else {
+              info.process.kill('SIGKILL');
+            }
           }
         }, 5000);
       });
+
+      // Extra wait to ensure port is released
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     // Reset crash count for clean restart

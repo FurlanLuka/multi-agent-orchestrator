@@ -252,7 +252,7 @@ export function useSocket() {
 
     socket.on('taskStatus', (event: TaskStatusEvent) => {
       setTaskStates(prev => prev.map(task =>
-        task.taskId === event.taskId
+        task.taskIndex === event.taskIndex
           ? {
               ...task,
               status: event.status,

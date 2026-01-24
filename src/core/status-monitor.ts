@@ -4,7 +4,7 @@ import { SessionStore } from './session-store';
 
 export class StatusMonitor extends EventEmitter {
   private states: Map<string, ProjectState> = new Map();
-  private taskStates: Map<string, TaskState> = new Map();
+  private taskStates: Map<number, TaskState> = new Map();  // Keyed by task index
   private sessionStore: SessionStore | null = null;
   private currentSessionId: string | null = null;
 
@@ -193,15 +193,15 @@ export class StatusMonitor extends EventEmitter {
   initializeTasks(tasks: TaskDefinition[]): void {
     this.taskStates.clear();
     tasks.forEach((task, index) => {
-      const taskId = `${task.project}:${index}`;
-      this.taskStates.set(taskId, {
-        taskId,
+      this.taskStates.set(index, {
+        taskIndex: index,
         project: task.project,
         name: task.name || `Task ${index + 1}`,  // Fallback for legacy plans without name
         description: task.task,
         status: 'pending',
         dependencies: task.dependencies,
-        waitingOn: []
+        waitingOn: [],
+        runE2E: task.runE2E ?? false
       });
     });
     console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
@@ -210,34 +210,44 @@ export class StatusMonitor extends EventEmitter {
   /**
    * Updates the status of a task
    */
-  updateTaskStatus(taskId: string, status: TaskStatus, message?: string, waitingOn?: string[]): void {
-    const task = this.taskStates.get(taskId);
+  updateTaskStatus(taskIndex: number, status: TaskStatus, message?: string, waitingOn?: number[]): void {
+    const task = this.taskStates.get(taskIndex);
     if (task) {
       const prevStatus = task.status;
       task.status = status;
       task.message = message;
       if (waitingOn !== undefined) task.waitingOn = waitingOn;
       if (status === 'working' && !task.startedAt) task.startedAt = Date.now();
-      if (status === 'completed' || status === 'failed') task.completedAt = Date.now();
+      if (status === 'completed' || status === 'failed' || status === 'e2e_failed') {
+        task.completedAt = Date.now();
+      }
+      if (status === 'e2e') {
+        task.e2eAttempts = (task.e2eAttempts || 0) + 1;
+      }
 
-      console.log(`[StatusMonitor] Task ${taskId}: ${prevStatus} → ${status}${message ? ` (${message})` : ''}`);
+      console.log(`[StatusMonitor] Task #${taskIndex} (${task.project}): ${prevStatus} → ${status}${message ? ` (${message})` : ''}`);
 
       this.emit('taskStatusChange', {
-        taskId,
+        taskIndex,
         project: task.project,
         status,
         waitingOn: task.waitingOn,
         message,
         timestamp: Date.now()
       });
+
+      // Emit task completion event for dependency checking
+      if (status === 'completed') {
+        this.emit('taskComplete', { taskIndex, project: task.project });
+      }
     }
   }
 
   /**
-   * Gets a task state by ID
+   * Gets a task state by index
    */
-  getTaskState(taskId: string): TaskState | undefined {
-    return this.taskStates.get(taskId);
+  getTaskState(taskIndex: number): TaskState | undefined {
+    return this.taskStates.get(taskIndex);
   }
 
   /**
