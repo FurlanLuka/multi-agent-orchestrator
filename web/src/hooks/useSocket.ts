@@ -15,7 +15,6 @@ import type {
   ChatStreamEvent,
   StreamingMessage,
   ContentBlock,
-  QueueStatus,
   ProjectTestState,
   TestStatusEvent,
   SessionSummary,
@@ -64,9 +63,6 @@ export function useSocket() {
 
   // Streaming messages for agentic UI
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
-
-  // Queue status for Planning Agent visibility
-  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   // Test states for E2E test tracking per project
   const [testStates, setTestStates] = useState<Record<string, ProjectTestState>>({});
@@ -296,29 +292,6 @@ export function useSocket() {
         // apply immediately to ensure proper state transitions
         activeSessionMessagesRef.current = applyEvents(activeSessionMessagesRef.current, [event]);
         setStreamingMessages(prev => applyEvents(prev, [event]));
-      }
-    });
-
-    // Queue status events (for Planning Agent visibility)
-    socket.on('queueUpdate', (status: { size: number; events: QueueStatus['events'] }) => {
-      setQueueStatus(prev => ({
-        ...prev,
-        size: status.size,
-        events: status.events,
-        processing: prev?.processing,
-      }));
-    });
-
-    socket.on('queueProcessing', (processing: QueueStatus['processing'] | null) => {
-      setQueueStatus(prev => prev ? { ...prev, processing: processing || undefined } : { size: 0, events: [], processing: processing || undefined });
-
-      // When a user_chat starts processing, mark queued user messages as complete
-      if (processing?.type === 'user_chat') {
-        setStreamingMessages(prev => prev.map(msg =>
-          msg.role === 'user' && msg.status === 'queued'
-            ? { ...msg, status: 'complete' as const }
-            : msg
-        ));
       }
     });
 
@@ -1024,7 +997,6 @@ export function useSocket() {
     logs,
     chatHistory,
     streamingMessages,
-    queueStatus,
     testStates,
     taskStates,
     planningStatus,

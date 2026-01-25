@@ -53,7 +53,6 @@ function App() {
     statuses,
     logs,
     streamingMessages,
-    queueStatus,
     testStates,
     taskStates,
     planningStatus,
@@ -465,7 +464,6 @@ function App() {
                       <AssistantChat
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
-                        queueStatus={queueStatus}
                         planningStatus={planningStatus}
                         chatEvents={chatEvents}
                         onSendMessage={sendChat}

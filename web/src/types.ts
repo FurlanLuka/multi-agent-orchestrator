@@ -216,25 +216,6 @@ export interface ProjectConfig {
   mainBranch?: string;       // Main branch name (default: 'main')
 }
 
-// Queue status for Planning Agent visibility
-export interface QueuedEventPreview {
-  id: string;
-  type: string;
-  project?: string;
-  queuedAt: number;
-  preview?: string;  // Truncated message for user_chat events
-}
-
-export interface QueueStatus {
-  size: number;
-  events: QueuedEventPreview[];
-  processing?: {
-    id: string;
-    type: string;
-    project?: string;
-  };
-}
-
 // Task status tracking for dependency-aware execution
 export type TaskStatus =
   | 'pending'         // Not started yet

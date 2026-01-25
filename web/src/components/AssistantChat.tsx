@@ -22,8 +22,8 @@ import {
   Divider,
   Button,
 } from '@mantine/core';
-import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconLoader2 } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus, PlanningStatusEvent, ChatCardEvent } from '../types';
+import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, ChatCardEvent } from '../types';
 import { PlanningStatusIndicator } from './PlanningStatusIndicator';
 import { ChatEventCard } from './ChatEventCard';
 import { TabbedPlanView } from './TabbedPlanView';
@@ -31,7 +31,6 @@ import { TabbedPlanView } from './TabbedPlanView';
 interface AssistantChatProps {
   messages: StreamingMessage[];
   pendingPlan: PlanProposal | null;
-  queueStatus: QueueStatus | null;
   planningStatus: PlanningStatusEvent | null;
   chatEvents: ChatCardEvent[];
   onSendMessage: (message: string) => void;
@@ -377,69 +376,6 @@ const ChatMessage = memo(function ChatMessage({ message, isExpanded, onToggleExp
   );
 });
 
-// Queue status banner component
-function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (queueStatus.size === 0 && !queueStatus.processing) return null;
-
-  const processingLabel = queueStatus.processing
-    ? queueStatus.processing.type === 'user_chat'
-      ? 'Processing your message...'
-      : `Processing: ${queueStatus.processing.type}${queueStatus.processing.project ? ` (${queueStatus.processing.project})` : ''}`
-    : null;
-
-  return (
-    <Card p="sm" withBorder radius="md" mb="md" bg="blue.0" style={{ borderColor: 'var(--mantine-color-blue-3)' }}>
-      <Group gap="sm" justify="space-between">
-        <Group gap="sm">
-          <IconLoader2 size={16} color="var(--mantine-color-blue-6)" style={{ animation: 'spin 1s linear infinite' }} />
-          <Text size="sm" c="blue.7">
-            {processingLabel || 'Queue active'}
-          </Text>
-        </Group>
-        {queueStatus.size > 0 && (
-          <Badge
-            size="sm"
-            color="blue"
-            variant="light"
-            style={{ cursor: 'pointer' }}
-            onClick={() => setExpanded(!expanded)}
-            rightSection={expanded ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
-          >
-            {queueStatus.size} waiting
-          </Badge>
-        )}
-      </Group>
-
-      {/* Expandable queue list */}
-      {expanded && queueStatus.events.length > 0 && (
-        <Stack gap="xs" mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-blue-2)' }}>
-          {queueStatus.events.map((event, i) => (
-            <Group key={event.id} gap="xs">
-              <Text size="xs" c="dimmed" w={20}>{i + 1}.</Text>
-              <Badge size="xs" variant="outline" color="gray">{event.type}</Badge>
-              {event.project && <Text size="xs" c="dimmed">({event.project})</Text>}
-              {event.preview && (
-                <Text size="xs" c="dimmed" truncate style={{ maxWidth: 200 }}>
-                  "{event.preview}..."
-                </Text>
-              )}
-            </Group>
-          ))}
-        </Stack>
-      )}
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-    </Card>
-  );
-}
-
 // Timeline item type for unified rendering
 type TimelineItem =
   | { type: 'message'; timestamp: number; data: StreamingMessage; key: string }
@@ -449,7 +385,6 @@ type TimelineItem =
 function ChatThread({
   messages,
   pendingPlan,
-  queueStatus,
   planningStatus,
   chatEvents,
   onSendMessage,
@@ -539,11 +474,6 @@ function ChatThread({
       <Stack gap="md" style={{ flex: 1, minHeight: 0 }}>
         <ScrollArea h="100%" viewportRef={scrollRef} style={{ flex: 1 }}>
           <Stack gap="md" style={{ width: '100%' }}>
-            {/* Queue status banner */}
-            {queueStatus && (queueStatus.size > 0 || queueStatus.processing) && (
-              <QueueStatusBanner queueStatus={queueStatus} />
-            )}
-
             {/* Planning Status Indicator - shown when generating plan */}
             {planningStatus && (
               <PlanningStatusIndicator status={planningStatus} />
