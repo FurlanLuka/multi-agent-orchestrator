@@ -671,6 +671,38 @@ User: ${newMessage}`;
   }
 
   /**
+   * Sends an isolated analysis request without conversation history.
+   * Used for independent analyses (task verification, E2E analysis) that
+   * should not share context with other concurrent requests.
+   */
+  private async sendIsolatedAnalysis(prompt: string, timeoutMs: number): Promise<string> {
+    console.log(`[PlanningAgent] Isolated analysis: ${prompt.substring(0, 80)}...`);
+
+    // Build minimal context (system prompt + state, no conversation history)
+    const systemPrompt = `You are the Planning Agent for a multi-project orchestrator.
+You analyze task results and E2E test outputs to determine pass/fail status.
+Respond ONLY with the requested JSON marker format.`;
+
+    const stateContext = this.buildStateContext();
+
+    const fullPrompt = `${systemPrompt}
+
+## Current Orchestrator State
+${stateContext}
+
+${prompt}`;
+
+    try {
+      // Execute through queue (serialized) but don't accumulate history
+      const result = await this.queuedExecute(fullPrompt, timeoutMs);
+      return result;
+    } catch (err) {
+      console.error('[PlanningAgent] Error in sendIsolatedAnalysis:', err);
+      throw err;
+    }
+  }
+
+  /**
    * Requests the Planning Agent to create a plan for a feature
    */
   async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
@@ -1150,7 +1182,8 @@ The [TASK_RESULT] marker followed by JSON is REQUIRED. This is how the orchestra
     console.log(`[PlanningAgent] Analyzing task result for ${context.project}:${context.taskName}`);
 
     try {
-      const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.TASK_ANALYSIS);
+      // Use isolated analysis to prevent context bleeding between concurrent task analyses
+      const response = await this.sendIsolatedAnalysis(prompt, PlanningAgentManager.TIMEOUTS.TASK_ANALYSIS);
 
       // Try marker-based parsing first
       const parsed = parseMarkedResponse<TaskAnalysisResult>(response, MARKERS.TASK_RESULT, ['passed']);
@@ -1394,7 +1427,8 @@ Rules:
 - "fixes" array: one entry per project that needs changes, using the agent's codeAnalysis`;
 
     try {
-      const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
+      // Use isolated analysis to prevent context bleeding between concurrent E2E analyses
+      const response = await this.sendIsolatedAnalysis(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
 
       // Type for E2E analysis result
       type E2EParseResult = {
@@ -1453,8 +1487,8 @@ Rules:
           };
         }
 
-        // Legacy format with fixPrompt or no fixes needed
-        console.log(`[PlanningAgent] Using legacy format (no fixes array)`);
+        // Fallback format: single-project fix or no fixes needed
+        console.log(`[PlanningAgent] Using fallback format (fixPrompt instead of fixes array)`);
         return {
           passed: !!parsed.passed,
           analysis: parsed.analysis || 'No analysis provided',
@@ -1565,8 +1599,7 @@ Rules:
       };
       this.emit('analysisResult', analysisEvent);
 
-      // On error, check output for obvious failures
-      // Bug 3 fix: Use robust patterns with word boundaries and context
+      // On error, check output for obvious failures using robust patterns
       const hasExplicitPassCatch = /\ball(?:Passed|tests passed)\s*[:\s]*true\b|all.*tests.*passed|tests.*completed.*successfully|e2e.*passed/i.test(e2eOutput);
       const failurePatternsCatch = [
         /\bfail(ed|ure|ing)?\b/i,

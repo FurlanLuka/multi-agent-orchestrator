@@ -15,6 +15,7 @@ import {
   SessionSummary,
   FullSessionData,
   TaskState,
+  TaskDefinition,
 } from '../types';
 
 /**
@@ -25,7 +26,7 @@ export class SessionStore extends EventEmitter {
   private sessionsDir: string;
   private currentSessionId: string | null = null;
 
-  // Bug 4 fix: Cache and write debouncing to prevent race conditions
+  // Cache and write debouncing to prevent race conditions
   private sessionCache: Map<string, PersistedSession> = new Map();
   private pendingWrites: Map<string, NodeJS.Timeout> = new Map();
   private readonly WRITE_DEBOUNCE_MS = 100;
@@ -38,7 +39,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Normalizes a scenario name for case-insensitive matching
-   * Bug 2 fix: Prevents case mismatch issues when checking passed tests
+   * Prevents case mismatch issues when checking passed tests
    */
   private normalizeScenarioName(name: string): string {
     return name.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -123,7 +124,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Loads an existing session
-   * Bug 4 fix: Check cache first to prevent race conditions
+   * Check cache first to prevent race conditions
    */
   loadSession(sessionId: string): PersistedSession | null {
     // Check cache first for faster access and consistency
@@ -211,7 +212,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Writes session data to disk
-   * Bug 4 fix: Debounce writes to prevent race conditions from rapid updates
+   * Debounce writes to prevent race conditions from rapid updates
    */
   private writeSession(session: PersistedSession): void {
     session.updatedAt = Date.now();
@@ -235,7 +236,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Immediately flush a session to disk
-   * Bug 4 fix: Used for debounced writes
+   * Used for debounced writes
    */
   flushSession(sessionId: string): void {
     const session = this.sessionCache.get(sessionId);
@@ -251,7 +252,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Flush all pending writes to disk
-   * Bug 4 fix: Called on shutdown to ensure all data is persisted
+   * Called on shutdown to ensure all data is persisted
    */
   flushAll(): void {
     for (const [sessionId, timeout] of this.pendingWrites.entries()) {
@@ -274,6 +275,18 @@ export class SessionStore extends EventEmitter {
     session.status = 'running';
     this.writeSession(session);
     console.log(`[SessionStore] Set plan for session ${sessionId}`);
+  }
+
+  /**
+   * Updates the plan tasks (for dynamically added tasks like E2E fixes)
+   */
+  updatePlanTasks(sessionId: string, tasks: TaskDefinition[]): void {
+    const session = this.loadSession(sessionId);
+    if (!session?.plan) return;
+
+    session.plan.tasks = tasks;
+    this.writeSession(session);
+    console.log(`[SessionStore] Updated plan tasks for session ${sessionId} (${tasks.length} tasks)`);
   }
 
   /**
@@ -326,7 +339,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Updates test state for a project
-   * Bug 2 fix: Uses normalized scenario names for case-insensitive matching
+   * Uses normalized scenario names for case-insensitive matching
    */
   updateTestState(
     sessionId: string,
@@ -346,7 +359,7 @@ export class SessionStore extends EventEmitter {
     }
 
     const testState = session.testStates[project];
-    // Bug 2 fix: Use normalized names for comparison
+    // Use normalized names for comparison
     const normalizedScenario = this.normalizeScenarioName(scenario);
     const existingIndex = testState.scenarios.findIndex(
       s => this.normalizeScenarioName(s.name) === normalizedScenario
@@ -403,7 +416,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Gets passed test scenarios for a project (for filtering on retry)
-   * Bug 2 fix: Returns normalized names for consistent matching
+   * Returns normalized names for consistent matching
    */
   getPassedTests(sessionId: string, project: string): string[] {
     const testStates = this.getTestStates(sessionId, project);
@@ -416,7 +429,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Gets passed tests with metadata to distinguish "no tests passed" from "no data exists"
-   * Bug 6 fix: Richer API for better state handling
+   * Richer API for better state handling
    */
   getPassedTestsWithMeta(sessionId: string, project: string): {
     exists: boolean;

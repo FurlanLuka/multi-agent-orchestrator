@@ -135,7 +135,7 @@ export interface TaskDefinition {
   project: string;
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
-  type?: 'implementation' | 'user_action';  // Task type, default: 'implementation'
+  type?: 'implementation' | 'user_action' | 'e2e_fix';  // Task type, default: 'implementation'
   userAction?: UserActionDefinition;        // Only for type: 'user_action'
 }
 
@@ -504,7 +504,7 @@ export interface TaskState {
   message?: string;
   startedAt?: number;
   completedAt?: number;
-  type?: 'implementation' | 'user_action';  // Task type
+  type?: 'implementation' | 'user_action' | 'e2e_fix';  // Task type
   userAction?: UserActionDefinition;        // Only for type: 'user_action'
 }
 

@@ -208,6 +208,37 @@ export class StatusMonitor extends EventEmitter {
   }
 
   /**
+   * Initialize a single task's state (for dynamically added tasks like E2E fixes)
+   */
+  initializeTask(taskIndex: number, task: TaskDefinition): void {
+    const taskState: TaskState = {
+      taskIndex,
+      project: task.project,
+      name: task.name || `Task ${taskIndex + 1}`,
+      description: task.task,
+      status: 'pending',
+      type: task.type,
+      userAction: task.userAction,
+    };
+
+    this.taskStates.set(taskIndex, taskState);
+    console.log(`[StatusMonitor] Initialized dynamic task #${taskIndex}: ${task.name} (${task.project})`);
+
+    // Persist task states
+    if (this.sessionStore && this.currentSessionId) {
+      this.sessionStore.updateTaskStates(this.currentSessionId, this.getAllTaskStates());
+    }
+
+    this.emit('taskStatusChange', {
+      taskIndex,
+      project: task.project,
+      status: 'pending',
+      message: 'Task created',
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Updates the status of a task
    */
   updateTaskStatus(taskIndex: number, status: TaskStatus, message?: string): void {

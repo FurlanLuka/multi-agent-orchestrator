@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData } from '../types';
+import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '../types';
 import { SessionStore } from './session-store';
 
 export class SessionManager {
@@ -203,6 +203,27 @@ export class SessionManager {
     // Update global registry (legacy)
     const globalPath = '/tmp/orchestrator/sessions/active.json';
     fs.writeFileSync(globalPath, JSON.stringify(this.currentSession, null, 2));
+  }
+
+  /**
+   * Adds a dynamic task (e.g., E2E fix) to the current session's plan.
+   * Returns the task index.
+   */
+  addTask(task: TaskDefinition): number {
+    const session = this.getCurrentSession();
+    if (!session?.plan) {
+      throw new Error('No active session or plan');
+    }
+
+    session.plan.tasks.push(task);
+    const taskIndex = session.plan.tasks.length - 1;
+
+    // Persist to session store
+    this.sessionStore.updatePlanTasks(session.id, session.plan.tasks);
+
+    console.log(`[SessionManager] Added dynamic task #${taskIndex}: ${task.name} (${task.project})`);
+
+    return taskIndex;
   }
 
   /**
