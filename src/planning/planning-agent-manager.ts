@@ -766,34 +766,32 @@ CRITICAL RULES:
 
 ## ARCHITECTURE DIAGRAM
 
-Create a CONCISE but INFORMATIVE diagram (8-15 lines):
-- Show main components being created/modified
-- Include key API endpoints (method + path)
-- Show data flow direction with arrows
-- Label what data flows between components
+Create a Mermaid flowchart showing component interactions:
 
-Example:
-\`\`\`
-┌─────────────────────────────────────────────────────────────┐
-│  FRONTEND                                                    │
-│  ┌────────────┐    ┌─────────────┐    ┌──────────────┐      │
-│  │ LoginPage  │───▶│ AuthContext │───▶│ axios config │      │
-│  │ RegisterPage│    │ (user,token)│    │ (JWT header) │      │
-│  └────────────┘    └─────────────┘    └──────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-         POST /auth/login     │    POST /auth/register
-         POST /auth/me        ▼
-┌─────────────────────────────────────────────────────────────┐
-│  BACKEND                                                     │
-│  ┌──────────────┐    ┌─────────────┐    ┌────────────┐      │
-│  │AuthController│───▶│ AuthService │───▶│  Database  │      │
-│  │ JwtGuard     │    │ (bcrypt,jwt)│    │  (users)   │      │
-│  └──────────────┘    └─────────────┘    └────────────┘      │
-└─────────────────────────────────────────────────────────────┘
+\`\`\`mermaid
+flowchart LR
+    subgraph Frontend
+        LP[LoginPage] --> AC[AuthContext]
+        RP[RegisterPage] --> AC
+        AC --> AX[axios config]
+    end
+
+    subgraph Backend
+        CTRL[AuthController] --> SVC[AuthService]
+        SVC --> DB[(Database)]
+    end
+
+    AX -->|POST /auth/login| CTRL
+    AX -->|POST /auth/register| CTRL
+    CTRL -->|JWT token| AX
 \`\`\`
 
-Focus on what's being built - avoid cluttering with every detail.
+Guidelines:
+- Use flowchart LR (left-to-right) for horizontal layouts
+- Label edges with key endpoints (method + path)
+- Keep to 5-10 nodes maximum
+- Use appropriate shapes: [] for services, [()] for databases, {} for decisions
+- Use subgraphs to group components by project/layer
 
 ## TASK REQUIREMENTS
 

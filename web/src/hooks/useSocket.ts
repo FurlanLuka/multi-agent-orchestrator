@@ -653,6 +653,11 @@ export function useSocket() {
       }
       setTestStates(restoredTestStates);
 
+      // Restore task states if available
+      if (data.session.taskStates) {
+        setTaskStates(data.session.taskStates);
+      }
+
       // Track which session we're viewing (sidebar still visible)
       setViewingSessionId(data.session.id);
 

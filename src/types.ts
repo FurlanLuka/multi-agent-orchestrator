@@ -11,6 +11,7 @@ export interface ProjectConfig {
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
+  dependsOn?: string[];  // Projects that must complete E2E before this one starts (e.g., frontend depends on backend)
 }
 
 export interface Config {
@@ -637,6 +638,7 @@ export interface PersistedSession {
   pendingPlan?: PlanProposal;  // Plan waiting for user approval
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
+  taskStates?: TaskState[];  // Task execution states
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   updatedAt: number;
   completedAt?: number;

@@ -31,7 +31,8 @@
         "url": "http://localhost:5173"
       },
       "buildCommand": "npm run build",
-      "hasE2E": true
+      "hasE2E": true,
+      "dependsOn": ["blogbe"]
     },
     "blogbe": {
       "path": "~/Documents/blogbe",

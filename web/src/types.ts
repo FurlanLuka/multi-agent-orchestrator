@@ -356,6 +356,7 @@ export interface PersistedSession {
   pendingPlan?: PlanProposal;  // Plan waiting for user approval
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
+  taskStates?: TaskState[];  // Task execution states
   status: SessionStatus;
   updatedAt: number;
   completedAt?: number;

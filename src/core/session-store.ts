@@ -14,6 +14,7 @@ import {
   PersistedTestState,
   SessionSummary,
   FullSessionData,
+  TaskState,
 } from '../types';
 
 /**
@@ -77,6 +78,7 @@ export class SessionStore extends EventEmitter {
       startedAt: Date.now(),
       statuses: {},
       testStates: {},
+      taskStates: [],
       status: 'planning',
       updatedAt: Date.now(),
     };
@@ -282,6 +284,18 @@ export class SessionStore extends EventEmitter {
     }
 
     testState.updatedAt = Date.now();
+    this.writeSession(session);
+  }
+
+  /**
+   * Updates all task states (called when tasks change)
+   */
+  updateTaskStates(sessionId: string, taskStates: TaskState[]): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    session.taskStates = taskStates;
+    session.updatedAt = Date.now();
     this.writeSession(session);
   }
 

@@ -9,10 +9,7 @@ import {
   ScrollArea,
   Box,
   Code,
-  Stack,
-  Loader,
 } from '@mantine/core';
-import { IconCheck, IconX, IconCircle } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '../types';
 
 interface ProjectCardProps {
@@ -61,14 +58,22 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
   const progress = getStatusProgress(status);
   const isAnimated = status === 'WORKING' || status === 'E2E' || status === 'E2E_FIXING';
 
-  // Show tests tab when in E2E state
-  const showTestsTab = status === 'E2E' || status === 'E2E_FIXING';
+  // Determine if truly complete (tasks done + tests passed)
+  const isTrulyComplete = useMemo(() => {
+    if (status !== 'IDLE') return false;
+    // No tests = complete
+    if (!testState || testState.scenarios.length === 0) return true;
+    // All tests passed = complete
+    return testState.scenarios.every(s => s.status === 'passed');
+  }, [status, testState]);
 
-  // Memoize test stats
-  const { passedCount, totalCount } = useMemo(() => ({
-    passedCount: testState?.scenarios.filter(s => s.status === 'passed').length || 0,
-    totalCount: testState?.scenarios.length || 0,
-  }), [testState?.scenarios]);
+  // Get the display label for status badge
+  const getStatusLabel = () => {
+    if (status === 'IDLE') {
+      return isTrulyComplete ? 'Complete' : 'Tasks Done';
+    }
+    return config.label;
+  };
 
   // Memoize log counts for tabs
   const logCounts = useMemo(() => ({
@@ -111,7 +116,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
           <Text size="xs" c="dimmed">{getRelativeTime()}</Text>
         </Group>
         <Badge color={config.color} variant="filled" size="lg">
-          {config.label}
+          {getStatusLabel()}
         </Badge>
       </Group>
 
@@ -134,90 +139,44 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
         data={[
           { label: `Agent Output (${logCounts.agent})`, value: 'agent' },
           { label: `Dev Server (${logCounts.devServer})`, value: 'devServer' },
-          ...(showTestsTab ? [{ label: `Tests (${passedCount}/${totalCount})`, value: 'tests' }] : [])
         ]}
         size="xs"
         mb="xs"
         fullWidth
       />
 
-      {/* Log output (dark terminal style) - for agent and devServer tabs */}
-      {logType !== 'tests' && (
-        <ScrollArea h={200} viewportRef={scrollRef}>
-          <Box style={{
-            backgroundColor: '#1e1e1e',
-            padding: 12,
-            borderRadius: 8,
-            minHeight: 180,
-          }}>
-            {filteredLogs.length === 0 ? (
-              <Text size="xs" c="dimmed" ta="center" style={{ color: '#666' }}>
-                No {logType === 'agent' ? 'agent output' : 'dev server logs'} yet
-              </Text>
-            ) : (
-              filteredLogs.map((log, i) => (
-                <Code
-                  key={`${log.timestamp}-${i}`}
-                  block
-                  style={{
-                    backgroundColor: 'transparent',
-                    color: log.stream === 'stderr' ? '#ff6b6b' : '#abb2bf',
-                    fontSize: '12px',
-                    padding: '2px 0',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {log.text}
-                </Code>
-              ))
-            )}
-          </Box>
-        </ScrollArea>
-      )}
-
-      {/* Tests panel - for tests tab */}
-      {logType === 'tests' && testState && (
-        <ScrollArea h={200}>
-          <Stack gap="xs" p="xs">
-            {testState.scenarios.length === 0 ? (
-              <Text size="sm" c="dimmed" ta="center">No test scenarios defined</Text>
-            ) : (
-              testState.scenarios.map((test, i) => (
-                <Group
-                  key={i}
-                  gap="sm"
-                  p="sm"
-                  style={{
-                    backgroundColor: test.status === 'failed'
-                      ? 'var(--mantine-color-red-0)'
-                      : test.status === 'passed'
-                      ? 'var(--mantine-color-green-0)'
-                      : 'var(--mantine-color-gray-0)',
-                    borderRadius: 'var(--mantine-radius-sm)',
-                    border: test.status === 'failed'
-                      ? '1px solid var(--mantine-color-red-3)'
-                      : test.status === 'passed'
-                      ? '1px solid var(--mantine-color-green-3)'
-                      : '1px solid var(--mantine-color-gray-3)',
-                  }}
-                >
-                  {test.status === 'pending' && <IconCircle size={18} color="gray" />}
-                  {test.status === 'running' && <Loader size={18} />}
-                  {test.status === 'passed' && <IconCheck size={18} color="var(--mantine-color-green-6)" />}
-                  {test.status === 'failed' && <IconX size={18} color="var(--mantine-color-red-6)" />}
-                  <Box style={{ flex: 1 }}>
-                    <Text size="sm">{test.name}</Text>
-                    {test.error && (
-                      <Text size="xs" c="red" mt={4}>{test.error}</Text>
-                    )}
-                  </Box>
-                </Group>
-              ))
-            )}
-          </Stack>
-        </ScrollArea>
-      )}
+      {/* Log output (dark terminal style) */}
+      <ScrollArea h={200} viewportRef={scrollRef}>
+        <Box style={{
+          backgroundColor: '#1e1e1e',
+          padding: 12,
+          borderRadius: 8,
+          minHeight: 180,
+        }}>
+          {filteredLogs.length === 0 ? (
+            <Text size="xs" c="dimmed" ta="center" style={{ color: '#666' }}>
+              No {logType === 'agent' ? 'agent output' : 'dev server logs'} yet
+            </Text>
+          ) : (
+            filteredLogs.map((log, i) => (
+              <Code
+                key={`${log.timestamp}-${i}`}
+                block
+                style={{
+                  backgroundColor: 'transparent',
+                  color: log.stream === 'stderr' ? '#ff6b6b' : '#abb2bf',
+                  fontSize: '12px',
+                  padding: '2px 0',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {log.text}
+              </Code>
+            ))
+          )}
+        </Box>
+      </ScrollArea>
     </Paper>
   );
 }

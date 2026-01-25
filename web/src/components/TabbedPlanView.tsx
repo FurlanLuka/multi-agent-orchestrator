@@ -1,4 +1,4 @@
-import { useState, memo, useMemo } from 'react';
+import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
   Stack,
   Title,
@@ -6,7 +6,6 @@ import {
   Tabs,
   Group,
   Badge,
-  Code,
   ThemeIcon,
   Box,
   Divider,
@@ -100,8 +99,100 @@ function ProjectStatusBadge({ project, taskStates }: { project: string; taskStat
   return <Badge size="xs" color="gray" variant="light">{completedCount}/{projectTasks.length}</Badge>;
 }
 
+// Get E2E status for a project based on task states
+function getProjectE2EStatus(project: string, taskStates?: TaskState[], testStates?: Record<string, ProjectTestState>):
+  'waiting' | 'in_progress' | 'passed' | 'failed' | null {
+  const projectTests = testStates?.[project]?.scenarios || [];
+  if (projectTests.length === 0) return null;
+
+  // Check if any task is in E2E state
+  const projectTasks = taskStates?.filter(t => t.project === project) || [];
+  const hasE2ETask = projectTasks.some(t => t.status === 'e2e');
+  const hasE2EFailedTask = projectTasks.some(t => t.status === 'e2e_failed');
+
+  // Check test results
+  const allPassed = projectTests.every(s => s.status === 'passed');
+  const anyFailed = projectTests.some(s => s.status === 'failed');
+  const anyRunning = projectTests.some(s => s.status === 'running');
+
+  if (allPassed) return 'passed';
+  if (anyFailed || hasE2EFailedTask) return 'failed';
+  if (anyRunning || hasE2ETask) return 'in_progress';
+
+  // All pending - check if project tasks are done
+  const allTasksComplete = projectTasks.length > 0 &&
+    projectTasks.every(t => t.status === 'completed' || t.status === 'e2e' || t.status === 'e2e_failed');
+
+  return allTasksComplete ? 'in_progress' : 'waiting';
+}
+
 export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
-  const projects = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
+  const projectsRaw = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
+
+  // Track completion order for stable sorting (completed projects stay in place)
+  const completionOrderRef = useRef<Map<string, number>>(new Map());
+
+  // Calculate which projects are truly complete (tasks done + tests passed)
+  const projectCompletionStatus = useMemo(() => {
+    const status = new Map<string, boolean>();
+    projectsRaw.forEach(project => {
+      if (!taskStates) {
+        status.set(project, false);
+        return;
+      }
+      // All tasks must be 'completed' (not e2e, working, etc.)
+      const projectTasks = taskStates.filter(t => t.project === project);
+      const allTasksComplete = projectTasks.length > 0 &&
+        projectTasks.every(t => t.status === 'completed');
+
+      if (!allTasksComplete) {
+        status.set(project, false);
+        return;
+      }
+
+      // Also check tests - if project has tests, all must be passed
+      const projectTests = testStates?.[project]?.scenarios || [];
+      const testsComplete = projectTests.length === 0 ||
+        projectTests.every(s => s.status === 'passed');
+
+      status.set(project, testsComplete);
+    });
+    return status;
+  }, [projectsRaw, taskStates, testStates]);
+
+  // Update completion order when projects complete
+  useEffect(() => {
+    projectCompletionStatus.forEach((isComplete, project) => {
+      if (isComplete && !completionOrderRef.current.has(project)) {
+        completionOrderRef.current.set(project, Date.now());
+      }
+    });
+  }, [projectCompletionStatus]);
+
+  // Sort projects: completed first (by completion order), in-progress at bottom
+  const projects = useMemo(() => {
+    if (isApproval || !taskStates) return projectsRaw;
+
+    return [...projectsRaw].sort((a, b) => {
+      const aComplete = projectCompletionStatus.get(a);
+      const bComplete = projectCompletionStatus.get(b);
+
+      // Both complete: sort by completion order
+      if (aComplete && bComplete) {
+        const aTime = completionOrderRef.current.get(a) || 0;
+        const bTime = completionOrderRef.current.get(b) || 0;
+        return aTime - bTime;
+      }
+
+      // Complete projects first
+      if (aComplete && !bComplete) return -1;
+      if (!aComplete && bComplete) return 1;
+
+      // Both in-progress: maintain original order
+      return projectsRaw.indexOf(a) - projectsRaw.indexOf(b);
+    });
+  }, [projectsRaw, projectCompletionStatus, isApproval, taskStates]);
+
   const [activeTab, setActiveTab] = useState<string | null>(projects[0] || null);
   const [expandedTaskIdx, setExpandedTaskIdx] = useState<number | null>(null);
   // Architecture expanded by default for approval, collapsed for execution view
@@ -146,20 +237,16 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
             </Group>
           </UnstyledButton>
           <Collapse in={architectureExpanded}>
-            <Code
-              block
+            <Box
               style={{
-                fontFamily: 'monospace',
-                whiteSpace: 'pre',
-                fontSize: '11px',
-                backgroundColor: 'var(--mantine-color-gray-1)',
+                backgroundColor: 'var(--mantine-color-gray-0)',
                 padding: '8px',
                 borderRadius: 'var(--mantine-radius-sm)',
                 marginTop: '4px',
               }}
             >
-              {plan.architecture}
-            </Code>
+              <MarkdownMessage content={plan.architecture} />
+            </Box>
           </Collapse>
         </Box>
       )}
@@ -253,7 +340,25 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
               {/* Tests Section - Compact grouped list */}
               {projectTests.length > 0 && (
                 <Box>
-                  <Text fw={600} size="xs" c="dimmed" tt="uppercase" mb={4}>Tests</Text>
+                  <Group gap="xs" mb={4}>
+                    <Text fw={600} size="xs" c="dimmed" tt="uppercase">Tests</Text>
+                    {!isApproval && (() => {
+                      const e2eStatus = getProjectE2EStatus(project, taskStates, testStates);
+                      if (!e2eStatus) return null;
+                      const statusConfig = {
+                        waiting: { label: 'Waiting for Tasks', color: 'gray' },
+                        in_progress: { label: 'E2E In Progress', color: 'blue' },
+                        passed: { label: 'All Passed', color: 'green' },
+                        failed: { label: 'Failed', color: 'red' },
+                      };
+                      const config = statusConfig[e2eStatus];
+                      return (
+                        <Badge size="xs" variant="light" color={config.color}>
+                          {config.label}
+                        </Badge>
+                      );
+                    })()}
+                  </Group>
                   <Box
                     style={{
                       border: '1px solid var(--mantine-color-gray-3)',

@@ -3,6 +3,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Code, Text } from '@mantine/core';
+import { MermaidDiagram } from './MermaidDiagram';
 
 interface MarkdownMessageProps {
   content: string;
@@ -24,6 +25,11 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
                 {children}
               </Code>
             );
+          }
+
+          // Mermaid diagrams
+          if (match && match[1] === 'mermaid') {
+            return <MermaidDiagram chart={String(children).trim()} />;
           }
 
           return (

@@ -198,6 +198,11 @@ export class StatusMonitor extends EventEmitter {
       });
     });
     console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
+
+    // Persist initial task states
+    if (this.sessionStore && this.currentSessionId) {
+      this.sessionStore.updateTaskStates(this.currentSessionId, this.getAllTaskStates());
+    }
   }
 
   /**
@@ -215,6 +220,11 @@ export class StatusMonitor extends EventEmitter {
       }
 
       console.log(`[StatusMonitor] Task #${taskIndex} (${task.project}): ${prevStatus} → ${status}${message ? ` (${message})` : ''}`);
+
+      // Persist task states to session store
+      if (this.sessionStore && this.currentSessionId) {
+        this.sessionStore.updateTaskStates(this.currentSessionId, this.getAllTaskStates());
+      }
 
       this.emit('taskStatusChange', {
         taskIndex,

@@ -582,27 +582,40 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
-    // E2E dependency rule: frontend projects wait for all backend projects
-    // This ensures backend APIs are verified before frontend tests them
-    const isFrontend = project.toLowerCase().includes('frontend') || project.toLowerCase().includes('-fe');
+    // E2E dependency rule: check explicit dependsOn config, fallback to name-based detection
+    // Note: projectConfig is already defined at the top of this function
 
-    if (isFrontend) {
-      // Frontend waits for all non-frontend projects to be IDLE
+    // Check for explicit dependencies first
+    let dependencies = projectConfig?.dependsOn;
+
+    // Fallback to name-based detection if no explicit config (backwards compatibility)
+    if (!dependencies) {
+      const isFrontend = project.toLowerCase().includes('frontend') || project.toLowerCase().includes('-fe');
+      if (isFrontend) {
+        // Get all non-frontend projects as implicit dependencies
+        dependencies = session.projects.filter(p => {
+          const pIsFE = p.toLowerCase().includes('frontend') || p.toLowerCase().includes('-fe');
+          return !pIsFE && p !== project;
+        });
+      }
+    }
+
+    if (dependencies && dependencies.length > 0) {
       const waitingOn: string[] = [];
-      for (const otherProject of session.projects) {
-        if (otherProject === project) continue;
-        const otherIsFrontend = otherProject.toLowerCase().includes('frontend') || otherProject.toLowerCase().includes('-fe');
-        if (!otherIsFrontend) {
-          const otherStatus = statusMonitor.getStatus(otherProject);
-          if (otherStatus?.status !== 'IDLE') {
-            waitingOn.push(otherProject);
-          }
+      for (const dep of dependencies) {
+        const depStatus = statusMonitor.getStatus(dep);
+        if (depStatus?.status !== 'IDLE') {
+          waitingOn.push(dep);
         }
       }
 
       if (waitingOn.length > 0) {
-        console.log(`[Orchestrator] ${project} E2E waiting for backend projects: ${waitingOn.join(', ')}`);
+        console.log(`[Orchestrator] ${project} E2E waiting for dependencies: ${waitingOn.join(', ')}`);
         pendingE2E.set(project, { message, waitingOn });
+        // Emit waiting event for UI
+        if (ui.io) {
+          (ui.io as any).emitWaitingForProject({ project, waitingFor: waitingOn });
+        }
         return;
       }
     }
@@ -687,20 +700,41 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
 
   // Helper to check pending E2E when a project becomes IDLE
   const checkPendingE2E = async (completedProject: string) => {
-    for (const [waitingProject, { message, waitingOn }] of pendingE2E) {
-      if (waitingOn.includes(completedProject)) {
-        // Remove the completed project from waitingOn
-        const remaining = waitingOn.filter(p => p !== completedProject);
-        if (remaining.length === 0) {
-          // All dependencies satisfied, trigger E2E
-          console.log(`[Orchestrator] ${waitingProject} dependencies satisfied, triggering E2E`);
-          pendingE2E.delete(waitingProject);
+    for (const [waitingProject, pending] of pendingE2E.entries()) {
+      // Re-check ALL dependencies (not just the completed one)
+      // This handles race conditions where multiple projects complete around the same time
+      const projectConfig = config.projects[waitingProject];
 
-          // Use tryTriggerE2E which includes health checks
-          await tryTriggerE2E(waitingProject, message);
-        } else {
-          pendingE2E.set(waitingProject, { message, waitingOn: remaining });
+      // Get dependencies: explicit config or from pending.waitingOn as fallback
+      let dependencies = projectConfig?.dependsOn;
+      if (!dependencies) {
+        // Fallback to name-based detection for backwards compatibility
+        const isFrontend = waitingProject.toLowerCase().includes('frontend') || waitingProject.toLowerCase().includes('-fe');
+        if (isFrontend) {
+          const session = sessionManager.getCurrentSession();
+          dependencies = session?.projects.filter(p => {
+            const pIsFE = p.toLowerCase().includes('frontend') || p.toLowerCase().includes('-fe');
+            return !pIsFE && p !== waitingProject;
+          }) || [];
         }
+      }
+
+      // Re-verify all dependencies are IDLE
+      const stillWaiting = (dependencies || []).filter(dep => {
+        const depStatus = statusMonitor.getStatus(dep);
+        return depStatus?.status !== 'IDLE';
+      });
+
+      if (stillWaiting.length === 0) {
+        // All dependencies satisfied, trigger E2E
+        console.log(`[Orchestrator] Dependencies satisfied for ${waitingProject}, triggering E2E`);
+        pendingE2E.delete(waitingProject);
+
+        // Use tryTriggerE2E which includes health checks
+        await tryTriggerE2E(waitingProject, pending.message);
+      } else {
+        // Update waiting list
+        pending.waitingOn = stillWaiting;
       }
     }
   };
@@ -733,6 +767,8 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
   statusMonitor.on('statusChange', async ({ project, status }) => {
     // When a project becomes IDLE (E2E complete), check if any pending E2E can start
     if (status === 'IDLE') {
+      // Small delay to ensure all state has settled (fixes race condition)
+      await new Promise(resolve => setTimeout(resolve, 50));
       await checkPendingE2E(project);
     }
   });
