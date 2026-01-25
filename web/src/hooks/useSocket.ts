@@ -27,6 +27,7 @@ import type {
   RequestFlow,
   FlowStep,
   FlowStatus,
+  PermissionPrompt,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -79,6 +80,9 @@ export function useSocket() {
   // Git merge state tracking
   const [mergingBranch, setMergingBranch] = useState<Record<string, boolean>>({});
   const [mergeResults, setMergeResults] = useState<Record<string, { success: boolean; message: string }>>({});
+
+  // Permission prompt state (for live permission approval via MCP)
+  const [permissionPrompt, setPermissionPrompt] = useState<PermissionPrompt | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -570,6 +574,12 @@ export function useSocket() {
       console.error(`Git merge error for ${project}: ${error}`);
     });
 
+    // Permission prompt events (for live permission approval via MCP)
+    socket.on('permissionPrompt', (event: PermissionPrompt) => {
+      console.log(`Permission prompt for ${event.project}: ${event.toolName}`);
+      setPermissionPrompt(event);
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
@@ -853,6 +863,19 @@ export function useSocket() {
     }
   }, []);
 
+  // Respond to permission prompt (for live permission approval via MCP)
+  const respondToPermission = useCallback((approved: boolean) => {
+    if (socketRef.current && permissionPrompt) {
+      socketRef.current.emit('permissionResponse', {
+        project: permissionPrompt.project,
+        taskIndex: permissionPrompt.taskIndex,
+        approved,
+        toolName: permissionPrompt.toolName,
+      });
+      setPermissionPrompt(null);
+    }
+  }, [permissionPrompt]);
+
   // Derived state: separate active flows from completed flows
   const { activeFlows, completedFlows } = useMemo(() => ({
     activeFlows: flows.filter(f => f.status === 'in_progress'),
@@ -889,6 +912,7 @@ export function useSocket() {
     pushResults,
     mergingBranch,
     mergeResults,
+    permissionPrompt,
     sendChat,
     startSession,
     approvePlan,
@@ -914,5 +938,6 @@ export function useSocket() {
     clearPushResult,
     mergeBranch,
     recheckDependencies,
+    respondToPermission,
   };
 }

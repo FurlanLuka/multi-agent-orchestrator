@@ -761,3 +761,19 @@ export interface RequestFlow {
     details?: string;
   };
 }
+
+// Permission prompt from MCP server
+export interface PermissionPromptRequest {
+  project: string;
+  taskIndex: number;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}
+
+// Permission response from frontend
+export interface PermissionPromptResponse {
+  project: string;
+  taskIndex: number;
+  approved: boolean;
+  toolName: string;
+}

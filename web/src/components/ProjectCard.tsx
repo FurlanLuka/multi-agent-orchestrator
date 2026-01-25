@@ -9,7 +9,10 @@ import {
   ScrollArea,
   Box,
   Code,
+  Stack,
+  Button,
 } from '@mantine/core';
+import { IconShieldQuestion, IconCheck, IconX } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '../types';
 
 interface ProjectCardProps {
@@ -19,6 +22,11 @@ interface ProjectCardProps {
   updatedAt: number;
   logs: LogEntry[];
   testState?: ProjectTestState;
+  permissionPrompt?: {
+    toolName: string;
+    toolInput: Record<string, unknown>;
+  } | null;
+  onPermissionResponse?: (approved: boolean) => void;
 }
 
 // Status configuration for colors and labels
@@ -50,7 +58,7 @@ const getStatusProgress = (status: AgentStatus): number => {
   }
 };
 
-function ProjectCardInner({ project, status, message, updatedAt, logs, testState }: ProjectCardProps) {
+function ProjectCardInner({ project, status, message, updatedAt, logs, testState, permissionPrompt, onPermissionResponse }: ProjectCardProps) {
   const [logType, setLogType] = useState<string>('agent');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -108,7 +116,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
   };
 
   return (
-    <Paper shadow="sm" radius="lg" p="md" withBorder>
+    <Paper shadow="sm" radius="lg" p="md" withBorder style={{ position: 'relative' }}>
       {/* Header: Project name + Status badge */}
       <Group justify="space-between" mb="xs">
         <Group gap="sm">
@@ -177,6 +185,62 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
           )}
         </Box>
       </ScrollArea>
+
+      {/* Permission overlay */}
+      {permissionPrompt && (
+        <Box
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            borderRadius: 'inherit',
+          }}
+        >
+          <Stack align="center" gap="md" p="xl">
+            <IconShieldQuestion size={48} color="var(--mantine-color-yellow-5)" />
+            <Text fw={600} size="lg" c="white">Permission Required</Text>
+
+            <Code block style={{ maxWidth: '100%', overflow: 'auto' }}>
+              {permissionPrompt.toolName}
+            </Code>
+
+            {permissionPrompt.toolInput && Object.keys(permissionPrompt.toolInput).length > 0 && (
+              <Code block style={{ fontSize: '11px', maxHeight: '100px', overflow: 'auto' }}>
+                {JSON.stringify(permissionPrompt.toolInput, null, 2)}
+              </Code>
+            )}
+
+            <Group mt="md">
+              <Button
+                color="green"
+                leftSection={<IconCheck size={16} />}
+                onClick={() => onPermissionResponse?.(true)}
+              >
+                Allow
+              </Button>
+              <Button
+                color="red"
+                variant="light"
+                leftSection={<IconX size={16} />}
+                onClick={() => onPermissionResponse?.(false)}
+              >
+                Deny
+              </Button>
+            </Group>
+
+            <Text size="xs" c="dimmed" ta="center">
+              Denying will stop the agent and mark project as failed
+            </Text>
+          </Stack>
+        </Box>
+      )}
     </Paper>
   );
 }

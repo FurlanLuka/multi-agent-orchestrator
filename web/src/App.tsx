@@ -97,6 +97,8 @@ function App() {
     mergeResults,
     mergeBranch,
     recheckDependencies,
+    permissionPrompt,
+    respondToPermission,
   } = useSocket();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -527,6 +529,8 @@ function App() {
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}
                         readOnly={isReadOnly}
+                        permissionPrompt={permissionPrompt}
+                        onPermissionResponse={respondToPermission}
                       />
                     </Box>
                   </Paper>
@@ -609,6 +613,11 @@ function App() {
                           updatedAt={statuses[project]?.updatedAt || 0}
                           logs={logsByProject[project] || []}
                           testState={testStates[project]}
+                          permissionPrompt={permissionPrompt?.project === project ? {
+                            toolName: permissionPrompt.toolName,
+                            toolInput: permissionPrompt.toolInput
+                          } : null}
+                          onPermissionResponse={respondToPermission}
                         />
                       ))}
                     </Stack>

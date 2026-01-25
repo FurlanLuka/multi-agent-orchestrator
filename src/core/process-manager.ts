@@ -1,5 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Config } from '../types';
 import { writeProjectPermissions } from '../utils/permissions-writer';
 
@@ -33,10 +35,48 @@ export class ProcessManager extends EventEmitter {
   private logBuffer: Map<string, string[]> = new Map();
   private currentAgentProcess: Map<string, ChildProcess> = new Map();
   private readonly LOG_BUFFER_SIZE = 200;
+  private orchestratorPort: number = 3456;
+  private orchestratorDir: string;
 
-  constructor(config: Config) {
+  constructor(config: Config, orchestratorDir?: string) {
     super();
     this.config = config;
+    this.orchestratorDir = orchestratorDir || path.resolve(__dirname, '../..');
+  }
+
+  /**
+   * Sets the orchestrator port for MCP permission server communication
+   */
+  setOrchestratorPort(port: number): void {
+    this.orchestratorPort = port;
+  }
+
+  /**
+   * Gets the path to the MCP permission server
+   */
+  private getPermissionServerPath(): string {
+    return path.join(this.orchestratorDir, 'src', 'mcp', 'permission-server.js');
+  }
+
+  /**
+   * Generates a temporary MCP config file with the correct absolute paths
+   * Returns the path to the generated config file
+   */
+  private generateMcpConfig(): string {
+    const configDir = path.join(this.orchestratorDir, 'src', 'mcp');
+    const configPath = path.join(configDir, 'generated-mcp-config.json');
+
+    const config = {
+      mcpServers: {
+        'orchestrator-permission': {
+          command: 'node',
+          args: [this.getPermissionServerPath()]
+        }
+      }
+    };
+
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return configPath;
   }
 
   /**
@@ -246,8 +286,11 @@ export class ProcessManager extends EventEmitter {
 
   /**
    * Sends a prompt to an agent using one-shot mode and returns the response
+   * @param project The project name
+   * @param prompt The prompt to send
+   * @param taskIndex Optional task index for permission tracking
    */
-  async sendToAgent(project: string, prompt: string): Promise<string> {
+  async sendToAgent(project: string, prompt: string, taskIndex?: number): Promise<string> {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) {
       const availableProjects = Object.keys(this.config.projects).join(', ');
@@ -297,11 +340,24 @@ export class ProcessManager extends EventEmitter {
       } else {
         // Use acceptEdits mode to respect the settings.json allow list
         args.push('--permission-mode', 'acceptEdits');
+
+        // Add MCP permission tool for live permission approval
+        const mcpConfigPath = this.generateMcpConfig();
+        args.push('--mcp-config', mcpConfigPath);
+        args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
       }
+
+      // Build environment with orchestrator info for MCP server
+      const procEnv = {
+        ...process.env,
+        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
+        ORCHESTRATOR_PROJECT: project,
+        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0)
+      };
 
       const proc = spawn(claudePath, args, {
         cwd: projectPath,
-        env: { ...process.env },
+        env: procEnv,
         stdio: ['ignore', 'pipe', 'pipe']  // ignore stdin for one-shot
       });
 

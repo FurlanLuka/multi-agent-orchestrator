@@ -15,6 +15,14 @@ export interface UIServerDependencies {
   approvalQueue: ApprovalQueue;
   logAggregator: LogAggregator;
   sessionManager: SessionManager;
+  config?: {
+    projects: Record<string, {
+      permissions?: {
+        dangerouslyAllowAll?: boolean;
+        allow?: string[];
+      };
+    }>;
+  };
 }
 
 export interface UIServer {
@@ -114,6 +122,86 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     }
     res.json({ enabledGroups: getEnabledGroups(permissions) });
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Permission Prompt Handling (for live permission approval via MCP)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Store pending permission requests (key -> resolver)
+  const pendingPermissions = new Map<string, {
+    resolve: (result: string) => void;
+    project: string;
+    taskIndex: number;
+    toolName: string;
+    toolInput: Record<string, unknown>;
+  }>();
+
+  // HTTP endpoint for MCP server to call when Claude needs permission
+  app.post('/api/permission-prompt', (req: Request, res: Response) => {
+    const { project, taskIndex, toolName, toolInput } = req.body;
+
+    console.log(`[UIServer] Permission prompt for ${project}: ${toolName}`);
+
+    // Check if this permission is already in the project's allow list
+    const projectConfig = deps?.config?.projects?.[project];
+
+    if (projectConfig?.permissions?.allow) {
+      const allowList = projectConfig.permissions.allow as string[];
+      const isAllowed = allowList.some(pattern => {
+        // Check exact match first
+        if (pattern === toolName) return true;
+
+        // Check pattern match (e.g., "Bash(npm install *)" matches "Bash(npm install foo)")
+        // Convert glob pattern to regex
+        const regexPattern = pattern
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special chars except *
+          .replace(/\*/g, '.*');  // Convert * to .*
+
+        try {
+          const regex = new RegExp(`^${regexPattern}$`);
+          return regex.test(toolName);
+        } catch {
+          return false;
+        }
+      });
+
+      if (isAllowed) {
+        console.log(`[UIServer] Permission auto-approved (in allow list): ${toolName}`);
+        res.send('allow');
+        return;
+      }
+    }
+
+    // Not in allow list - prompt user
+    console.log(`[UIServer] Permission requires user approval: ${toolName}`);
+
+    // Emit to frontend
+    io.emit('permissionPrompt', { project, taskIndex, toolName, toolInput });
+
+    // Store resolver - response comes via socket
+    const key = `${project}_${taskIndex}`;
+    pendingPermissions.set(key, {
+      resolve: (result: string) => {
+        res.send(result);  // "allow" or "deny"
+      },
+      project,
+      taskIndex,
+      toolName,
+      toolInput
+    });
+
+    // Timeout after 10 minutes - auto-deny
+    setTimeout(() => {
+      if (pendingPermissions.has(key)) {
+        console.log(`[UIServer] Permission prompt timeout for ${project}: ${toolName}`);
+        pendingPermissions.delete(key);
+        res.send('deny');
+      }
+    }, 600000);
+  });
+
+  // Expose pendingPermissions for socket handler in index.ts
+  (io as any).pendingPermissions = pendingPermissions;
 
   // Fallback to index.html for SPA routing
   app.get('*', (req: Request, res: Response) => {

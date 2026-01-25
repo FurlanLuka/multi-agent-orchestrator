@@ -371,3 +371,11 @@ export interface RequestFlow {
     details?: string;
   };
 }
+
+// Permission prompt for live permission approval UI
+export interface PermissionPrompt {
+  project: string;
+  taskIndex: number;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}

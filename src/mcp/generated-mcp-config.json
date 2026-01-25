@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "orchestrator-permission": {
+      "command": "node",
+      "args": [
+        "/Users/lukafurlan/Documents/orchestrator/src/mcp/permission-server.js"
+      ]
+    }
+  }
+}

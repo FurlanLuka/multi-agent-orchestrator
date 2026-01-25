@@ -43,7 +43,7 @@ async function main() {
   // Initialize core components
   const sessionStore = new SessionStore(ORCHESTRATOR_DIR);
   const sessionManager = new SessionManager(config, ORCHESTRATOR_DIR, sessionStore);
-  const processManager = new ProcessManager(config);
+  const processManager = new ProcessManager(config, ORCHESTRATOR_DIR);
   const projectManager = new ProjectManager(configPath, config, ORCHESTRATOR_DIR);
   const eventWatcher = new EventWatcher();
   const statusMonitor = new StatusMonitor();
@@ -69,12 +69,17 @@ async function main() {
   let sessionLogger: SessionLogger | null = null;
 
   // Create UI server with dependencies
-  const ui = createUIServer(3456, {
+  const ORCHESTRATOR_PORT = 3456;
+  const ui = createUIServer(ORCHESTRATOR_PORT, {
     sessionManager,
     statusMonitor,
     approvalQueue,
-    logAggregator
+    logAggregator,
+    config
   });
+
+  // Set orchestrator port for MCP permission server communication
+  processManager.setOrchestratorPort(ORCHESTRATOR_PORT);
 
   // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
@@ -1667,6 +1672,71 @@ Output these markers on their own line, not inside code blocks.`;
       } else {
         console.error(`[Orchestrator] TaskExecutor not available to handle user action response`);
       }
+    });
+
+    // Handle permission response from UI (for live permission approval via MCP)
+    socket.on('permissionResponse', async ({ project, taskIndex, approved, toolName }: {
+      project: string;
+      taskIndex: number;
+      approved: boolean;
+      toolName: string;
+    }) => {
+      const key = `${project}_${taskIndex}`;
+      const pendingPermissions = (ui.io as any).pendingPermissions as Map<string, {
+        resolve: (result: string) => void;
+        project: string;
+        taskIndex: number;
+        toolName: string;
+        toolInput: Record<string, unknown>;
+      }>;
+
+      const pending = pendingPermissions?.get(key);
+
+      if (!pending) {
+        console.warn(`[Orchestrator] No pending permission for ${key}`);
+        return;
+      }
+
+      console.log(`[Orchestrator] Permission ${approved ? 'approved' : 'denied'} for ${project}: ${toolName}`);
+
+      if (approved) {
+        // Add permission to project config for future use (project agents only)
+        if (project !== 'planner') {
+          const projectConfig = config.projects[project];
+          if (projectConfig) {
+            if (!projectConfig.permissions) {
+              projectConfig.permissions = { allow: [] };
+            }
+            // Convert toolName to permission format (e.g., "Bash" -> "Bash(*)")
+            const permission = toolName.includes('(') ? toolName : `${toolName}(*)`;
+            if (!projectConfig.permissions.allow.includes(permission)) {
+              projectConfig.permissions.allow.push(permission);
+              try {
+                await projectManager.updateProject(project, { permissions: projectConfig.permissions });
+                console.log(`[Orchestrator] Permission saved for ${project}: ${permission}`);
+              } catch (err) {
+                console.error(`[Orchestrator] Failed to save permission:`, err);
+              }
+            }
+          }
+        }
+
+        pending.resolve('allow');
+      } else {
+        // User denied - agent will stop
+        pending.resolve('deny');
+
+        // For project agents, update status to FATAL_DEBUGGING
+        if (project !== 'planner') {
+          statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', `Permission denied: ${toolName}`);
+          (ui.io as any).emitStatus(statusMonitor.getAllStatuses());
+        } else {
+          // Planner permission denied - emit a chat response
+          console.log('[Orchestrator] Planner permission denied');
+        }
+      }
+
+      pendingPermissions.delete(key);
     });
 
     // Handle git push branch request

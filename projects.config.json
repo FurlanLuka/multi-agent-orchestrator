@@ -27,7 +27,9 @@
           "Bash(ls *)",
           "Bash(cat *)",
           "Bash(mkdir *)",
-          "Bash(find *)"
+          "Bash(find *)",
+          "Bash(*)",
+          "WebFetch(*)"
         ]
       }
     },
@@ -48,12 +50,8 @@
       "gitEnabled": true,
       "mainBranch": "main",
       "permissions": {
+        "dangerouslyAllowAll": false,
         "allow": [
-          "Read",
-          "Write",
-          "Edit",
-          "Glob",
-          "Grep",
           "Bash(npm run *)",
           "Bash(npm install *)",
           "Bash(npx *)",
@@ -72,7 +70,8 @@
           "mcp__playwright__browser_hover",
           "mcp__playwright__browser_press_key",
           "mcp__playwright__browser_console_messages",
-          "mcp__playwright__browser_network_requests"
+          "mcp__playwright__browser_network_requests",
+          "Bash(*)"
         ]
       }
     }
