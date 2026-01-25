@@ -23,16 +23,20 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, ChatCardEvent } from '../types';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, ChatCardEvent, RequestFlow } from '../types';
 import { PlanningStatusIndicator } from './PlanningStatusIndicator';
 import { ChatEventCard } from './ChatEventCard';
 import { TabbedPlanView } from './TabbedPlanView';
+import { ActiveFlowCard } from './ActiveFlowCard';
+import { CompletedFlowCard } from './CompletedFlowCard';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
   pendingPlan: PlanProposal | null;
   planningStatus: PlanningStatusEvent | null;
   chatEvents: ChatCardEvent[];
+  activeFlows: RequestFlow[];
+  completedFlows: RequestFlow[];
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
   sessionActive: boolean;
@@ -379,7 +383,8 @@ const ChatMessage = memo(function ChatMessage({ message, isExpanded, onToggleExp
 // Timeline item type for unified rendering
 type TimelineItem =
   | { type: 'message'; timestamp: number; data: StreamingMessage; key: string }
-  | { type: 'event'; timestamp: number; data: ChatCardEvent; key: string };
+  | { type: 'event'; timestamp: number; data: ChatCardEvent; key: string }
+  | { type: 'flow'; timestamp: number; data: RequestFlow; key: string };
 
 // Main chat component using external store
 function ChatThread({
@@ -387,6 +392,8 @@ function ChatThread({
   pendingPlan,
   planningStatus,
   chatEvents,
+  activeFlows,
+  completedFlows,
   onSendMessage,
   onApprovePlan,
   sessionActive,
@@ -405,7 +412,7 @@ function ChatThread({
   // Derive effective expanded state - auto-collapse during streaming
   const effectiveExpandedId = hasStreamingMessage ? null : expandedMessageId;
 
-  // Create unified timeline: user messages + structured event cards only
+  // Create unified timeline: user messages + structured event cards + completed flows
   // Hide raw Planning Agent streaming messages - only show structured cards
   const timeline = useMemo(() => {
     const items: TimelineItem[] = [];
@@ -432,11 +439,21 @@ function ChatThread({
       });
     });
 
+    // Add completed flows
+    completedFlows.forEach(flow => {
+      items.push({
+        type: 'flow',
+        timestamp: flow.completedAt || flow.startedAt,
+        data: flow,
+        key: flow.id,
+      });
+    });
+
     // Sort by timestamp
     return items.sort((a, b) => a.timestamp - b.timestamp);
-  }, [messages, chatEvents]);
+  }, [messages, chatEvents, completedFlows]);
 
-  // Auto-scroll to bottom when new items arrive
+  // Auto-scroll to bottom when new items arrive or active flows change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -444,7 +461,7 @@ function ChatThread({
         behavior: 'smooth',
       });
     }
-  }, [timeline]);
+  }, [timeline, activeFlows]);
 
   const handleSend = () => {
     const input = inputRef.current;
@@ -471,81 +488,112 @@ function ChatThread({
         backgroundColor: 'var(--mantine-color-gray-0)',
       }}
     >
-      <Stack gap="md" style={{ flex: 1, minHeight: 0 }}>
-        <ScrollArea h="100%" viewportRef={scrollRef} style={{ flex: 1 }}>
-          <Stack gap="md" style={{ width: '100%' }}>
-            {/* Planning Status Indicator - shown when generating plan */}
-            {planningStatus && (
-              <PlanningStatusIndicator status={planningStatus} />
-            )}
+      <Stack gap={0} style={{ flex: 1, minHeight: 0 }}>
+        {/* TOP: History (scrollable, flex-grow) */}
+        <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ScrollArea h="100%" viewportRef={scrollRef}>
+            <Stack gap="md" p="xs">
+              {/* Planning Status Indicator - shown when generating plan */}
+              {planningStatus && (
+                <PlanningStatusIndicator status={planningStatus} />
+              )}
 
-            {/* Unified timeline - hide during planning for cleaner UX */}
-            {!planningStatus && timeline.map((item) => (
-              item.type === 'message' ? (
-                <ChatMessage
-                  key={item.key}
-                  message={item.data}
-                  isExpanded={effectiveExpandedId === item.data.id}
-                  onToggleExpand={() => setExpandedMessageId(
-                    expandedMessageId === item.data.id ? null : item.data.id
-                  )}
-                />
-              ) : (
-                <ChatEventCard key={item.key} event={item.data} />
-              )
-            ))}
+              {/* Unified timeline - hide during planning for cleaner UX */}
+              {!planningStatus && timeline.map((item) => {
+                if (item.type === 'message') {
+                  return (
+                    <ChatMessage
+                      key={item.key}
+                      message={item.data}
+                      isExpanded={effectiveExpandedId === item.data.id}
+                      onToggleExpand={() => setExpandedMessageId(
+                        expandedMessageId === item.data.id ? null : item.data.id
+                      )}
+                    />
+                  );
+                } else if (item.type === 'flow') {
+                  return <CompletedFlowCard key={item.key} flow={item.data} />;
+                } else {
+                  return <ChatEventCard key={item.key} event={item.data} />;
+                }
+              })}
 
-            {/* Pending Plan with TabbedPlanView */}
-            {pendingPlan && (
-              <Card p="md" withBorder shadow="sm" radius="md" bg="green.0" style={{ borderColor: 'var(--mantine-color-green-4)' }}>
-                <Stack gap="md">
-                  <Badge color="green" variant="filled" size="lg">Plan Ready for Review</Badge>
-                  <TabbedPlanView plan={pendingPlan.plan} isApproval={true} />
-                  <Group>
-                    <Button
-                      variant="filled"
-                      color="green"
-                      onClick={() => onApprovePlan(pendingPlan.plan)}
-                    >
-                      Approve & Start
-                    </Button>
-                  </Group>
-                </Stack>
-              </Card>
-            )}
-          </Stack>
-        </ScrollArea>
+              {/* Pending Plan with TabbedPlanView */}
+              {pendingPlan && (
+                <Card p="md" withBorder shadow="sm" radius="md" bg="green.0" style={{ borderColor: 'var(--mantine-color-green-4)' }}>
+                  <Stack gap="md">
+                    <Badge color="green" variant="filled" size="lg">Plan Ready for Review</Badge>
+                    <TabbedPlanView plan={pendingPlan.plan} isApproval={true} />
+                    <Group>
+                      <Button
+                        variant="filled"
+                        color="green"
+                        onClick={() => onApprovePlan(pendingPlan.plan)}
+                      >
+                        Approve & Start
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Card>
+              )}
+            </Stack>
+          </ScrollArea>
+        </Box>
+
+        {/* BOTTOM: Active Operations (only shown when there are active flows) */}
+        {activeFlows.length > 0 && (
+          <>
+            <Divider my="sm" />
+            <Box style={{ maxHeight: 220, overflow: 'auto' }} p="xs">
+              <Group gap="xs" mb="xs">
+                <Text size="xs" fw={600} c="blue">
+                  ACTIVE
+                </Text>
+                <Badge size="xs" color="blue" variant="light">
+                  {activeFlows.length}
+                </Badge>
+              </Group>
+              <Stack gap="sm">
+                {activeFlows.map(flow => (
+                  <ActiveFlowCard key={flow.id} flow={flow} />
+                ))}
+              </Stack>
+            </Box>
+          </>
+        )}
 
         {/* Input area */}
-        <Paper p="sm" withBorder radius="md" shadow="sm">
-          <Group gap="xs">
-            <TextInput
-              ref={inputRef}
-              placeholder={
-                readOnly
-                  ? 'Read-only view - activate session to chat'
-                  : sessionActive
-                  ? 'Chat with Planning Agent...'
-                  : 'Start a session first...'
-              }
-              style={{ flex: 1 }}
-              disabled={!sessionActive || readOnly}
-              onKeyDown={handleKeyDown}
-              radius="md"
-              size="md"
-            />
-            <ActionIcon
-              size="xl"
-              variant="filled"
-              color="blue"
-              radius="md"
-              onClick={handleSend}
-              disabled={!sessionActive || readOnly}
-            >
-              <IconSend size={20} />
-            </ActionIcon>
-          </Group>
-        </Paper>
+        <Box pt="sm">
+          <Paper p="sm" withBorder radius="md" shadow="sm">
+            <Group gap="xs">
+              <TextInput
+                ref={inputRef}
+                placeholder={
+                  readOnly
+                    ? 'Read-only view - activate session to chat'
+                    : sessionActive
+                    ? 'Chat with Planning Agent...'
+                    : 'Start a session first...'
+                }
+                style={{ flex: 1 }}
+                disabled={!sessionActive || readOnly}
+                onKeyDown={handleKeyDown}
+                radius="md"
+                size="md"
+              />
+              <ActionIcon
+                size="xl"
+                variant="filled"
+                color="blue"
+                radius="md"
+                onClick={handleSend}
+                disabled={!sessionActive || readOnly}
+              >
+                <IconSend size={20} />
+              </ActionIcon>
+            </Group>
+          </Paper>
+        </Box>
       </Stack>
     </Paper>
   );

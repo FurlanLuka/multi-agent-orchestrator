@@ -57,6 +57,8 @@ function App() {
     taskStates,
     planningStatus,
     chatEvents,
+    activeFlows,
+    completedFlows,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -466,6 +468,8 @@ function App() {
                         pendingPlan={pendingPlan}
                         planningStatus={planningStatus}
                         chatEvents={chatEvents}
+                        activeFlows={activeFlows}
+                        completedFlows={completedFlows}
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}

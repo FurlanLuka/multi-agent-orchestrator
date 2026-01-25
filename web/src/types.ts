@@ -401,3 +401,37 @@ export interface FullSessionData {
   chatMessages: StreamingMessage[];
   pendingPlan?: PlanProposal;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Request Flow Types (for two-section chat UX)
+// ═══════════════════════════════════════════════════════════════
+
+export type FlowType = 'e2e' | 'task' | 'planning' | 'fix' | 'waiting';
+
+export type FlowStepStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
+
+export interface FlowStep {
+  id: string;
+  status: FlowStepStatus;
+  message: string;
+  timestamp: number;
+}
+
+export type FlowStatus = 'in_progress' | 'completed' | 'failed';
+
+export interface RequestFlow {
+  id: string;
+  type: FlowType;
+  project?: string;
+  taskName?: string;
+  status: FlowStatus;
+  startedAt: number;
+  completedAt?: number;
+  steps: FlowStep[];
+  // Final result for completed flows
+  result?: {
+    passed: boolean;
+    summary?: string;
+    details?: string;
+  };
+}

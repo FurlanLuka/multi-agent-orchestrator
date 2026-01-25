@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
   Session,
@@ -33,6 +33,9 @@ import type {
   ChatResponseEvent,
   UserActionRequiredEvent,
   DependencyCheckResult,
+  RequestFlow,
+  FlowStep,
+  FlowStatus,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -78,6 +81,9 @@ export function useSocket() {
 
   // Unified chat events for timeline cards
   const [chatEvents, setChatEvents] = useState<ChatCardEvent[]>([]);
+
+  // Request flows for two-section layout (active operations vs history)
+  const [flows, setFlows] = useState<RequestFlow[]>([]);
 
   // Session persistence state
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -143,9 +149,10 @@ export function useSocket() {
       // Clear the cached messages for the new session
       activeSessionMessagesRef.current = [];
       setStreamingMessages([]);
-      // Clear chat events for new session
+      // Clear chat events and flows for new session
       setChatEvents([]);
       setAnalysisResults([]);
+      setFlows([]);
     });
 
     // Status events
@@ -515,6 +522,46 @@ export function useSocket() {
         responseStatus: event.status,  // Use for color override
       };
       setChatEvents(prev => [...prev, chatEvent]);
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Request Flow Events (for two-section chat layout)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Flow start: Add new flow to state
+    socket.on('flowStart', (flow: RequestFlow) => {
+      setFlows(prev => [...prev, flow]);
+    });
+
+    // Flow step: Update steps in existing flow
+    socket.on('flowStep', ({ flowId, step }: { flowId: string; step: FlowStep }) => {
+      setFlows(prev => prev.map(f => {
+        if (f.id !== flowId) return f;
+        // Mark previous active steps as completed, add new step
+        const updatedSteps = f.steps.map(s =>
+          s.status === 'active' ? { ...s, status: 'completed' as const } : s
+        );
+        return { ...f, steps: [...updatedSteps, step] };
+      }));
+    });
+
+    // Flow complete: Mark flow as done with result
+    socket.on('flowComplete', ({ flowId, status, result, timestamp }: {
+      flowId: string;
+      status: FlowStatus;
+      result?: { passed: boolean; summary?: string; details?: string };
+      timestamp: number;
+    }) => {
+      setFlows(prev => prev.map(f => {
+        if (f.id !== flowId) return f;
+        // Mark all active steps based on status
+        const finalStepStatus = status === 'completed' ? 'completed' as const : 'failed' as const;
+        const updatedSteps = f.steps.map(s => ({
+          ...s,
+          status: s.status === 'active' ? finalStepStatus : s.status
+        }));
+        return { ...f, status, completedAt: timestamp, result, steps: updatedSteps };
+      }));
     });
 
     // Test status events for real-time E2E test tracking
@@ -936,16 +983,18 @@ export function useSocket() {
     setAllComplete(false);
     setActiveSessionId(null);
     setViewingSessionId(null);
+    setFlows([]);
     // Request fresh session list
     if (socketRef.current) {
       socketRef.current.emit('getSessions');
     }
   }, []);
 
-  // Clear analysis results and chat events when starting new session
+  // Clear analysis results, chat events, and flows when starting new session
   const clearAnalysisResults = useCallback(() => {
     setAnalysisResults([]);
     setChatEvents([]);
+    setFlows([]);
   }, []);
 
   const pushBranch = useCallback((project: string, branchName: string) => {
@@ -988,6 +1037,12 @@ export function useSocket() {
     }
   }, []);
 
+  // Derived state: separate active flows from completed flows
+  const { activeFlows, completedFlows } = useMemo(() => ({
+    activeFlows: flows.filter(f => f.status === 'in_progress'),
+    completedFlows: flows.filter(f => f.status !== 'in_progress')
+  }), [flows]);
+
   return {
     connected,
     checkingDependencies,
@@ -1002,6 +1057,9 @@ export function useSocket() {
     planningStatus,
     analysisResults,
     chatEvents,
+    flows,
+    activeFlows,
+    completedFlows,
     currentApproval,
     pendingPlan,
     allComplete,

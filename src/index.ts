@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent } from './types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep } from './types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -222,6 +222,9 @@ async function main() {
     failedProject: string;  // The project whose E2E failed (may differ from the project being fixed)
   }> = new Map();
 
+  // Track active flow IDs for updating flow steps
+  const activeE2EFlows: Map<string, string> = new Map(); // project -> flowId
+
   // Handle E2E completion - analyze directly (PA's internal queue handles serialization)
   actionExecutor.on('e2eComplete', async ({ project, result }) => {
     console.log(`[Orchestrator] E2E completed for ${project}, analyzing...`);
@@ -229,6 +232,20 @@ async function main() {
     const session = sessionManager.getCurrentSession();
     const testScenarios = session?.plan?.testPlan?.[project] || [];
     const allProjects = session?.projects || [];
+
+    // Get flow ID for this project
+    const flowId = activeE2EFlows.get(project);
+
+    // Emit analyzing step
+    if (flowId) {
+      const step: FlowStep = {
+        id: 'analyze',
+        status: 'active',
+        message: 'Analyzing E2E results',
+        timestamp: Date.now()
+      };
+      (ui.io as any).emitFlowStep(flowId, step);
+    }
 
     // Get recent dev server logs from ALL projects to provide cross-project context
     const allDevServerLogs = allProjects.map(proj => {
@@ -245,6 +262,16 @@ async function main() {
       if (analysis.passed) {
         // E2E passed! Mark as complete
         console.log(`[Orchestrator] E2E tests PASSED for ${project}`);
+
+        // Complete the flow
+        if (flowId) {
+          (ui.io as any).emitFlowComplete(flowId, 'completed', {
+            passed: true,
+            summary: 'All E2E tests passed'
+          });
+          activeE2EFlows.delete(project);
+        }
+
         statusMonitor.updateStatus(project, 'IDLE', 'E2E tests passed');
         e2eRetryCount.delete(project); // Reset retry count on success
 
@@ -263,6 +290,17 @@ async function main() {
       // These should go straight to FATAL_DEBUGGING - not fixable by code changes
       if (analysis.isInfrastructureFailure) {
         console.error(`[Orchestrator] E2E infrastructure failure for ${project}: ${analysis.analysis}`);
+
+        // Complete the flow as failed
+        if (flowId) {
+          (ui.io as any).emitFlowComplete(flowId, 'failed', {
+            passed: false,
+            summary: 'Infrastructure failure',
+            details: analysis.analysis
+          });
+          activeE2EFlows.delete(project);
+        }
+
         chatHandler.systemMessage(`E2E tests could not run for ${project}: ${analysis.analysis}. This requires manual intervention (e.g., Playwright MCP tools unavailable).`);
         statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', 'E2E infrastructure issue - tools unavailable');
         return;
@@ -273,6 +311,17 @@ async function main() {
 
       if (retries >= MAX_E2E_RETRIES) {
         console.error(`[Orchestrator] E2E tests failed for ${project} after ${retries} retries, giving up`);
+
+        // Complete the flow as failed
+        if (flowId) {
+          (ui.io as any).emitFlowComplete(flowId, 'failed', {
+            passed: false,
+            summary: `Failed after ${MAX_E2E_RETRIES} fix attempts`,
+            details: analysis.analysis
+          });
+          activeE2EFlows.delete(project);
+        }
+
         chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
         statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
         return;
@@ -294,6 +343,16 @@ async function main() {
         const validProjects = new Set(currentSession?.projects || allProjects);
 
         console.log(`[Orchestrator] E2E analysis returned ${fixes.length} fix(es)`);
+
+        // Complete the E2E flow as failed (fix in progress)
+        if (flowId) {
+          (ui.io as any).emitFlowComplete(flowId, 'failed', {
+            passed: false,
+            summary: `E2E failed - fix attempt ${retries + 1}/${MAX_E2E_RETRIES}`,
+            details: analysis.analysis
+          });
+          activeE2EFlows.delete(project);
+        }
 
         const projectsWithFixes = new Set<string>();
 
@@ -394,11 +453,29 @@ After fixing, the E2E tests will be re-run automatically.`;
         }
       } else {
         // No fix prompt available, mark as blocked
+        if (flowId) {
+          (ui.io as any).emitFlowComplete(flowId, 'failed', {
+            passed: false,
+            summary: 'E2E failed, no fix available'
+          });
+          activeE2EFlows.delete(project);
+        }
         statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[Orchestrator] Error analyzing E2E result for ${project}:`, err);
+
+      // Complete flow as failed on error
+      if (flowId) {
+        (ui.io as any).emitFlowComplete(flowId, 'failed', {
+          passed: false,
+          summary: 'Analysis error',
+          details: errorMsg
+        });
+        activeE2EFlows.delete(project);
+      }
+
       chatHandler.systemMessage(`Error analyzing E2E result for ${project}: ${errorMsg}`);
     }
   });
@@ -555,10 +632,27 @@ After fixing, the E2E tests will be re-run automatically.`;
       if (waitingOn.length > 0) {
         console.log(`[Orchestrator] ${project} E2E waiting for dependencies: ${waitingOn.join(', ')}`);
         pendingE2E.set(project, { message, waitingOn });
-        // Emit waiting event for UI
-        if (ui.io) {
-          (ui.io as any).emitWaitingForProject({ project, waitingFor: waitingOn });
-        }
+
+        // Start E2E flow with waiting step
+        const flowId = `e2e_${project}_${Date.now()}`;
+        activeE2EFlows.set(project, flowId);
+        const flow: RequestFlow = {
+          id: flowId,
+          type: 'e2e',
+          project,
+          status: 'in_progress',
+          startedAt: Date.now(),
+          steps: [{
+            id: 'wait',
+            status: 'active',
+            message: `Waiting for ${waitingOn.join(', ')} to complete`,
+            timestamp: Date.now()
+          }]
+        };
+        (ui.io as any).emitFlowStart(flow);
+
+        // Emit waiting event for UI (legacy)
+        (ui.io as any).emitWaitingForProject({ project, waitingFor: waitingOn });
         return;
       }
     }
@@ -601,6 +695,36 @@ After fixing, the E2E tests will be re-run automatically.`;
     if (projectConfig?.e2eInstructions) {
       console.log(`[Orchestrator] Using custom E2E instructions for ${project}`);
 
+      // Start or update E2E flow for custom instructions
+      let customFlowId = activeE2EFlows.get(project);
+      if (!customFlowId) {
+        customFlowId = `e2e_${project}_${Date.now()}`;
+        activeE2EFlows.set(project, customFlowId);
+        const flow: RequestFlow = {
+          id: customFlowId,
+          type: 'e2e',
+          project,
+          status: 'in_progress',
+          startedAt: Date.now(),
+          steps: [{
+            id: 'run',
+            status: 'active',
+            message: 'Running E2E tests (custom instructions)',
+            timestamp: Date.now()
+          }]
+        };
+        (ui.io as any).emitFlowStart(flow);
+      } else {
+        // Update existing flow (was waiting)
+        const step: FlowStep = {
+          id: 'run',
+          status: 'active',
+          message: 'Running E2E tests (custom instructions)',
+          timestamp: Date.now()
+        };
+        (ui.io as any).emitFlowStep(customFlowId, step);
+      }
+
       // Build E2E prompt from custom instructions
       const e2ePrompt = `# E2E Testing for ${project}
 
@@ -638,11 +762,42 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     console.log(`[Orchestrator] Requesting E2E prompt for ${project}`);
     e2eQueuedProjects.add(project);  // Track to prevent duplicates
 
-    // Emit E2E start event for UI
+    // Emit E2E start event for UI (legacy)
     (ui.io as any).emitE2EStart({
       project,
       testScenarios: scenariosToTest
     });
+
+    // Start or update E2E flow
+    let flowId = activeE2EFlows.get(project);
+    if (!flowId) {
+      // New flow (no waiting step)
+      flowId = `e2e_${project}_${Date.now()}`;
+      activeE2EFlows.set(project, flowId);
+      const flow: RequestFlow = {
+        id: flowId,
+        type: 'e2e',
+        project,
+        status: 'in_progress',
+        startedAt: Date.now(),
+        steps: [{
+          id: 'generate',
+          status: 'active',
+          message: 'Generating E2E instructions',
+          timestamp: Date.now()
+        }]
+      };
+      (ui.io as any).emitFlowStart(flow);
+    } else {
+      // Update existing flow (was waiting)
+      const step: FlowStep = {
+        id: 'generate',
+        status: 'active',
+        message: 'Generating E2E instructions',
+        timestamp: Date.now()
+      };
+      (ui.io as any).emitFlowStep(flowId, step);
+    }
 
     try {
       let e2ePrompt = await chatHandler.requestE2EPrompt(project, message, scenariosToTest, devServerUrl, passedTests.length);
@@ -665,6 +820,18 @@ You MUST output these markers for real-time tracking (the UI depends on them):
 Output these markers on their own line, not inside code blocks.`;
 
         console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
+
+        // Emit running step
+        if (flowId) {
+          const step: FlowStep = {
+            id: 'run',
+            status: 'active',
+            message: 'Running E2E tests',
+            timestamp: Date.now()
+          };
+          (ui.io as any).emitFlowStep(flowId, step);
+        }
+
         await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
       } else {
         console.warn(`[Orchestrator] No E2E prompt generated for ${project}`);

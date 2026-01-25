@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -263,6 +263,25 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('userActionRequired', event);
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  // Flow Events (for two-section chat UX)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Emit flow start event (begins a new tracked flow)
+  const emitFlowStart = (flow: RequestFlow) => {
+    io.emit('flowStart', flow);
+  };
+
+  // Emit flow step event (adds or updates a step in a flow)
+  const emitFlowStep = (flowId: string, step: FlowStep) => {
+    io.emit('flowStep', { flowId, step });
+  };
+
+  // Emit flow complete event (marks flow as completed or failed)
+  const emitFlowComplete = (flowId: string, status: FlowStatus, result?: { passed: boolean; summary?: string; details?: string }) => {
+    io.emit('flowComplete', { flowId, status, result, timestamp: Date.now() });
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -285,6 +304,9 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitPlanApprovedCard = emitPlanApprovedCard;
   (io as any).emitChatResponse = emitChatResponse;
   (io as any).emitUserActionRequired = emitUserActionRequired;
+  (io as any).emitFlowStart = emitFlowStart;
+  (io as any).emitFlowStep = emitFlowStep;
+  (io as any).emitFlowComplete = emitFlowComplete;
 
   return {
     app,
