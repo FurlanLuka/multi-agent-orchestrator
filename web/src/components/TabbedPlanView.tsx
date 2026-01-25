@@ -1,4 +1,4 @@
-import { useState, memo, useMemo, useRef, useEffect } from 'react';
+import { useState, memo, useMemo, useEffect } from 'react';
 import {
   Stack,
   Title,
@@ -130,7 +130,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
   const projectsRaw = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
 
   // Track completion order for stable sorting (completed projects stay in place)
-  const completionOrderRef = useRef<Map<string, number>>(new Map());
+  const [completionOrder, setCompletionOrder] = useState<Map<string, number>>(new Map());
 
   // Calculate which projects are truly complete (tasks done + tests passed)
   const projectCompletionStatus = useMemo(() => {
@@ -160,14 +160,22 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
     return status;
   }, [projectsRaw, taskStates, testStates]);
 
-  // Update completion order when projects complete
+  // Update completion order when projects complete (in effect, not render)
   useEffect(() => {
+    let hasNewCompletions = false;
+    const newOrder = new Map(completionOrder);
+
     projectCompletionStatus.forEach((isComplete, project) => {
-      if (isComplete && !completionOrderRef.current.has(project)) {
-        completionOrderRef.current.set(project, Date.now());
+      if (isComplete && !newOrder.has(project)) {
+        newOrder.set(project, Date.now());
+        hasNewCompletions = true;
       }
     });
-  }, [projectCompletionStatus]);
+
+    if (hasNewCompletions) {
+      setCompletionOrder(newOrder);
+    }
+  }, [projectCompletionStatus, completionOrder]);
 
   // Sort projects: completed first (by completion order), in-progress at bottom
   const projects = useMemo(() => {
@@ -179,8 +187,8 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
 
       // Both complete: sort by completion order
       if (aComplete && bComplete) {
-        const aTime = completionOrderRef.current.get(a) || 0;
-        const bTime = completionOrderRef.current.get(b) || 0;
+        const aTime = completionOrder.get(a) || 0;
+        const bTime = completionOrder.get(b) || 0;
         return aTime - bTime;
       }
 
@@ -191,7 +199,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
       // Both in-progress: maintain original order
       return projectsRaw.indexOf(a) - projectsRaw.indexOf(b);
     });
-  }, [projectsRaw, projectCompletionStatus, isApproval, taskStates]);
+  }, [projectsRaw, projectCompletionStatus, completionOrder, isApproval, taskStates]);
 
   const [activeTab, setActiveTab] = useState<string | null>(projects[0] || null);
   const [expandedTaskIdx, setExpandedTaskIdx] = useState<number | null>(null);
@@ -317,19 +325,17 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                             )}
                           </Group>
                         </UnstyledButton>
-                        {/* Expandable task description */}
-                        {task.task && (
-                          <Collapse in={isExpanded}>
-                            <Box
-                              p="xs"
-                              style={{
-                                backgroundColor: 'var(--mantine-color-gray-0)',
-                                borderBottom: isLast ? 'none' : '1px solid var(--mantine-color-gray-2)',
-                              }}
-                            >
-                              <MarkdownMessage content={task.task} />
-                            </Box>
-                          </Collapse>
+                        {/* Expandable task description - only render when expanded for performance */}
+                        {task.task && isExpanded && (
+                          <Box
+                            p="xs"
+                            style={{
+                              backgroundColor: 'var(--mantine-color-gray-0)',
+                              borderBottom: isLast ? 'none' : '1px solid var(--mantine-color-gray-2)',
+                            }}
+                          >
+                            <MarkdownMessage content={task.task} />
+                          </Box>
                         )}
                       </Box>
                     );

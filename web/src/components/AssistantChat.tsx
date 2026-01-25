@@ -549,36 +549,21 @@ function ChatThread({
               <PlanningStatusIndicator status={planningStatus} />
             )}
 
-            {timeline.length === 0 && !planningStatus ? (
-              <Card p="xl" withBorder shadow="sm" radius="md">
-                <Stack align="center" gap="sm">
-                  <IconRobot size={48} color="var(--mantine-color-gray-5)" />
-                  <Text c="dimmed" ta="center">
-                    {sessionActive
-                      ? 'Waiting for Planning Agent response...'
-                      : 'Start a session to begin chatting with the Planning Agent'}
-                  </Text>
-                </Stack>
-              </Card>
-            ) : (
-              <>
-                {/* Unified timeline - hide during planning for cleaner UX */}
-                {!planningStatus && timeline.map((item) => (
-                  item.type === 'message' ? (
-                    <ChatMessage
-                      key={item.key}
-                      message={item.data}
-                      isExpanded={effectiveExpandedId === item.data.id}
-                      onToggleExpand={() => setExpandedMessageId(
-                        expandedMessageId === item.data.id ? null : item.data.id
-                      )}
-                    />
-                  ) : (
-                    <ChatEventCard key={item.key} event={item.data} />
-                  )
-                ))}
-              </>
-            )}
+            {/* Unified timeline - hide during planning for cleaner UX */}
+            {!planningStatus && timeline.map((item) => (
+              item.type === 'message' ? (
+                <ChatMessage
+                  key={item.key}
+                  message={item.data}
+                  isExpanded={effectiveExpandedId === item.data.id}
+                  onToggleExpand={() => setExpandedMessageId(
+                    expandedMessageId === item.data.id ? null : item.data.id
+                  )}
+                />
+              ) : (
+                <ChatEventCard key={item.key} event={item.data} />
+              )
+            ))}
 
             {/* Pending Plan with TabbedPlanView */}
             {pendingPlan && (

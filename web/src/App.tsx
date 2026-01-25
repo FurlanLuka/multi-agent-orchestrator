@@ -13,7 +13,6 @@ import {
   Paper,
   Box,
   ThemeIcon,
-  Loader,
   ScrollArea,
   Button,
   Collapse,
@@ -29,6 +28,8 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconEye,
+  IconExternalLink,
+  IconPlayerStop,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -200,7 +201,7 @@ function App() {
 
         <AppShell.Main>
           <Container size="100%" py="md" h="calc(100vh - 80px)">
-            {/* All Complete Banner */}
+            {/* All Complete Banner with Dev Server Controls */}
             {allComplete && (
               <Alert
                 icon={<IconCheck size={20} />}
@@ -215,7 +216,39 @@ function App() {
                   },
                 }}
               >
-                All projects have completed their tasks successfully.
+                <Stack gap="sm">
+                  <Text size="sm">All projects have completed their tasks successfully. Dev servers are still running for testing.</Text>
+                  <Group gap="sm">
+                    {session?.projects.map(projectName => {
+                      const config = projects[projectName];
+                      if (!config) return null;
+                      const url = config.devServer.url || `http://localhost:${config.devServer.port || 5173}`;
+                      return (
+                        <Button
+                          key={projectName}
+                          component="a"
+                          href={url}
+                          target="_blank"
+                          variant="light"
+                          color="blue"
+                          size="xs"
+                          leftSection={<IconExternalLink size={14} />}
+                        >
+                          {projectName}
+                        </Button>
+                      );
+                    })}
+                    <Button
+                      variant="light"
+                      color="red"
+                      size="xs"
+                      leftSection={<IconPlayerStop size={14} />}
+                      onClick={stopSession}
+                    >
+                      Stop Dev Servers
+                    </Button>
+                  </Group>
+                </Stack>
               </Alert>
             )}
 
@@ -282,9 +315,9 @@ function App() {
             {/* Active Session - Split Panel Layout */}
             {session && !showNewSession && (
               <Grid gutter="lg" h="100%">
-                {/* LEFT PANEL: Planning Chat (Always Visible) */}
+                {/* LEFT PANEL: Planning Chat (Full width before plan approval, 5/12 after) */}
                 <Grid.Col
-                  span={{ base: 12, lg: 5 }}
+                  span={{ base: 12, lg: session.plan ? 5 : 12 }}
                   style={{ minWidth: 380 }}
                 >
                   <Paper
@@ -333,7 +366,8 @@ function App() {
                   </Paper>
                 </Grid.Col>
 
-                {/* RIGHT PANEL: Status + Outputs */}
+                {/* RIGHT PANEL: Status + Outputs (Only shown after plan approval) */}
+                {session.plan && (
                 <Grid.Col span={{ base: 12, lg: 7 }}>
                   <ScrollArea h="calc(100vh - 120px)" type="auto" offsetScrollbars>
                     <Stack gap="md">
@@ -398,75 +432,22 @@ function App() {
                         )}
                       </Paper>
 
-                      {/* Pre-approval: Waiting State */}
-                      {!session.plan && !pendingPlan && (
-                        <Paper
-                          shadow="sm"
-                          radius="lg"
-                          p="xl"
-                          style={{
-                            border: '1px solid var(--mantine-color-gray-2)',
-                          }}
-                        >
-                          <Stack align="center" gap="lg" py="xl">
-                            <ThemeIcon
-                              size={64}
-                              radius="xl"
-                              variant="light"
-                              color="blue"
-                            >
-                              <Loader size={32} color="blue" />
-                            </ThemeIcon>
-                            <Stack align="center" gap="xs">
-                              <Text fw={600} size="lg">
-                                Planning Agent is Analyzing
-                              </Text>
-                              <Text c="dimmed" ta="center" maw={400}>
-                                The Planning Agent is exploring your codebase and creating an execution plan for your feature request.
-                              </Text>
-                            </Stack>
-                          </Stack>
-                        </Paper>
-                      )}
-
-                      {/* Pending Plan Hint */}
-                      {pendingPlan && (
-                        <Alert
-                          icon={<IconMessageCircle size={20} />}
-                          title="Plan Ready for Review"
-                          color="yellow"
-                          radius="md"
-                          variant="light"
-                          styles={{
-                            root: {
-                              border: '1px solid var(--mantine-color-yellow-3)',
-                            },
-                          }}
-                        >
-                          Review the execution plan in the chat panel and click "Approve & Start" to begin.
-                        </Alert>
-                      )}
-
-                      {/* Post-approval: Unified Project Cards */}
-                      {session.plan && (
-                        <>
-                          {/* One card per project with status + logs */}
-                          {sessionProjects.map(project => (
-                            <ProjectCard
-                              key={project}
-                              project={project}
-                              status={statuses[project]?.status || 'PENDING'}
-                              message={statuses[project]?.message || ''}
-                              updatedAt={statuses[project]?.updatedAt || 0}
-                              logs={logsByProject[project] || []}
-                              testState={testStates[project]}
-                            />
-                          ))}
-                        </>
-                      )}
+                      {/* Project Cards */}
+                      {sessionProjects.map(project => (
+                        <ProjectCard
+                          key={project}
+                          project={project}
+                          status={statuses[project]?.status || 'PENDING'}
+                          message={statuses[project]?.message || ''}
+                          updatedAt={statuses[project]?.updatedAt || 0}
+                          logs={logsByProject[project] || []}
+                          testState={testStates[project]}
+                        />
+                      ))}
                     </Stack>
                   </ScrollArea>
                 </Grid.Col>
+                )}
               </Grid>
             )}
           </Container>
