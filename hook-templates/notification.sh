@@ -9,7 +9,14 @@ TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty')
 SESSION_DIR=$(find "$(pwd)/.orchestrator" -maxdepth 1 -name "session_*" 2>/dev/null | head -1)
 [ -z "$SESSION_DIR" ] && exit 0
 
-TIMESTAMP=$(date +%s%3N)
+# Get timestamp in milliseconds (works on both macOS and Linux)
+if command -v gdate >/dev/null 2>&1; then
+  TIMESTAMP=$(gdate +%s%3N)
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  TIMESTAMP=$(python3 -c 'import time; print(int(time.time() * 1000))')
+else
+  TIMESTAMP=$(date +%s%3N)
+fi
 
 # Determine status from notification type and message
 if [[ "$TYPE" == "permission_prompt" ]]; then
@@ -20,12 +27,16 @@ else
   STATUS="WORKING"
 fi
 
+# Escape message for JSON (handles quotes, newlines, etc.)
+MESSAGE_JSON=$(echo "$MESSAGE" | jq -Rs '.' | sed 's/^"//;s/"$//')
+TYPE_JSON=$(echo "$TYPE" | jq -Rs '.' | sed 's/^"//;s/"$//')
+
 cat > "$SESSION_DIR/outbox/notification_$TIMESTAMP.json" <<EOF
 {
   "type": "notification",
   "status": "$STATUS",
-  "message": "$MESSAGE",
-  "notification_type": "$TYPE",
+  "message": "$MESSAGE_JSON",
+  "notification_type": "$TYPE_JSON",
   "timestamp": $TIMESTAMP
 }
 EOF

@@ -77,8 +77,8 @@ export class EventWatcher extends EventEmitter {
 
       console.log(`[EventWatcher] Event from ${project}: ${event.type}`);
 
-      // Emit the event for routing
-      this.emit('event', event);
+      // Emit the event for routing (include project in the event)
+      this.emit('event', { ...event, project });
 
       // Delete processed file
       fs.unlinkSync(filePath);

@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '../types';
+import { GitManager } from './git-manager';
 
 export interface AddProjectOptions {
   name: string;
@@ -17,6 +18,8 @@ export interface AddProjectOptions {
   hasE2E?: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
   dependencyInstall?: boolean;
+  gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)
+  mainBranch?: string;       // Main branch name (default: 'main')
 }
 
 export interface CreateFromTemplateOptions {
@@ -25,6 +28,8 @@ export interface CreateFromTemplateOptions {
   template: ProjectTemplate;
   dependencyInstall?: boolean;
   hasE2E?: boolean;  // Whether to enable E2E testing (defaults to true for templates)
+  gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
+  mainBranch?: string;   // Main branch name (default: 'main')
 }
 
 // Template configurations
@@ -121,7 +126,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall } = options;
+    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -149,7 +154,9 @@ export class ProjectManager extends EventEmitter {
       },
       buildCommand: buildCommand || 'npm run build',
       hasE2E: hasE2E ?? false,
-      e2eInstructions: e2eInstructions
+      e2eInstructions: e2eInstructions,
+      gitEnabled: gitEnabled ?? false,
+      mainBranch: mainBranch || 'main'
     };
 
     // Add to config
@@ -380,7 +387,7 @@ export class ProjectManager extends EventEmitter {
    * Creates a new project from a template
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<void> {
-    const { name, targetPath, template, dependencyInstall, hasE2E = true } = options;
+    const { name, targetPath, template, dependencyInstall, hasE2E = true, gitEnabled = false, mainBranch = 'main' } = options;
 
     // Validate project name doesn't exist
     if (this.config.projects[name]) {
@@ -431,7 +438,9 @@ export class ProjectManager extends EventEmitter {
         url: `http://localhost:${templateConfig.defaultPort}`
       },
       buildCommand: templateConfig.buildCommand,
-      hasE2E: hasE2E
+      hasE2E: hasE2E,
+      gitEnabled: gitEnabled,
+      mainBranch: mainBranch
     };
 
     // Add to config
@@ -448,6 +457,26 @@ export class ProjectManager extends EventEmitter {
 
     // Set up Claude hooks for the project
     await this.setupProjectHooks(name);
+
+    // Initialize git repo and commit all files (template + hooks) if git is enabled
+    if (gitEnabled) {
+      const gitManager = new GitManager();
+      console.log(`[ProjectManager] Initializing git repository for ${name}...`);
+
+      // Init repo (ensures main branch exists)
+      const initResult = await gitManager.initRepo(expandedPath, mainBranch);
+      if (initResult.success) {
+        // Commit all files (template files + hooks setup)
+        const commitResult = await gitManager.commit(expandedPath, `Initial commit from ${template} template`);
+        if (commitResult.success) {
+          console.log(`[ProjectManager] Git initialized and project committed for ${name}`);
+        } else {
+          console.warn(`[ProjectManager] Git init succeeded but commit failed: ${commitResult.message}`);
+        }
+      } else {
+        console.warn(`[ProjectManager] Failed to initialize git for ${name}: ${initResult.message}`);
+      }
+    }
   }
 
   /**

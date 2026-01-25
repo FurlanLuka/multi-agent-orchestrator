@@ -1,3 +1,15 @@
+// Dependency check types
+export interface DependencyStatus {
+  available: boolean;
+  version: string | null;
+  error: string | null;
+}
+
+export interface DependencyCheckResult {
+  claude: DependencyStatus;
+  git: DependencyStatus;
+}
+
 // Agent status states
 export type AgentStatus =
   | 'PENDING'       // Initialized but execution not started
@@ -17,6 +29,7 @@ export interface Session {
   feature: string;
   projects: string[];
   plan?: Plan;
+  gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
 }
 
 // User action input field for secrets/configuration collection
@@ -199,6 +212,8 @@ export interface ProjectConfig {
   buildCommand?: string;
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
+  gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)
+  mainBranch?: string;       // Main branch name (default: 'main')
 }
 
 // Queue status for Planning Agent visibility
@@ -393,6 +408,7 @@ export interface PersistedSession {
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
   taskStates?: TaskState[];  // Task execution states
+  gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
   status: SessionStatus;
   updatedAt: number;
   completedAt?: number;

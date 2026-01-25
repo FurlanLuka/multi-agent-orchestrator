@@ -21,8 +21,8 @@
       "hasE2E": true,
       "e2eInstructions": "### 1. Setup Test Credentials\n\n```bash\nnpm run test:e2e:setup\n```\n\nRead credentials from `playwright/.auth/test-data.json`.\n\n### 2. Use playwright MCP to navigate dev server deployment and click through using playwright MCP"
     },
-    "blogfe": {
-      "path": "~/Documents/blogfe",
+    "twitter-fe": {
+      "path": "~/Documents/twitter-fe",
       "devServer": {
         "command": "npm run dev",
         "readyPattern": "Local:.*http|ready in",
@@ -32,10 +32,11 @@
       },
       "buildCommand": "npm run build",
       "hasE2E": true,
-      "dependsOn": ["blogbe"]
+      "gitEnabled": true,
+      "mainBranch": "main"
     },
-    "blogbe": {
-      "path": "~/Documents/blogbe",
+    "twitter-be": {
+      "path": "~/Documents/twitter-be",
       "devServer": {
         "command": "npm run start:dev",
         "readyPattern": "Nest application successfully started|listening on|Application is running",
@@ -44,7 +45,37 @@
         "url": "http://localhost:3000"
       },
       "buildCommand": "npm run build",
-      "hasE2E": true
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
+    },
+    "twbe": {
+      "path": "~/Documents/twbe",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {},
+        "port": 3000,
+        "url": "http://localhost:3000"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
+    },
+    "twfe": {
+      "path": "~/Documents/twfe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {},
+        "port": 5173,
+        "url": "http://localhost:5173"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
     }
   },
   "defaults": {

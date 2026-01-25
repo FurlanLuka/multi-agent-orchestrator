@@ -6,6 +6,7 @@ import { StateMachine } from './state-machine';
 import { LogAggregator } from './log-aggregator';
 import { ProjectManager } from './project-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
+import { GitManager } from './git-manager';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,6 +20,8 @@ export interface TaskExecutorConfig {
   config: Config;
   getSessionDir: (project: string) => string | null;
   getDevServerUrl: (project: string) => string;
+  gitManager?: GitManager;
+  getGitBranch?: (project: string) => string | undefined;
 }
 
 export interface TaskResult {
@@ -44,6 +47,8 @@ export class TaskExecutor extends EventEmitter {
   private config: Config;
   private getSessionDir: (project: string) => string | null;
   private getDevServerUrl: (project: string) => string;
+  private gitManager?: GitManager;
+  private getGitBranch?: (project: string) => string | undefined;
 
   // Pending user input promises - resolved when user submits values
   private pendingUserInputs: Map<number, {
@@ -62,6 +67,8 @@ export class TaskExecutor extends EventEmitter {
     this.config = deps.config;
     this.getSessionDir = deps.getSessionDir;
     this.getDevServerUrl = deps.getDevServerUrl;
+    this.gitManager = deps.gitManager;
+    this.getGitBranch = deps.getGitBranch;
   }
 
   /**
@@ -167,6 +174,28 @@ export class TaskExecutor extends EventEmitter {
       }
 
       if (taskCompleted) {
+        // Auto-commit for git-enabled projects
+        const projectConfig = this.config.projects[task.project];
+        if (projectConfig?.gitEnabled && this.gitManager) {
+          try {
+            let projectPath = projectConfig.path;
+            if (projectPath.startsWith('~')) {
+              projectPath = projectPath.replace('~', process.env.HOME || '');
+            }
+
+            const commitMessage = `feat: ${task.name}`;
+            const commitResult = await this.gitManager.commit(projectPath, commitMessage);
+            if (commitResult.success && commitResult.commitHash) {
+              console.log(`[TaskExecutor] Git commit created for ${task.project}: ${commitResult.commitHash}`);
+            } else {
+              console.log(`[TaskExecutor] Git commit for ${task.project}: ${commitResult.message}`);
+            }
+          } catch (err) {
+            console.warn(`[TaskExecutor] Git commit failed for ${task.project}:`, err);
+            // Don't fail the task if commit fails
+          }
+        }
+
         this.statusMonitor.updateTaskStatus(taskIndex, 'completed', 'Task completed and verified');
         this.emit('taskCompleted', { taskIndex, project: task.project });
         return {

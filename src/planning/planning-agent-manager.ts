@@ -43,6 +43,53 @@ interface ProjectConfig {
   hasE2E: boolean;
 }
 
+/**
+ * Extracts JSON from a response that may be wrapped in markdown code blocks
+ * Handles: ```json {...} ```, ``` {...} ```, or raw JSON
+ */
+function extractJSON<T>(response: string, requiredFields: string[] = []): T | null {
+  // Try to extract from markdown code block first
+  const codeBlockMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : response;
+
+  // Find the outermost JSON object
+  let braceCount = 0;
+  let startIdx = -1;
+  let endIdx = -1;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    if (jsonStr[i] === '{') {
+      if (braceCount === 0) startIdx = i;
+      braceCount++;
+    } else if (jsonStr[i] === '}') {
+      braceCount--;
+      if (braceCount === 0 && startIdx !== -1) {
+        endIdx = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (startIdx === -1 || endIdx === -1) return null;
+
+  try {
+    const parsed = JSON.parse(jsonStr.slice(startIdx, endIdx)) as T;
+
+    // Validate required fields
+    for (const field of requiredFields) {
+      if (!(field in (parsed as any))) {
+        console.warn(`[extractJSON] Missing required field: ${field}`);
+        return null;
+      }
+    }
+
+    return parsed;
+  } catch (err) {
+    console.error('[extractJSON] Parse error:', err);
+    return null;
+  }
+}
+
 export class PlanningAgentManager extends EventEmitter {
   private orchestratorDir: string;
   private conversationHistory: ConversationMessage[] = [];
@@ -60,7 +107,7 @@ export class PlanningAgentManager extends EventEmitter {
 
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
-    CHAT: 120000,           // 2 min - general chat responses
+    CHAT: 600000,           // 2 min - general chat responses
     PLAN_CREATION: 600000,  // 10 min - explores codebase extensively
     TASK_ANALYSIS: 180000,  // 3 min - analyzing task results
     E2E_PROMPT: 180000,     // 3 min - generating E2E prompts
@@ -710,8 +757,10 @@ CRITICAL RULES:
 - NO "write tests" or "add test coverage" instructions
 - NO starting dev servers (orchestrator manages these)
 - Testing is handled via E2E after implementation
-- "testPlan" is for E2E scenarios only (Playwright)
+- "testPlan" is for E2E scenarios only (Playwright/curl)
 - Exclude hasE2E: false projects from testPlan
+- Tests MUST be automatable: HTTP requests (curl) or browser interactions (Playwright) ONLY
+- DO NOT include WebSocket, Socket.IO, or real-time event tests - these require client libraries and cannot be automated
 
 ## OUTPUT FORMAT
 
@@ -760,6 +809,9 @@ CRITICAL RULES:
       "User is redirected to dashboard after login",
       "User can logout and is redirected to login page"
     ]
+  },
+  "e2eDependencies": {
+    "frontend": ["backend"]
   }
 }
 \`\`\`
@@ -909,6 +961,21 @@ BAD task (too vague - DO NOT do this):
 - Each scenario = user-facing behavior to verify
 - Only include projects with hasE2E: true
 - E2E runs AFTER all tasks complete
+
+**E2E DEPENDENCIES (e2eDependencies):**
+- Specify which project's E2E tests must pass BEFORE another project's E2E tests can run
+- Format: "e2eDependencies": { "projectA": ["projectB", "projectC"] } means projectA waits for B and C
+- Example: Frontend usually depends on backend (frontend E2E needs backend API working)
+- Consider the actual data flow: if project X calls project Y's API, X depends on Y
+- Leave empty {} if all projects can run E2E tests in parallel
+
+**IMPORTANT - TEST AUTOMATION CONSTRAINTS:**
+- Tests MUST be automatable with: Playwright (browser), curl (HTTP), or basic shell commands
+- DO NOT include tests for: WebSockets, Socket.IO, GraphQL subscriptions, or any real-time/push features
+- DO NOT include tests requiring client libraries (ws, socket.io-client, etc.)
+- If a feature involves real-time updates, test the REST API endpoints only (e.g., "POST /messages creates message" not "WebSocket receives message event")
+- Focus on request/response patterns that can be verified with curl or browser navigation
+- **EXCEPTION**: If the project's e2e testing rules specifiy custom testing tools/capabilities, follow those instructions instead
 
 ## BEGIN
 
@@ -1088,33 +1155,30 @@ Be intelligent - a passing build with runtime errors in logs should FAIL. A heal
     try {
       const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.TASK_ANALYSIS);
 
-      // Parse JSON from response
-      const jsonMatch = response.match(/\{[\s\S]*?"passed"\s*:[\s\S]*?\}/);
-      if (jsonMatch) {
-        try {
-          const result = JSON.parse(jsonMatch[0]) as TaskAnalysisResult;
-          console.log(`[PlanningAgent] Analysis result: passed=${result.passed}, action=${result.suggestedAction}`);
+      // Parse JSON from response using robust extractor
+      const result = extractJSON<TaskAnalysisResult>(response, ['passed', 'analysis']);
 
-          // Emit analysis result event for UI
-          const analysisEvent: AnalysisResultEvent = {
-            type: 'task',
-            project: context.project,
-            taskName: context.taskName,
-            passed: result.passed,
-            summary: result.passed ? 'Task verified successfully' : result.analysis.slice(0, 100),
-            details: result.analysis,
-            fixPrompt: result.fixPrompt
-          };
-          this.emit('analysisResult', analysisEvent);
+      if (result) {
+        console.log(`[PlanningAgent] Analysis result: passed=${result.passed}, action=${result.suggestedAction}`);
 
-          return result;
-        } catch (parseErr) {
-          console.error('[PlanningAgent] Failed to parse analysis JSON:', parseErr);
-        }
+        // Emit analysis result event for UI
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'task',
+          project: context.project,
+          taskName: context.taskName,
+          passed: result.passed,
+          summary: result.passed ? 'Task verified successfully' : (result.analysis || '').slice(0, 100),
+          details: result.analysis,
+          fixPrompt: result.fixPrompt
+        };
+        this.emit('analysisResult', analysisEvent);
+
+        return result;
       }
 
       // Fallback: if we can't parse, assume failure and use raw response as fix prompt
       console.log('[PlanningAgent] Could not parse structured response, using fallback');
+      console.log('[PlanningAgent] Raw response (first 500 chars):', response.slice(0, 500));
       const fallbackResult = {
         passed: false,
         analysis: 'Failed to parse analysis response - treating as failure',
@@ -1284,55 +1348,56 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
     try {
       const result = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
 
-      // Extract JSON from response - handle nested objects with fixes array
-      const jsonMatch = result.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          console.log(`[PlanningAgent] Parsed E2E analysis: passed=${parsed.passed}, fixes=${JSON.stringify(parsed.fixes)}`);
+      // Extract JSON from response using robust extractor
+      const parsed = extractJSON<{
+        passed: boolean;
+        analysis?: string;
+        isInfrastructureFailure?: boolean;
+        fixes?: Array<{ project: string; prompt: string }>;
+        fixPrompt?: string;
+      }>(result, ['passed']);
 
-          // Emit analysis result event for UI
-          const analysisEvent: AnalysisResultEvent = {
-            type: 'e2e',
-            project,
-            passed: !!parsed.passed,
-            summary: parsed.passed ? 'E2E tests passed' : (parsed.analysis || 'E2E tests failed').slice(0, 100),
-            details: parsed.analysis || 'No analysis provided'
+      if (parsed) {
+        console.log(`[PlanningAgent] Parsed E2E analysis: passed=${parsed.passed}, isInfrastructureFailure=${parsed.isInfrastructureFailure}, fixes=${JSON.stringify(parsed.fixes)}`);
+
+        // Emit analysis result event for UI
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'e2e',
+          project,
+          passed: !!parsed.passed,
+          summary: parsed.passed ? 'E2E tests passed' : (parsed.analysis || 'E2E tests failed').slice(0, 100),
+          details: parsed.analysis || 'No analysis provided'
+        };
+        this.emit('analysisResult', analysisEvent);
+
+        // Check for infrastructure failure first
+        if (parsed.isInfrastructureFailure) {
+          console.log(`[PlanningAgent] Infrastructure failure detected - E2E tools unavailable`);
+          return {
+            passed: false,
+            analysis: parsed.analysis || 'E2E infrastructure failure',
+            isInfrastructureFailure: true
           };
-          this.emit('analysisResult', analysisEvent);
+        }
 
-          // Check for infrastructure failure first
-          if (parsed.isInfrastructureFailure) {
-            console.log(`[PlanningAgent] Infrastructure failure detected - E2E tools unavailable`);
-            return {
-              passed: false,
-              analysis: parsed.analysis || 'E2E infrastructure failure',
-              isInfrastructureFailure: true
-            };
-          }
-
-          // Handle new format with fixes array
-          if (parsed.fixes && Array.isArray(parsed.fixes)) {
-            const validFixes = parsed.fixes.filter((f: any) => f.project && f.prompt);
-            console.log(`[PlanningAgent] Valid fixes after filtering: ${validFixes.map((f: any) => f.project).join(', ')}`);
-            return {
-              passed: !!parsed.passed,
-              analysis: parsed.analysis || 'No analysis provided',
-              fixes: validFixes
-            };
-          }
-
-          // Legacy format with fixPrompt
-          console.log(`[PlanningAgent] Using legacy format (no fixes array)`);
+        // Handle new format with fixes array
+        if (parsed.fixes && Array.isArray(parsed.fixes)) {
+          const validFixes = parsed.fixes.filter((f: any) => f.project && f.prompt);
+          console.log(`[PlanningAgent] Valid fixes after filtering: ${validFixes.map((f: any) => f.project).join(', ')}`);
           return {
             passed: !!parsed.passed,
             analysis: parsed.analysis || 'No analysis provided',
-            fixPrompt: parsed.fixPrompt
+            fixes: validFixes
           };
-        } catch (parseErr) {
-          console.error(`[PlanningAgent] JSON parse error:`, parseErr);
-          // Fall through to default
         }
+
+        // Legacy format with fixPrompt or no fixes needed
+        console.log(`[PlanningAgent] Using legacy format (no fixes array)`);
+        return {
+          passed: !!parsed.passed,
+          analysis: parsed.analysis || 'No analysis provided',
+          fixPrompt: parsed.fixPrompt
+        };
       }
 
       // If we can't parse, assume failure and use the raw response

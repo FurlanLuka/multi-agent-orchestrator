@@ -30,6 +30,9 @@ import {
   IconEye,
   IconExternalLink,
   IconPlayerStop,
+  IconGitBranch,
+  IconUpload,
+  IconGitMerge,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -39,10 +42,13 @@ import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
 import { SessionSidebar } from './components/SessionSidebar';
 import { TabbedPlanView } from './components/TabbedPlanView';
+import { SplashScreen } from './components/SplashScreen';
 
 function App() {
   const {
     connected,
+    checkingDependencies,
+    dependencyCheck,
     session,
     statuses,
     logs,
@@ -77,6 +83,13 @@ function App() {
     getSessions,
     clearSession,
     submitUserAction,
+    pushingBranch,
+    pushResults,
+    pushBranch,
+    mergingBranch,
+    mergeResults,
+    mergeBranch,
+    recheckDependencies,
   } = useSocket();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -112,12 +125,25 @@ function App() {
   };
 
   // Handler for starting session (wraps startSession to hide form)
-  const handleStartSession = (feature: string, projectList: string[]) => {
-    startSession(feature, projectList);
+  const handleStartSession = (feature: string, projectList: string[], branchName?: string) => {
+    startSession(feature, projectList, branchName);
     setShowNewSession(false);
     // Refresh sessions list
     getSessions();
   };
+
+  // Show splash screen while checking dependencies or if Claude is not available
+  if (checkingDependencies || (dependencyCheck && !dependencyCheck.claude.available)) {
+    return (
+      <MantineProvider defaultColorScheme="light">
+        <SplashScreen
+          checking={checkingDependencies}
+          dependencyCheck={dependencyCheck}
+          onRetry={recheckDependencies}
+        />
+      </MantineProvider>
+    );
+  }
 
   return (
     <MantineProvider defaultColorScheme="light">
@@ -249,6 +275,88 @@ function App() {
                       Stop Dev Servers
                     </Button>
                   </Group>
+
+                  {/* Git Push & Merge Buttons */}
+                  {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
+                    <>
+                      <Text size="sm" fw={500} mt="xs">Git Operations:</Text>
+                      <Group gap="sm">
+                        {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
+                          const isPushing = pushingBranch[projectName];
+                          const pushResult = pushResults[projectName];
+                          const isMerging = mergingBranch[projectName];
+                          const mergeResult = mergeResults[projectName];
+                          const mainBranch = projects[projectName]?.mainBranch || 'main';
+
+                          // If merge succeeded, show merged badge
+                          if (mergeResult?.success) {
+                            return (
+                              <Badge
+                                key={projectName}
+                                color="green"
+                                variant="light"
+                                leftSection={<IconGitMerge size={12} />}
+                              >
+                                {projectName}: Merged to {mainBranch}
+                              </Badge>
+                            );
+                          }
+
+                          // If push succeeded, show merge button
+                          if (pushResult?.success) {
+                            return (
+                              <Stack key={projectName} gap={4}>
+                                <Group gap="xs">
+                                  <Badge
+                                    color="green"
+                                    variant="light"
+                                    leftSection={<IconCheck size={12} />}
+                                  >
+                                    {projectName}: Pushed
+                                  </Badge>
+                                  <Button
+                                    variant="light"
+                                    color="teal"
+                                    size="xs"
+                                    leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
+                                    loading={isMerging}
+                                    onClick={() => mergeBranch(projectName, branchName)}
+                                    disabled={isMerging}
+                                  >
+                                    Merge to {mainBranch}
+                                  </Button>
+                                </Group>
+                                {mergeResult && !mergeResult.success && (
+                                  <Text size="xs" c="red">{mergeResult.message}</Text>
+                                )}
+                              </Stack>
+                            );
+                          }
+
+                          // Show push button
+                          return (
+                            <Stack key={projectName} gap={4}>
+                              <Button
+                                variant="light"
+                                color="violet"
+                                size="xs"
+                                leftSection={isPushing ? undefined : <IconUpload size={14} />}
+                                loading={isPushing}
+                                onClick={() => pushBranch(projectName, branchName)}
+                                disabled={isPushing}
+                              >
+                                <IconGitBranch size={12} style={{ marginRight: 4 }} />
+                                {projectName}: {branchName}
+                              </Button>
+                              {pushResult && !pushResult.success && (
+                                <Text size="xs" c="red">{pushResult.message}</Text>
+                              )}
+                            </Stack>
+                          );
+                        })}
+                      </Group>
+                    </>
+                  )}
                 </Stack>
               </Alert>
             )}
@@ -280,6 +388,7 @@ function App() {
                 <Grid.Col span={{ base: 12, md: 7 }}>
                   <SessionSetup
                     availableProjects={availableProjects}
+                    projectConfigs={projects}
                     onStartSession={handleStartSession}
                     connected={connected}
                     sessions={[]}
@@ -304,6 +413,7 @@ function App() {
                     templates={templates}
                     creatingProject={creatingProject}
                     addingProject={addingProject}
+                    gitAvailable={dependencyCheck?.git.available ?? true}
                     onCreateProject={createProjectFromTemplate}
                     onAddProject={addProject}
                     onRemoveProject={removeProject}

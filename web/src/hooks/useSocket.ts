@@ -33,6 +33,7 @@ import type {
   PlanApprovedCardEvent,
   ChatResponseEvent,
   UserActionRequiredEvent,
+  DependencyCheckResult,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -47,6 +48,8 @@ function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {
 
 export function useSocket() {
   const [connected, setConnected] = useState(false);
+  const [checkingDependencies, setCheckingDependencies] = useState(true);
+  const [dependencyCheck, setDependencyCheck] = useState<DependencyCheckResult | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [statuses, setStatuses] = useState<Record<string, ProjectState>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -91,6 +94,13 @@ export function useSocket() {
   // Track active session ID in a ref for event handlers
   const activeSessionIdRef = useRef<string | null>(null);
 
+  // Git push state tracking
+  const [pushingBranch, setPushingBranch] = useState<Record<string, boolean>>({});
+  const [pushResults, setPushResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  // Git merge state tracking
+  const [mergingBranch, setMergingBranch] = useState<Record<string, boolean>>({});
+  const [mergeResults, setMergeResults] = useState<Record<string, { success: boolean; message: string }>>({});
+
   const socketRef = useRef<Socket | null>(null);
 
   // Batching for content_block events to reduce re-renders
@@ -106,6 +116,15 @@ export function useSocket() {
     socket.on('connect', () => {
       console.log('Connected to orchestrator');
       setConnected(true);
+      // Check dependencies on connect
+      setCheckingDependencies(true);
+      socket.emit('checkDependencies');
+    });
+
+    // Dependency check result
+    socket.on('dependencyCheck', (result: DependencyCheckResult) => {
+      setDependencyCheck(result);
+      setCheckingDependencies(false);
     });
 
     socket.on('disconnect', () => {
@@ -713,6 +732,32 @@ export function useSocket() {
       console.log(`Session ${sessionId} stopped`);
     });
 
+    // Git push events
+    socket.on('pushBranchSuccess', ({ project, message }: { project: string; message: string }) => {
+      setPushingBranch(prev => ({ ...prev, [project]: false }));
+      setPushResults(prev => ({ ...prev, [project]: { success: true, message } }));
+      console.log(`Git push success for ${project}: ${message}`);
+    });
+
+    socket.on('pushBranchError', ({ project, error }: { project: string; error: string }) => {
+      setPushingBranch(prev => ({ ...prev, [project]: false }));
+      setPushResults(prev => ({ ...prev, [project]: { success: false, message: error } }));
+      console.error(`Git push error for ${project}: ${error}`);
+    });
+
+    // Git merge events
+    socket.on('mergeBranchSuccess', ({ project, message }: { project: string; message: string }) => {
+      setMergingBranch(prev => ({ ...prev, [project]: false }));
+      setMergeResults(prev => ({ ...prev, [project]: { success: true, message } }));
+      console.log(`Git merge success for ${project}: ${message}`);
+    });
+
+    socket.on('mergeBranchError', ({ project, error }: { project: string; error: string }) => {
+      setMergingBranch(prev => ({ ...prev, [project]: false }));
+      setMergeResults(prev => ({ ...prev, [project]: { success: false, message: error } }));
+      console.error(`Git merge error for ${project}: ${error}`);
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
@@ -756,9 +801,9 @@ export function useSocket() {
     }
   }, []);
 
-  const startSession = useCallback((feature: string, projects: string[]) => {
+  const startSession = useCallback((feature: string, projects: string[], branchName?: string) => {
     if (socketRef.current) {
-      socketRef.current.emit('startSession', { feature, projects });
+      socketRef.current.emit('startSession', { feature, projects, branchName });
       // Clear cached messages for new session
       activeSessionMessagesRef.current = [];
     }
@@ -794,10 +839,10 @@ export function useSocket() {
     setStreamingMessages([]);
   }, []);
 
-  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true, hasE2E: boolean = true) => {
+  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true, hasE2E: boolean = true, gitEnabled: boolean = false, mainBranch: string = 'main') => {
     if (socketRef.current) {
       setCreatingProject(true);
-      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall, hasE2E });
+      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall, hasE2E, gitEnabled, mainBranch });
     }
   }, []);
 
@@ -820,6 +865,8 @@ export function useSocket() {
     hasE2E?: boolean;
     e2eInstructions?: string;
     dependencyInstall?: boolean;
+    gitEnabled?: boolean;
+    mainBranch?: string;
   }
 
   const addProject = useCallback((options: AddProjectOptions) => {
@@ -928,8 +975,50 @@ export function useSocket() {
     setChatEvents([]);
   }, []);
 
+  const pushBranch = useCallback((project: string, branchName: string) => {
+    if (socketRef.current) {
+      setPushingBranch(prev => ({ ...prev, [project]: true }));
+      setPushResults(prev => {
+        const updated = { ...prev };
+        delete updated[project];
+        return updated;
+      });
+      socketRef.current.emit('pushBranch', { project, branchName });
+    }
+  }, []);
+
+  const clearPushResult = useCallback((project: string) => {
+    setPushResults(prev => {
+      const updated = { ...prev };
+      delete updated[project];
+      return updated;
+    });
+  }, []);
+
+  const recheckDependencies = useCallback(() => {
+    if (socketRef.current) {
+      setCheckingDependencies(true);
+      setDependencyCheck(null);
+      socketRef.current.emit('checkDependencies');
+    }
+  }, []);
+
+  const mergeBranch = useCallback((project: string, branchName: string) => {
+    if (socketRef.current) {
+      setMergingBranch(prev => ({ ...prev, [project]: true }));
+      setMergeResults(prev => {
+        const updated = { ...prev };
+        delete updated[project];
+        return updated;
+      });
+      socketRef.current.emit('mergeBranch', { project, branchName });
+    }
+  }, []);
+
   return {
     connected,
+    checkingDependencies,
+    dependencyCheck,
     session,
     statuses,
     logs,
@@ -952,6 +1041,10 @@ export function useSocket() {
     loadingSession,
     activeSessionId,
     viewingSessionId,
+    pushingBranch,
+    pushResults,
+    mergingBranch,
+    mergeResults,
     sendChat,
     startSession,
     approvePlan,
@@ -972,5 +1065,9 @@ export function useSocket() {
     viewSession,
     stopSession,
     submitUserAction,
+    pushBranch,
+    clearPushResult,
+    mergeBranch,
+    recheckDependencies,
   };
 }

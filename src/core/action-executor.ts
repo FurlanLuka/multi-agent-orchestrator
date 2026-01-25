@@ -10,6 +10,7 @@ import {
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
+import { GitManager } from './git-manager';
 
 // Patterns that indicate dev server issues in agent responses
 const DEV_SERVER_ISSUE_PATTERNS = [
@@ -324,6 +325,23 @@ export class ActionExecutor extends EventEmitter {
 
       const result = await this.processManager.sendToAgent(project, fixPrompt);
       console.log(`[ActionExecutor] Agent ${project} completed E2E fix (${result.length} chars)`);
+
+      // Commit the E2E fix if git is enabled
+      const projectConfig = config?.projects?.[project];
+      if (projectConfig?.gitEnabled) {
+        const gitManager = new GitManager();
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+        const commitResult = await gitManager.commit(projectPath, `fix: E2E test fix for ${project}`);
+        if (commitResult.success) {
+          console.log(`[ActionExecutor] Git commit created for E2E fix: ${commitResult.commitHash}`);
+          this.emit('e2eFixCommit', { project, commitHash: commitResult.commitHash });
+        } else {
+          console.warn(`[ActionExecutor] Failed to commit E2E fix: ${commitResult.message}`);
+        }
+      }
 
       // Update status to READY - fix is complete, waiting for E2E re-run to verify
       this.statusMonitor.updateStatus(project, 'READY', 'Fix applied, awaiting E2E verification');

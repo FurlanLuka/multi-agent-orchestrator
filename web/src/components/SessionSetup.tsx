@@ -13,12 +13,13 @@ import {
   ActionIcon,
   Loader,
 } from '@mantine/core';
-import { IconRocket, IconTrash, IconPlayerPlay, IconCheck, IconAlertTriangle, IconClock } from '@tabler/icons-react';
-import type { SessionSummary, SessionStatus } from '../types';
+import { IconRocket, IconTrash, IconPlayerPlay, IconCheck, IconAlertTriangle, IconClock, IconGitBranch } from '@tabler/icons-react';
+import type { SessionSummary, SessionStatus, ProjectConfig } from '../types';
 
 interface SessionSetupProps {
   availableProjects: string[];
-  onStartSession: (feature: string, projects: string[]) => void;
+  projectConfigs?: Record<string, ProjectConfig>;  // Project configs to check gitEnabled
+  onStartSession: (feature: string, projects: string[], branchName?: string) => void;
   connected: boolean;
   sessions?: SessionSummary[];
   onLoadSession?: (sessionId: string) => void;
@@ -62,6 +63,7 @@ function getStatusBadge(status: SessionStatus) {
 
 export function SessionSetup({
   availableProjects,
+  projectConfigs = {},
   onStartSession,
   connected,
   sessions = [],
@@ -71,10 +73,20 @@ export function SessionSetup({
 }: SessionSetupProps) {
   const [feature, setFeature] = useState('');
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
+  const [branchName, setBranchName] = useState('');
+
+  // Check if any selected project has git enabled
+  const hasGitEnabledProject = selectedProjects.some(
+    p => projectConfigs[p]?.gitEnabled
+  );
 
   const handleStart = () => {
     if (feature.trim() && selectedProjects.length > 0) {
-      onStartSession(feature.trim(), selectedProjects);
+      onStartSession(
+        feature.trim(),
+        selectedProjects,
+        hasGitEnabledProject ? branchName.trim() || undefined : undefined
+      );
     }
   };
 
@@ -187,6 +199,18 @@ export function SessionSetup({
             searchable
             size="md"
           />
+
+          {hasGitEnabledProject && (
+            <TextInput
+              label="Branch Name"
+              placeholder="e.g., feature/my-feature (auto-generated if empty)"
+              description="Feature branch will be created for git-enabled projects"
+              value={branchName}
+              onChange={(e) => setBranchName(e.target.value)}
+              size="md"
+              leftSection={<IconGitBranch size={16} />}
+            />
+          )}
 
           <Button
             leftSection={<IconRocket size={18} />}

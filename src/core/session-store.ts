@@ -300,6 +300,19 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
+   * Updates the git branches for a session
+   */
+  updateGitBranches(sessionId: string, gitBranches: Record<string, string>): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    session.gitBranches = gitBranches;
+    session.updatedAt = Date.now();
+    this.writeSession(session);
+    console.log(`[SessionStore] Updated git branches for session ${sessionId}`);
+  }
+
+  /**
    * Gets test states for a project
    */
   getTestStates(
@@ -509,6 +522,7 @@ export class SessionStore extends EventEmitter {
       feature: persisted.feature,
       projects: persisted.projects,
       plan: persisted.plan,
+      gitBranches: persisted.gitBranches,
     };
   }
 }

@@ -12,6 +12,8 @@ export interface ProjectConfig {
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
   dependsOn?: string[];  // Projects that must complete E2E before this one starts (e.g., frontend depends on backend)
+  gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
+  mainBranch?: string;   // Main branch name (default: 'main')
 }
 
 export interface Config {
@@ -84,13 +86,23 @@ export interface RestartRequest {
   timestamp: number;
 }
 
+export interface CrossProjectBlocked {
+  type: 'cross_project_blocked';
+  tool: string;
+  target_path: string;
+  project_root: string;
+  message: string;
+  timestamp: number;
+}
+
 export type OutboxEvent =
   | StatusUpdate
   | Message
   | ApprovalRequest
   | ErrorReport
   | TaskComplete
-  | RestartRequest;
+  | RestartRequest
+  | CrossProjectBlocked;
 
 // Session and plan
 export interface Session {
@@ -99,6 +111,7 @@ export interface Session {
   feature: string;
   projects: string[];
   plan?: Plan;
+  gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
 }
 
 // User action input field for secrets/configuration collection
@@ -133,6 +146,7 @@ export interface Plan {
   architecture?: string;       // ASCII diagram showing component relationships
   tasks: TaskDefinition[];
   testPlan: Record<string, string[]>;
+  e2eDependencies?: Record<string, string[]>;  // E2E test execution order (project -> depends on projects)
 }
 
 // Planning status phases for UX feedback
@@ -675,6 +689,7 @@ export interface PersistedSession {
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
   taskStates?: TaskState[];  // Task execution states
+  gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   updatedAt: number;
   completedAt?: number;

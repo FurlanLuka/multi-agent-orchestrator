@@ -19,7 +19,7 @@ import {
   ActionIcon,
   Collapse,
 } from '@mantine/core';
-import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash, IconChevronDown, IconChevronRight, IconDeviceFloppy } from '@tabler/icons-react';
+import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash, IconChevronDown, IconChevronRight, IconDeviceFloppy, IconGitBranch, IconAlertTriangle } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectConfig, ProjectTemplate } from '../types';
 
 interface AddProjectOptions {
@@ -36,6 +36,8 @@ interface AddProjectOptions {
   hasE2E?: boolean;
   e2eInstructions?: string;
   dependencyInstall?: boolean;
+  gitEnabled?: boolean;
+  mainBranch?: string;
 }
 
 interface ProjectManagerProps {
@@ -43,20 +45,23 @@ interface ProjectManagerProps {
   templates: ProjectTemplateConfig[];
   creatingProject: boolean;
   addingProject: boolean;
-  onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean, hasE2E: boolean) => void;
+  gitAvailable?: boolean;
+  onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean, hasE2E: boolean, gitEnabled: boolean, mainBranch: string) => void;
   onAddProject: (options: AddProjectOptions) => void;
   onRemoveProject: (name: string) => void;
   onUpdateProject: (name: string, updates: Partial<ProjectConfig>) => void;
 }
 
-export function ProjectManager({ projects, templates, creatingProject, addingProject, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
+export function ProjectManager({ projects, templates, creatingProject, addingProject, gitAvailable = true, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
 
-  // Expanded project for editing E2E instructions and dev server URL
+  // Expanded project for editing E2E instructions, dev server URL, and git settings
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [editingE2EInstructions, setEditingE2EInstructions] = useState<string>('');
   const [editingDevServerUrl, setEditingDevServerUrl] = useState<string>('');
+  const [editingGitEnabled, setEditingGitEnabled] = useState<boolean>(false);
+  const [editingMainBranch, setEditingMainBranch] = useState<string>('');
 
   // Template form state
   const [name, setName] = useState('');
@@ -64,6 +69,8 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const [templateDependencyInstall, setTemplateDependencyInstall] = useState(true);
   const [templateHasE2E, setTemplateHasE2E] = useState(true);
+  const [templateGitEnabled, setTemplateGitEnabled] = useState(false);
+  const [templateMainBranch, setTemplateMainBranch] = useState('main');
 
   // Manual form state
   const [manualName, setManualName] = useState('');
@@ -75,6 +82,8 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [manualHasE2E, setManualHasE2E] = useState(false);
   const [manualE2EInstructions, setManualE2EInstructions] = useState('');
   const [manualDependencyInstall, setManualDependencyInstall] = useState(false);
+  const [manualGitEnabled, setManualGitEnabled] = useState(false);
+  const [manualMainBranch, setManualMainBranch] = useState('main');
 
   const [creatingName, setCreatingName] = useState<string | null>(null);
   const [justCreated, setJustCreated] = useState<string | null>(null);
@@ -94,6 +103,8 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setSelectedTemplate(null);
       setTemplateDependencyInstall(true);
       setTemplateHasE2E(true);
+      setTemplateGitEnabled(false);
+      setTemplateMainBranch('main');
       setManualName('');
       setManualPath('');
       setManualCommand('npm run dev');
@@ -103,6 +114,8 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setManualHasE2E(false);
       setManualE2EInstructions('');
       setManualDependencyInstall(false);
+      setManualGitEnabled(false);
+      setManualMainBranch('main');
       setTimeout(() => setJustCreated(null), 3000); // Clear success after 3s
     }
   }, [isLoading, creatingName]);
@@ -110,7 +123,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const handleCreateFromTemplate = () => {
     if (name.trim() && targetPath.trim() && selectedTemplate) {
       setCreatingName(name.trim());
-      onCreateProject(name.trim(), targetPath.trim(), selectedTemplate, templateDependencyInstall, templateHasE2E);
+      onCreateProject(name.trim(), targetPath.trim(), selectedTemplate, templateDependencyInstall, templateHasE2E, templateGitEnabled, templateMainBranch.trim() || 'main');
     }
   };
 
@@ -129,6 +142,8 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
         hasE2E: manualHasE2E,
         e2eInstructions: manualE2EInstructions.trim() || undefined,
         dependencyInstall: manualDependencyInstall,
+        gitEnabled: manualGitEnabled,
+        mainBranch: manualMainBranch.trim() || 'main',
       });
     }
   };
@@ -201,10 +216,14 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                             setExpandedProject(null);
                             setEditingE2EInstructions('');
                             setEditingDevServerUrl('');
+                            setEditingGitEnabled(false);
+                            setEditingMainBranch('');
                           } else {
                             setExpandedProject(projectName);
                             setEditingE2EInstructions(config.e2eInstructions || '');
                             setEditingDevServerUrl(config.devServer?.url || '');
+                            setEditingGitEnabled(config.gitEnabled || false);
+                            setEditingMainBranch(config.mainBranch || 'main');
                           }
                         }}
                       >
@@ -219,6 +238,11 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                       {config.hasE2E && (
                         <Badge size="xs" color="green" variant="light">
                           E2E
+                        </Badge>
+                      )}
+                      {config.gitEnabled && (
+                        <Badge size="xs" color="violet" variant="light" leftSection={<IconGitBranch size={10} />}>
+                          Git
                         </Badge>
                       )}
                       <ActionIcon
@@ -263,6 +287,31 @@ Or for backend:
                           autosize
                         />
                       )}
+                      <Divider label="Git Integration" labelPosition="left" />
+                      <Checkbox
+                        label="Enable Git Integration"
+                        description="Create feature branches and auto-commit after each task"
+                        checked={editingGitEnabled}
+                        onChange={(e) => setEditingGitEnabled(e.currentTarget.checked)}
+                      />
+                      {editingGitEnabled && !gitAvailable && (
+                        <Alert
+                          icon={<IconAlertTriangle size={16} />}
+                          color="orange"
+                          variant="light"
+                        >
+                          Git CLI not found. Git features will not work until git is installed.
+                        </Alert>
+                      )}
+                      <Collapse in={editingGitEnabled}>
+                        <TextInput
+                          label="Main Branch"
+                          placeholder="main"
+                          description="The default branch to create feature branches from"
+                          value={editingMainBranch}
+                          onChange={(e) => setEditingMainBranch(e.target.value)}
+                        />
+                      </Collapse>
                       <Group justify="flex-end">
                         <Button
                           size="xs"
@@ -275,6 +324,8 @@ Or for backend:
                                 ...config.devServer,
                                 url: editingDevServerUrl.trim() || undefined,
                               },
+                              gitEnabled: editingGitEnabled,
+                              mainBranch: editingMainBranch.trim() || 'main',
                             });
                             setExpandedProject(null);
                           }}
@@ -394,6 +445,35 @@ Or for backend:
                     onChange={(e) => setManualDependencyInstall(e.currentTarget.checked)}
                   />
 
+                  <Divider label="Git Integration" labelPosition="left" />
+
+                  <Checkbox
+                    label="Enable Git Integration"
+                    description="Create feature branches and auto-commit after each task"
+                    checked={manualGitEnabled}
+                    onChange={(e) => setManualGitEnabled(e.currentTarget.checked)}
+                  />
+
+                  {manualGitEnabled && !gitAvailable && (
+                    <Alert
+                      icon={<IconAlertTriangle size={16} />}
+                      color="orange"
+                      variant="light"
+                    >
+                      Git CLI not found. Git features will not work until git is installed.
+                    </Alert>
+                  )}
+
+                  <Collapse in={manualGitEnabled}>
+                    <TextInput
+                      label="Main Branch"
+                      placeholder="main"
+                      description="The default branch to create feature branches from"
+                      value={manualMainBranch}
+                      onChange={(e) => setManualMainBranch(e.target.value)}
+                    />
+                  </Collapse>
+
                   <Button
                     onClick={handleAddExisting}
                     disabled={!manualName.trim() || !manualPath.trim()}
@@ -458,6 +538,35 @@ Or for backend:
                     checked={templateHasE2E}
                     onChange={(e) => setTemplateHasE2E(e.currentTarget.checked)}
                   />
+
+                  <Divider label="Git Integration" labelPosition="left" />
+
+                  <Checkbox
+                    label="Enable Git Integration"
+                    description="Create feature branches and auto-commit after each task"
+                    checked={templateGitEnabled}
+                    onChange={(e) => setTemplateGitEnabled(e.currentTarget.checked)}
+                  />
+
+                  {templateGitEnabled && !gitAvailable && (
+                    <Alert
+                      icon={<IconAlertTriangle size={16} />}
+                      color="orange"
+                      variant="light"
+                    >
+                      Git CLI not found. Git features will not work until git is installed.
+                    </Alert>
+                  )}
+
+                  <Collapse in={templateGitEnabled}>
+                    <TextInput
+                      label="Main Branch"
+                      placeholder="main"
+                      description="The default branch to create feature branches from"
+                      value={templateMainBranch}
+                      onChange={(e) => setTemplateMainBranch(e.target.value)}
+                    />
+                  </Collapse>
 
                   <Button
                     onClick={handleCreateFromTemplate}

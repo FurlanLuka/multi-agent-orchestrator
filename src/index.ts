@@ -17,6 +17,7 @@ import { ChatHandler } from './planning/chat-handler';
 import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
+import { GitManager } from './core/git-manager';
 
 // Get orchestrator directory (where this code lives)
 const ORCHESTRATOR_DIR = path.resolve(__dirname, '..');
@@ -48,6 +49,7 @@ async function main() {
   const statusMonitor = new StatusMonitor();
   const approvalQueue = new ApprovalQueue(true); // UI mode
   const logAggregator = new LogAggregator();
+  const gitManager = new GitManager();
 
   // Wire up SessionStore to StatusMonitor and LogAggregator for persistence
   statusMonitor.setSessionStore(sessionStore);
@@ -140,6 +142,22 @@ async function main() {
   eventWatcher.on('event', (event: OrchestratorEvent) => {
     const project = 'project' in event ? event.project : 'unknown';
     console.log(`[Orchestrator] Event: ${event.type} from ${project}`);
+
+    // Handle cross-project access attempts - warn but don't queue
+    if (event.type === 'cross_project_blocked') {
+      const blocked = event as any;
+      console.warn(`[Orchestrator] BLOCKED: ${project} tried to access ${blocked.target_path}`);
+
+      // Emit a chat event so the user sees it
+      ui.io.emit('chatResponse', {
+        message: `Agent "${project}" tried to access file outside its project`,
+        status: 'warning',
+        details: `**Tool:** ${blocked.tool}\n**Target:** ${blocked.target_path}\n**Project root:** ${blocked.project_root}\n\nThe agent was instructed to report cross-project issues to the orchestrator instead.`
+      });
+
+      // Don't add to queue - the hook already blocked the action
+      return;
+    }
 
     // Add event to queue for Planning Agent analysis
     eventQueue.add(event);
@@ -582,21 +600,42 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
-    // E2E dependency rule: check explicit dependsOn config, fallback to name-based detection
-    // Note: projectConfig is already defined at the top of this function
+    // E2E dependency resolution (in priority order):
+    // 1. Plan's e2eDependencies (planner decides based on feature)
+    // 2. Project config's dependsOn (explicit override)
+    // 3. Name-based detection (fallback for backwards compatibility)
 
-    // Check for explicit dependencies first
-    let dependencies = projectConfig?.dependsOn;
+    let dependencies: string[] | undefined;
 
-    // Fallback to name-based detection if no explicit config (backwards compatibility)
+    // 1. Check plan's e2eDependencies first (most reliable - planner knows the feature)
+    if (session?.plan?.e2eDependencies?.[project]) {
+      dependencies = session.plan.e2eDependencies[project];
+      console.log(`[Orchestrator] Using plan e2eDependencies for ${project}: ${dependencies.join(', ')}`);
+    }
+
+    // 2. Check explicit project config override
+    if (!dependencies && projectConfig?.dependsOn) {
+      dependencies = projectConfig.dependsOn;
+      console.log(`[Orchestrator] Using project config dependsOn for ${project}: ${dependencies.join(', ')}`);
+    }
+
+    // 3. Fallback to name-based detection (backwards compatibility)
     if (!dependencies) {
-      const isFrontend = project.toLowerCase().includes('frontend') || project.toLowerCase().includes('-fe');
+      const frontendPatterns = ['frontend', '-fe', 'fe-', '_fe', 'fe_', 'web', 'client', 'ui'];
+      const backendPatterns = ['backend', '-be', 'be-', '_be', 'be_', 'api', 'server'];
+      const projectLower = project.toLowerCase();
+
+      const isFrontend = frontendPatterns.some(p => projectLower.includes(p)) ||
+                         projectLower.endsWith('fe');
+
       if (isFrontend) {
-        // Get all non-frontend projects as implicit dependencies
         dependencies = session.projects.filter(p => {
-          const pIsFE = p.toLowerCase().includes('frontend') || p.toLowerCase().includes('-fe');
-          return !pIsFE && p !== project;
+          const pLower = p.toLowerCase();
+          const pIsFE = frontendPatterns.some(pat => pLower.includes(pat)) || pLower.endsWith('fe');
+          const pIsBE = backendPatterns.some(pat => pLower.includes(pat)) || pLower.endsWith('be');
+          return (pIsBE || !pIsFE) && p !== project;
         });
+        console.log(`[Orchestrator] Detected ${project} as frontend (name-based), dependencies: ${dependencies.join(', ') || 'none'}`);
       }
     }
 
@@ -1121,6 +1160,50 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
   // ═══════════════════════════════════════════════════════════════
 
   ui.io.on('connection', (socket) => {
+    // Handle dependency check (runs on connect from UI)
+    socket.on('checkDependencies', async () => {
+      const checkCommand = async (cmd: string, args: string[]): Promise<{ available: boolean; version: string | null; error: string | null }> => {
+        return new Promise((resolve) => {
+          const { spawn } = require('child_process');
+          const proc = spawn(cmd, args, { shell: true, env: process.env });
+          let stdout = '';
+          let stderr = '';
+
+          proc.stdout?.on('data', (data: Buffer) => {
+            stdout += data.toString();
+          });
+
+          proc.stderr?.on('data', (data: Buffer) => {
+            stderr += data.toString();
+          });
+
+          proc.on('close', (code: number | null) => {
+            if (code === 0) {
+              // Extract version from output (usually first line)
+              const version = stdout.trim().split('\n')[0] || null;
+              resolve({ available: true, version, error: null });
+            } else {
+              resolve({ available: false, version: null, error: stderr.trim() || 'Command not found' });
+            }
+          });
+
+          proc.on('error', (err: Error) => {
+            resolve({ available: false, version: null, error: err.message });
+          });
+        });
+      };
+
+      const [claudeResult, gitResult] = await Promise.all([
+        checkCommand('claude', ['--version']),
+        checkCommand('git', ['--version']),
+      ]);
+
+      socket.emit('dependencyCheck', {
+        claude: claudeResult,
+        git: gitResult,
+      });
+    });
+
     // Handle user chat with optional target
     socket.on('chat', ({ message, target }: { message: string; target?: string }) => {
       // Persist user message to SessionStore
@@ -1151,10 +1234,49 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     });
 
     // Handle session creation request
-    socket.on('startSession', async ({ feature, projects }: { feature: string; projects: string[] }) => {
+    socket.on('startSession', async ({ feature, projects, branchName }: { feature: string; projects: string[]; branchName?: string }) => {
       try {
         // Create session
         const session = sessionManager.createSession(feature, projects);
+
+        // Initialize git branches for git-enabled projects
+        const gitBranches: Record<string, string> = {};
+        for (const project of projects) {
+          const projectConfig = config.projects[project];
+          if (projectConfig?.gitEnabled) {
+            try {
+              // Expand path
+              let projectPath = projectConfig.path;
+              if (projectPath.startsWith('~')) {
+                projectPath = projectPath.replace('~', process.env.HOME || '');
+              }
+
+              // Initialize git repo (non-destructive, ensures main branch exists)
+              const mainBranchForProject = projectConfig.mainBranch || 'main';
+              await gitManager.initRepo(projectPath, mainBranchForProject);
+
+              // Generate branch name if not provided
+              const actualBranchName = branchName?.trim() || gitManager.generateBranchName(feature);
+
+              // Create and checkout branch
+              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
+              if (branchResult.success) {
+                gitBranches[project] = actualBranchName;
+                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+              } else {
+                console.error(`[Orchestrator] Failed to setup git branch for ${project}: ${branchResult.message}`);
+              }
+            } catch (err) {
+              console.error(`[Orchestrator] Git setup failed for ${project}:`, err);
+            }
+          }
+        }
+
+        // Store git branches in session
+        if (Object.keys(gitBranches).length > 0) {
+          session.gitBranches = gitBranches;
+          sessionStore.updateGitBranches(session.id, gitBranches);
+        }
 
         // Set current session ID on StatusMonitor and LogAggregator for persistence
         statusMonitor.setCurrentSessionId(session.id);
@@ -1287,7 +1409,9 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
         planningAgent,
         config,
         getSessionDir: (project: string) => sessionManager.getSessionDir(project),
-        getDevServerUrl
+        getDevServerUrl,
+        gitManager,
+        getGitBranch: (project: string) => session?.gitBranches?.[project]
       });
 
       // Track failed tasks for user fix continuation
@@ -1371,6 +1495,77 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
         taskExecutor.handleUserActionResponse(taskIndex, values);
       } else {
         console.error(`[Orchestrator] TaskExecutor not available to handle user action response`);
+      }
+    });
+
+    // Handle git push branch request
+    socket.on('pushBranch', async ({ project, branchName }: { project: string; branchName: string }) => {
+      console.log(`[Orchestrator] Push branch '${branchName}' requested for ${project}`);
+      const projectConfig = config.projects[project];
+
+      if (!projectConfig) {
+        socket.emit('pushBranchError', { project, error: 'Project not found' });
+        return;
+      }
+
+      if (!projectConfig.gitEnabled) {
+        socket.emit('pushBranchError', { project, error: 'Git is not enabled for this project' });
+        return;
+      }
+
+      try {
+        // Expand path
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        const result = await gitManager.pushBranch(projectPath, branchName);
+        if (result.success) {
+          socket.emit('pushBranchSuccess', { project, message: result.message });
+        } else {
+          socket.emit('pushBranchError', { project, error: result.message });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Push failed for ${project}:`, error);
+        socket.emit('pushBranchError', { project, error });
+      }
+    });
+
+    // Handle git merge branch request
+    socket.on('mergeBranch', async ({ project, branchName }: { project: string; branchName: string }) => {
+      console.log(`[Orchestrator] Merge branch '${branchName}' requested for ${project}`);
+      const projectConfig = config.projects[project];
+
+      if (!projectConfig) {
+        socket.emit('mergeBranchError', { project, error: 'Project not found' });
+        return;
+      }
+
+      if (!projectConfig.gitEnabled) {
+        socket.emit('mergeBranchError', { project, error: 'Git is not enabled for this project' });
+        return;
+      }
+
+      try {
+        // Expand path
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        const targetBranch = projectConfig.mainBranch || 'main';
+        const result = await gitManager.mergeBranch(projectPath, branchName, targetBranch);
+        if (result.success) {
+          socket.emit('mergeBranchSuccess', { project, message: result.message });
+        } else {
+          socket.emit('mergeBranchError', { project, error: result.message });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Merge failed for ${project}:`, error);
+        socket.emit('mergeBranchError', { project, error });
       }
     });
 
