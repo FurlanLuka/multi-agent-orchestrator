@@ -56,7 +56,6 @@ function App() {
     testStates,
     taskStates,
     planningStatus,
-    chatEvents,
     activeFlows,
     completedFlows,
     currentApproval,
@@ -467,7 +466,6 @@ function App() {
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
                         planningStatus={planningStatus}
-                        chatEvents={chatEvents}
                         activeFlows={activeFlows}
                         completedFlows={completedFlows}
                         onSendMessage={sendChat}

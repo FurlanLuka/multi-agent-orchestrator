@@ -74,6 +74,11 @@ export class ChatHandler extends EventEmitter {
     this.planningAgent.on('e2eAnalyzing', (event: E2EAnalyzingEvent) => {
       this.emit('e2eAnalyzing', event);
     });
+
+    // Forward structured chat response events (from planning requests that don't produce a plan)
+    this.planningAgent.on('chatResponse', (event: ChatResponseEvent) => {
+      this.emit('chatResponse', event);
+    });
   }
 
   /**

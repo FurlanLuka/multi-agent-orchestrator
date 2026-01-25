@@ -9,6 +9,13 @@ mermaid.initialize({
   securityLevel: 'loose',
   fontFamily: 'inherit',
   logLevel: 'fatal', // Suppress console spam
+  flowchart: {
+    useMaxWidth: true,        // Scale to container width
+    htmlLabels: true,         // Enable HTML in labels for wrapping
+    wrappingWidth: 200,       // Wrap text at this width
+    nodeSpacing: 50,          // Space between nodes
+    rankSpacing: 50,          // Space between ranks
+  },
 });
 
 interface Props {
@@ -46,6 +53,24 @@ export function MermaidDiagram({ chart }: Props) {
         const sanitized = sanitizeChart(chart);
         const { svg } = await mermaid.render(id, sanitized);
         containerRef.current.innerHTML = svg;
+
+        // Make rendered SVG responsive - remove fixed dimensions, use viewBox for scaling
+        const svgElement = containerRef.current.querySelector('svg');
+        if (svgElement) {
+          const width = svgElement.getAttribute('width');
+          const height = svgElement.getAttribute('height');
+          if (width && height) {
+            svgElement.removeAttribute('width');
+            svgElement.removeAttribute('height');
+            svgElement.style.maxWidth = '100%';
+            svgElement.style.height = 'auto';
+            // Preserve aspect ratio via viewBox if not already set
+            if (!svgElement.getAttribute('viewBox')) {
+              svgElement.setAttribute('viewBox', `0 0 ${parseFloat(width)} ${parseFloat(height)}`);
+            }
+          }
+        }
+
         setError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to render diagram';

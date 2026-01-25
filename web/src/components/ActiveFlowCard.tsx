@@ -1,88 +1,71 @@
-import { Card, Group, Badge, Text, Loader, Stack, ThemeIcon, Box } from '@mantine/core';
-import { IconArrowDown } from '@tabler/icons-react';
+import { Card, Group, Badge, Text, Loader, Stack } from '@mantine/core';
+import { IconCheck } from '@tabler/icons-react';
 import type { RequestFlow } from '../types';
 
 interface ActiveFlowCardProps {
   flow: RequestFlow;
 }
 
-function getFlowLabel(type: string): string {
+function getFlowColor(type: string): string {
   switch (type) {
-    case 'e2e': return 'E2E';
-    case 'task': return 'TASK';
-    case 'planning': return 'PLAN';
-    case 'fix': return 'FIX';
-    case 'waiting': return 'WAIT';
-    default: return type.toUpperCase();
+    case 'e2e': return 'violet';
+    case 'task': return 'blue';
+    case 'planning': return 'cyan';
+    case 'fix': return 'orange';
+    case 'info': return 'gray';
+    default: return 'blue';
   }
 }
 
 export function ActiveFlowCard({ flow }: ActiveFlowCardProps) {
   const activeStep = flow.steps.find(s => s.status === 'active');
   const completedSteps = flow.steps.filter(s => s.status === 'completed');
+  const color = getFlowColor(flow.type);
 
   return (
     <Card
       p="sm"
-      withBorder
       radius="md"
+      withBorder
       style={{
-        borderLeft: '3px solid var(--mantine-color-blue-5)',
-        backgroundColor: 'var(--mantine-color-blue-0)',
+        backgroundColor: `var(--mantine-color-${color}-0)`,
+        borderColor: `var(--mantine-color-${color}-3)`,
       }}
     >
-      <Group justify="space-between" mb="xs">
-        <Group gap="xs">
-          <Badge size="sm" color="blue" variant="filled">
-            {getFlowLabel(flow.type)}
-          </Badge>
-          {flow.taskName && (
-            <Text size="xs" fw={500} c="blue.7">
-              {flow.taskName}
-            </Text>
-          )}
-        </Group>
-        {flow.project && (
-          <Badge size="xs" variant="light" color="gray">
-            {flow.project}
-          </Badge>
-        )}
-      </Group>
-
-      {/* Show completed steps with arrows */}
-      {completedSteps.length > 0 && (
-        <Stack gap={4} mb="xs">
-          {completedSteps.map((step, idx) => (
-            <Box key={step.id}>
-              <Group gap="xs">
-                <ThemeIcon size="xs" color="green" variant="light" radius="xl">
-                  <Text size="xs">✓</Text>
-                </ThemeIcon>
-                <Text size="xs" c="dimmed">{step.message}</Text>
-              </Group>
-              {idx < completedSteps.length - 1 || activeStep ? (
-                <Box pl="md" py={2}>
-                  <IconArrowDown size={10} color="var(--mantine-color-gray-5)" />
-                </Box>
-              ) : null}
-            </Box>
-          ))}
-        </Stack>
-      )}
-
       {/* Current active step with spinner */}
       {activeStep && (
-        <Group gap="sm">
-          <Loader size={14} color="blue" />
-          <Text size="sm" fw={500}>{activeStep.message}</Text>
+        <Group gap="sm" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+            <Loader size={16} color={color} />
+            <Text size="sm" c={`${color}.7`}>
+              {activeStep.message}
+            </Text>
+          </Group>
+          <Group gap="xs" wrap="nowrap">
+            {flow.taskName && (
+              <Text size="xs" c="dimmed" lineClamp={1} style={{ maxWidth: 150 }}>
+                {flow.taskName}
+              </Text>
+            )}
+            {flow.project && (
+              <Badge size="xs" variant="light" color={color}>
+                {flow.project}
+              </Badge>
+            )}
+          </Group>
         </Group>
       )}
 
-      {/* Progress indicator */}
-      {completedSteps.length > 0 && !activeStep && (
-        <Text size="xs" c="dimmed" mt="xs">
-          {completedSteps.length} step{completedSteps.length > 1 ? 's' : ''} completed
-        </Text>
+      {/* Show completed steps if any */}
+      {completedSteps.length > 0 && (
+        <Stack gap={4} mt={activeStep ? 'xs' : 0}>
+          {completedSteps.map((step) => (
+            <Group key={step.id} gap="xs">
+              <IconCheck size={12} color={`var(--mantine-color-green-6)`} />
+              <Text size="xs" c="dimmed">{step.message}</Text>
+            </Group>
+          ))}
+        </Stack>
       )}
     </Card>
   );

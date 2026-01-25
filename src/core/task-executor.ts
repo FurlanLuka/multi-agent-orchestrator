@@ -22,6 +22,7 @@ export interface TaskExecutorConfig {
   getDevServerUrl: (project: string) => string;
   gitManager?: GitManager;
   getGitBranch?: (project: string) => string | undefined;
+  io?: any;  // Socket.io instance for flow events
 }
 
 export interface TaskResult {
@@ -49,6 +50,8 @@ export class TaskExecutor extends EventEmitter {
   private getDevServerUrl: (project: string) => string;
   private gitManager?: GitManager;
   private getGitBranch?: (project: string) => string | undefined;
+  private io?: any;  // Socket.io instance for flow events
+  private activeTaskFlows: Map<number, string> = new Map(); // taskIndex -> flowId
 
   // Pending user input promises - resolved when user submits values
   private pendingUserInputs: Map<number, {
@@ -69,6 +72,7 @@ export class TaskExecutor extends EventEmitter {
     this.getDevServerUrl = deps.getDevServerUrl;
     this.gitManager = deps.gitManager;
     this.getGitBranch = deps.getGitBranch;
+    this.io = deps.io;
   }
 
   /**
@@ -101,6 +105,23 @@ export class TaskExecutor extends EventEmitter {
     this.statusMonitor.updateStatus(task.project, 'WORKING', 'Starting agent task...');
     this.stateMachine.markAgentActive(task.project);
 
+    // Create task flow ONCE before the verification loop - start tracking from beginning
+    const flowId = `task_${task.project}_${taskIndex}_${Date.now()}`;
+    const isFixTask = task.type === 'e2e_fix';
+    if (this.io) {
+      this.activeTaskFlows.set(taskIndex, flowId);
+      // Start flow immediately with "Working" step
+      (this.io as any).emitFlowStart({
+        id: flowId,
+        type: isFixTask ? 'fix' : 'task',
+        project: task.project,
+        taskName: task.name,
+        status: 'in_progress',
+        startedAt: Date.now(),
+        steps: [{ id: 'working', status: 'active', message: isFixTask ? 'Applying fix' : 'Working on task', timestamp: Date.now() }]
+      });
+    }
+
     try {
       // Verification loop: run agent → verify → fix if needed
       while (fixAttempts < this.MAX_FIX_ATTEMPTS && !taskCompleted) {
@@ -110,6 +131,15 @@ export class TaskExecutor extends EventEmitter {
         } else {
           this.statusMonitor.updateTaskStatus(taskIndex, 'fixing',
             `Fixing errors (attempt ${fixAttempts}/${this.MAX_FIX_ATTEMPTS})`);
+          // Update flow with fixing step
+          if (this.io) {
+            (this.io as any).emitFlowStep(flowId, {
+              id: `fixing_${fixAttempts}`,
+              status: 'active',
+              message: `Fixing (attempt ${fixAttempts}/${this.MAX_FIX_ATTEMPTS})`,
+              timestamp: Date.now()
+            });
+          }
         }
 
         // Run the agent
@@ -124,11 +154,22 @@ export class TaskExecutor extends EventEmitter {
         this.statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Collecting context for analysis...');
         console.log(`[TaskExecutor] Task #${taskIndex} agent done, collecting verification context...`);
 
+        // Update flow to verifying step
+        if (this.io) {
+          (this.io as any).emitFlowStep(flowId, {
+            id: fixAttempts === 0 ? 'verify' : `reverify_${fixAttempts}`,
+            status: 'active',
+            message: fixAttempts === 0 ? 'Verifying task' : 'Re-verifying after fix',
+            timestamp: Date.now()
+          });
+        }
+
         // Collect all context: deps, build output, dev server logs, health check
         const verificationContext = await this.collectVerificationContext(
           task.project,
           task.name,
-          originalTaskDescription
+          originalTaskDescription,
+          flowId
         );
 
         // Let Planning Agent intelligently analyze all context
@@ -138,6 +179,15 @@ export class TaskExecutor extends EventEmitter {
 
         if (analysis.passed) {
           console.log(`[TaskExecutor] Task #${taskIndex} PASSED: ${analysis.analysis}`);
+          // Complete the verification flow
+          const taskFlowId = this.activeTaskFlows.get(taskIndex);
+          if (this.io && taskFlowId) {
+            (this.io as any).emitFlowComplete(taskFlowId, 'completed', {
+              passed: true,
+              summary: 'Task verified successfully'
+            });
+            this.activeTaskFlows.delete(taskIndex);
+          }
           taskCompleted = true;
           break;
         }
@@ -149,6 +199,16 @@ export class TaskExecutor extends EventEmitter {
 
         if (fixAttempts >= this.MAX_FIX_ATTEMPTS || analysis.suggestedAction === 'escalate') {
           console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} attempts - requires user intervention`);
+          // Complete the verification flow as failed
+          const taskFlowId = this.activeTaskFlows.get(taskIndex);
+          if (this.io && taskFlowId) {
+            (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
+              passed: false,
+              summary: `Failed after ${fixAttempts} fix attempts`,
+              details: analysis.analysis
+            });
+            this.activeTaskFlows.delete(taskIndex);
+          }
           this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
           // Use FAILED status to indicate user intervention required
           this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
@@ -163,12 +223,31 @@ export class TaskExecutor extends EventEmitter {
 
         if (analysis.suggestedAction === 'skip') {
           console.log(`[TaskExecutor] Task #${taskIndex} - Planning Agent suggests skipping issue`);
+          // Complete the verification flow as skipped
+          const taskFlowId = this.activeTaskFlows.get(taskIndex);
+          if (this.io && taskFlowId) {
+            (this.io as any).emitFlowComplete(taskFlowId, 'completed', {
+              passed: true,
+              summary: 'Issue skipped per Planning Agent recommendation'
+            });
+            this.activeTaskFlows.delete(taskIndex);
+          }
           taskCompleted = true;
           break;
         }
 
         // Use Planning Agent's intelligent fix prompt
         this.statusMonitor.updateTaskStatus(taskIndex, 'fixing', `Fix attempt ${fixAttempts}/${this.MAX_FIX_ATTEMPTS}`);
+        // Update flow with fixing step
+        const taskFlowId = this.activeTaskFlows.get(taskIndex);
+        if (this.io && taskFlowId) {
+          (this.io as any).emitFlowStep(taskFlowId, {
+            id: `fix_${fixAttempts}`,
+            status: 'active',
+            message: `Fix attempt ${fixAttempts}/${this.MAX_FIX_ATTEMPTS}`,
+            timestamp: Date.now()
+          });
+        }
         currentPrompt = this.buildFixPrompt(task.name, analysis.analysis, originalTaskDescription, analysis.fixPrompt);
         console.log(`[TaskExecutor] Asking agent to fix (attempt ${fixAttempts}/${this.MAX_FIX_ATTEMPTS})`);
       }
@@ -215,6 +294,16 @@ export class TaskExecutor extends EventEmitter {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[TaskExecutor] Task #${taskIndex} (${task.project}) failed:`, err);
+      // Complete flow as failed on error
+      const taskFlowId = this.activeTaskFlows.get(taskIndex);
+      if (this.io && taskFlowId) {
+        (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
+          passed: false,
+          summary: 'Task failed with error',
+          details: errorMsg
+        });
+        this.activeTaskFlows.delete(taskIndex);
+      }
       this.statusMonitor.updateTaskStatus(taskIndex, 'failed', `Task failed: ${errorMsg}`);
       // Use FAILED status to indicate user intervention required
       this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${errorMsg}. User intervention required.`);
@@ -289,7 +378,8 @@ Please fix the issue and try again.`;
   private async collectVerificationContext(
     project: string,
     taskName: string,
-    taskDescription: string
+    taskDescription: string,
+    flowId?: string
   ): Promise<TaskVerificationContext> {
     const context: TaskVerificationContext = {
       project,
@@ -302,6 +392,9 @@ Please fix the issue and try again.`;
     // Step 1: Install dependencies
     console.log(`[TaskExecutor] [Context] Installing dependencies for ${project}...`);
     this.statusMonitor.updateStatus(project, 'WORKING', 'Installing dependencies...');
+    if (this.io && flowId) {
+      (this.io as any).emitFlowStep(flowId, { id: 'deps', status: 'active', message: 'Installing dependencies', timestamp: Date.now() });
+    }
     try {
       await this.projectManager.installDependencies(project);
     } catch (err) {
@@ -314,6 +407,9 @@ Please fix the issue and try again.`;
     if (projectConfig?.buildCommand) {
       console.log(`[TaskExecutor] [Context] Running build for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Running build...');
+      if (this.io && flowId) {
+        (this.io as any).emitFlowStep(flowId, { id: 'build', status: 'active', message: 'Running build', timestamp: Date.now() });
+      }
       const buildResult = await this.runBuildCommand(project, projectConfig.buildCommand);
       context.buildOutput = {
         stdout: buildResult.stdout,
@@ -330,6 +426,9 @@ Please fix the issue and try again.`;
     if (!buildFailed) {
       console.log(`[TaskExecutor] [Context] Restarting dev server for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
+      if (this.io && flowId) {
+        (this.io as any).emitFlowStep(flowId, { id: 'restart', status: 'active', message: 'Restarting dev server', timestamp: Date.now() });
+      }
       try {
         await this.processManager.restartDevServer(project);
       } catch (err) {
@@ -345,6 +444,9 @@ Please fix the issue and try again.`;
     if (!buildFailed) {
       console.log(`[TaskExecutor] [Context] Health check for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
+      if (this.io && flowId) {
+        (this.io as any).emitFlowStep(flowId, { id: 'health', status: 'active', message: 'Health check', timestamp: Date.now() });
+      }
       const health = await this.processManager.checkDevServerHealthWithRetry(project, 5, 2000);
       context.healthCheck = {
         healthy: health.healthy,

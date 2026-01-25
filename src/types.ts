@@ -267,6 +267,7 @@ export interface ChatStreamEvent {
   block?: ContentBlock;
   content?: ContentBlock[];  // All content blocks (for message_complete)
   error?: string;
+  isPlanningRequest?: boolean;  // True if this is a plan generation request (uses planningStatus for UX)
 }
 
 export interface ApprovalEvent {
@@ -724,7 +725,7 @@ export interface FullSessionData {
 // Request Flow Types (for two-section chat UX)
 // ═══════════════════════════════════════════════════════════════
 
-export type FlowType = 'e2e' | 'task' | 'planning' | 'fix' | 'waiting';
+export type FlowType = 'e2e' | 'task' | 'planning' | 'fix' | 'waiting' | 'info' | 'success';
 
 export type FlowStepStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
 

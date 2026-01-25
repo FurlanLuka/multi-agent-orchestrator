@@ -267,7 +267,7 @@ async function main() {
         if (flowId) {
           (ui.io as any).emitFlowComplete(flowId, 'completed', {
             passed: true,
-            summary: 'All E2E tests passed'
+            summary: 'E2E: All tests passed'
           });
           activeE2EFlows.delete(project);
         }
@@ -283,6 +283,8 @@ async function main() {
             e2eFixingFor.delete(proj);
           }
         }
+        // Mark agent idle now that E2E analysis is complete
+        stateMachine.markAgentIdle(project);
         return;
       }
 
@@ -295,7 +297,7 @@ async function main() {
         if (flowId) {
           (ui.io as any).emitFlowComplete(flowId, 'failed', {
             passed: false,
-            summary: 'Infrastructure failure',
+            summary: 'E2E: Infrastructure failure',
             details: analysis.analysis
           });
           activeE2EFlows.delete(project);
@@ -303,6 +305,8 @@ async function main() {
 
         chatHandler.systemMessage(`E2E tests could not run for ${project}: ${analysis.analysis}. This requires manual intervention (e.g., Playwright MCP tools unavailable).`);
         statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', 'E2E infrastructure issue - tools unavailable');
+        // Mark agent idle now that E2E analysis is complete
+        stateMachine.markAgentIdle(project);
         return;
       }
 
@@ -316,7 +320,7 @@ async function main() {
         if (flowId) {
           (ui.io as any).emitFlowComplete(flowId, 'failed', {
             passed: false,
-            summary: `Failed after ${MAX_E2E_RETRIES} fix attempts`,
+            summary: `E2E: Failed after ${MAX_E2E_RETRIES} fix attempts`,
             details: analysis.analysis
           });
           activeE2EFlows.delete(project);
@@ -324,6 +328,8 @@ async function main() {
 
         chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
         statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
+        // Mark agent idle now that E2E analysis is complete
+        stateMachine.markAgentIdle(project);
         return;
       }
 
@@ -348,14 +354,37 @@ async function main() {
         if (flowId) {
           (ui.io as any).emitFlowComplete(flowId, 'failed', {
             passed: false,
-            summary: `E2E failed - fix attempt ${retries + 1}/${MAX_E2E_RETRIES}`,
+            summary: `E2E: Failed - fix attempt ${retries + 1}/${MAX_E2E_RETRIES}`,
             details: analysis.analysis
           });
           activeE2EFlows.delete(project);
         }
 
+        // First pass: collect all valid projects that need fixes
         const projectsWithFixes = new Set<string>();
+        for (const fix of fixes) {
+          if (validProjects.has(fix.project)) {
+            projectsWithFixes.add(fix.project);
+          }
+        }
 
+        // If cross-project fixes are needed, set BLOCKED status BEFORE starting fixes
+        // This ensures pendingE2E is set up before fix tasks complete
+        const fixedOtherProjects = Array.from(projectsWithFixes).some(p => p !== project);
+        if (fixedOtherProjects) {
+          const waitingOn = Array.from(projectsWithFixes).filter(p => p !== project);
+          console.log(`[Orchestrator] Fixes needed in ${waitingOn.join(', ')}, setting ${project} to BLOCKED`);
+          statusMonitor.updateStatus(project, 'BLOCKED', `Waiting for ${waitingOn.join(', ')} to complete fixes`);
+
+          (ui.io as any).emitWaitingForProject({
+            project,
+            waitingFor: waitingOn
+          });
+
+          pendingE2E.set(project, { message: `Re-running E2E after fixes`, waitingOn });
+        }
+
+        // Second pass: execute fix tasks
         for (const fix of fixes) {
           const targetProject = fix.project;
 
@@ -364,8 +393,6 @@ async function main() {
             chatHandler.systemMessage(`Error: Cannot apply fix - project "${targetProject}" not found.`);
             continue;
           }
-
-          projectsWithFixes.add(targetProject);
 
           const fixPrompt = `The E2E tests for ${project} failed. Analysis: ${analysis.analysis}
 
@@ -388,6 +415,14 @@ After fixing, the E2E tests will be re-run automatically.`;
           // Initialize task state in UI
           statusMonitor.initializeTask(fixTaskIndex, fixTask);
 
+          // Emit updated session so UI shows the new fix task
+          const updatedSession = sessionManager.getCurrentSession();
+          if (updatedSession) {
+            (ui.io as any).emitSession(updatedSession);
+          }
+          // Also emit updated task states
+          (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
+
           // Track pending E2E re-run after fix completes
           pendingE2ERetry.set(targetProject, {
             testScenarios,
@@ -396,13 +431,6 @@ After fixing, the E2E tests will be re-run automatically.`;
           });
 
           e2eFixingFor.set(targetProject, project);
-
-          // Emit fix sent event for UI
-          (ui.io as any).emitFixSent({
-            fromProject: project,
-            toProject: targetProject,
-            reason: 'E2E test failure'
-          });
 
           console.log(`[Orchestrator] >>> ROUTING E2E FIX TO TaskExecutor: "${targetProject}" (task #${fixTaskIndex})`);
           statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
@@ -424,9 +452,12 @@ After fixing, the E2E tests will be re-run automatically.`;
               statusMonitor.updateStatus(targetProject, 'BLOCKED', `E2E fix failed: ${result.message}`);
               pendingE2ERetry.delete(targetProject);
               e2eFixingFor.delete(targetProject);
+            } else {
+              // Fix task succeeded - update project status to READY
+              // This triggers projectReady handler which will check pendingE2E and re-run E2E tests
+              console.log(`[Orchestrator] E2E fix task completed for ${targetProject}, setting to READY`);
+              statusMonitor.updateStatus(targetProject, 'READY', 'E2E fix completed successfully');
             }
-
-            console.log(`[Orchestrator] E2E fix task completed for ${targetProject}`);
           } catch (err) {
             console.error(`[Orchestrator] E2E fix task FAILED for ${targetProject}:`, err);
             statusMonitor.updateStatus(targetProject, 'FAILED', `Fix task failed: ${err}`);
@@ -435,32 +466,20 @@ After fixing, the E2E tests will be re-run automatically.`;
           }
         }
 
-        // Check if fixes were ONLY sent to the failing project, or to other projects too
-        const fixedOtherProjects = Array.from(projectsWithFixes).some(p => p !== project);
-
-        if (fixedOtherProjects) {
-          // Cross-project fix: wait for other projects to complete before re-running E2E
-          const waitingOn = Array.from(projectsWithFixes).filter(p => p !== project);
-          console.log(`[Orchestrator] Fixes sent to ${waitingOn.join(', ')}, waiting for completion`);
-          statusMonitor.updateStatus(project, 'BLOCKED', `Waiting for ${waitingOn.join(', ')} to complete fixes`);
-
-          (ui.io as any).emitWaitingForProject({
-            project,
-            waitingFor: waitingOn
-          });
-
-          pendingE2E.set(project, { message: `Re-running E2E after fixes`, waitingOn });
-        }
+        // Mark agent idle now that E2E analysis is complete (fixes are being handled by TaskExecutor)
+        stateMachine.markAgentIdle(project);
       } else {
         // No fix prompt available, mark as blocked
         if (flowId) {
           (ui.io as any).emitFlowComplete(flowId, 'failed', {
             passed: false,
-            summary: 'E2E failed, no fix available'
+            summary: 'E2E: Failed, no fix available'
           });
           activeE2EFlows.delete(project);
         }
         statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
+        // Mark agent idle now that E2E analysis is complete
+        stateMachine.markAgentIdle(project);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -477,6 +496,8 @@ After fixing, the E2E tests will be re-run automatically.`;
       }
 
       chatHandler.systemMessage(`Error analyzing E2E result for ${project}: ${errorMsg}`);
+      // Mark agent idle even on error - analysis is complete
+      stateMachine.markAgentIdle(project);
     }
   });
 
@@ -762,11 +783,7 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     console.log(`[Orchestrator] Requesting E2E prompt for ${project}`);
     e2eQueuedProjects.add(project);  // Track to prevent duplicates
 
-    // Emit E2E start event for UI (legacy)
-    (ui.io as any).emitE2EStart({
-      project,
-      testScenarios: scenariosToTest
-    });
+    // NOTE: Removed legacy emitE2EStart - now using flow system instead
 
     // Start or update E2E flow
     let flowId = activeE2EFlows.get(project);
@@ -820,6 +837,19 @@ You MUST output these markers for real-time tracking (the UI depends on them):
 Output these markers on their own line, not inside code blocks.`;
 
         console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
+
+        // Emit green card for E2E prompt sent
+        (ui.io as any).emitInstantFlow({
+          id: `e2e_sent_${project}_${Date.now()}`,
+          type: 'success',
+          project,
+          startedAt: Date.now(),
+          steps: [],
+          result: {
+            passed: true,
+            summary: `E2E: Testing started for ${project}`
+          }
+        });
 
         // Emit running step
         if (flowId) {
@@ -1250,13 +1280,26 @@ Output these markers on their own line, not inside code blocks.`;
     (ui.io as any).emitE2EAnalyzing(event);
   });
 
-  // Forward chat response events to UI (structured responses from Planning Agent)
+  // Forward chat response events as instant flows (structured responses from Planning Agent)
   chatHandler.on('chatResponse', (event) => {
-    (ui.io as any).emitChatResponse(event);
+    // Convert to instant flow for unified UI
+    (ui.io as any).emitInstantFlow({
+      id: `response_${Date.now()}`,
+      type: 'info',
+      startedAt: Date.now(),
+      steps: [],
+      result: {
+        passed: event.status !== 'error',
+        summary: event.message,
+        details: event.details
+      }
+    });
   });
 
   // Forward streaming events to UI for agentic chat
   // Also persist chat messages on message_complete
+  // NOTE: PA responses don't need flows - they appear in the chat timeline
+  // Planning requests use planningStatus indicator (exploring, analyzing, generating phases)
   chatHandler.on('stream', (event) => {
     (ui.io as any).emitChatStream(event);
 
@@ -1452,11 +1495,16 @@ Output these markers on their own line, not inside code blocks.`;
         (ui.io as any).emitSession(updatedSession);
       }
 
-      // Emit plan approved card event for UI
-      (ui.io as any).emitPlanApprovedCard({
-        feature: plan.feature,
-        taskCount: plan.tasks.length,
-        projectCount: new Set(plan.tasks.map(t => t.project)).size
+      // Emit plan approved as instant flow (goes straight to history as green card)
+      (ui.io as any).emitInstantFlow({
+        id: `plan_approved_${Date.now()}`,
+        type: 'success',
+        startedAt: Date.now(),
+        steps: [],
+        result: {
+          passed: true,
+          summary: `Plan approved: "${plan.feature}" - ${plan.tasks.length} tasks across ${new Set(plan.tasks.map(t => t.project)).size} projects`
+        }
       });
 
       chatHandler.systemMessage('Plan approved! Ready to start execution.');
@@ -1532,7 +1580,8 @@ Output these markers on their own line, not inside code blocks.`;
         getSessionDir: (project: string) => sessionManager.getSessionDir(project),
         getDevServerUrl,
         gitManager,
-        getGitBranch: (project: string) => session?.gitBranches?.[project]
+        getGitBranch: (project: string) => session?.gitBranches?.[project],
+        io: ui.io,  // For flow events during task verification
       });
 
       // Track failed tasks for user fix continuation

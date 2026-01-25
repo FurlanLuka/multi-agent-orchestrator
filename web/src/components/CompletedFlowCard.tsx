@@ -1,5 +1,6 @@
-import { Card, Group, Badge, Text, ThemeIcon, Accordion, Stack, Code, Box } from '@mantine/core';
-import { IconCheck, IconX } from '@tabler/icons-react';
+import { Card, Group, Badge, Text, Stack, Code, Box, Collapse, ActionIcon } from '@mantine/core';
+import { IconCheck, IconX, IconChevronUp, IconChevronDown } from '@tabler/icons-react';
+import { useState } from 'react';
 import type { RequestFlow } from '../types';
 
 interface CompletedFlowCardProps {
@@ -8,13 +9,26 @@ interface CompletedFlowCardProps {
 
 function getFlowLabel(type: string, passed?: boolean): string {
   switch (type) {
-    case 'e2e': return passed ? 'E2E Passed' : 'E2E Failed';
-    case 'task': return passed ? 'Task Complete' : 'Task Failed';
-    case 'planning': return 'Plan';
-    case 'fix': return passed ? 'Fix Applied' : 'Fix Failed';
+    case 'e2e': return passed ? 'E2E: Passed' : 'E2E: Failed';
+    case 'task': return passed ? 'Task: Verified' : 'Task: Failed';
+    case 'planning': return 'Response';
+    case 'fix': return passed ? 'Fix: Applied' : 'Fix: Failed';
     case 'waiting': return 'Dependency';
+    case 'info': return 'Info';
+    case 'success': return 'Success';
     default: return type;
   }
+}
+
+// Get color for flow type (some types use non-pass/fail colors)
+function getFlowColor(type: string, passed?: boolean): string {
+  if (type === 'info' || type === 'planning') {
+    return 'blue';  // Neutral color for info/planning flows
+  }
+  if (type === 'success') {
+    return 'green';  // Always green for success type
+  }
+  return passed ? 'green' : 'red';
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -23,90 +37,66 @@ function formatTimestamp(timestamp: number): string {
 }
 
 export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const passed = flow.result?.passed ?? (flow.status === 'completed');
-  const Icon = passed ? IconCheck : IconX;
-  const color = passed ? 'green' : 'red';
+  const color = getFlowColor(flow.type, passed);
   const hasDetails = flow.result?.details || flow.steps.length > 1;
 
-  // Simple compact card without expandable details
-  if (!hasDetails) {
-    return (
-      <Card p="xs" withBorder radius="sm" style={{ borderColor: `var(--mantine-color-${color}-3)` }}>
-        <Group gap="sm" justify="space-between">
-          <Group gap="sm">
-            <ThemeIcon size="sm" color={color} variant="light" radius="xl">
-              <Icon size={14} />
-            </ThemeIcon>
-            <Text size="sm" fw={500}>
-              {getFlowLabel(flow.type, passed)}
-            </Text>
-            {flow.taskName && (
-              <Text size="xs" c="dimmed">"{flow.taskName}"</Text>
-            )}
-          </Group>
-          <Group gap="xs">
-            {flow.project && (
-              <Badge size="xs" variant="light" color="gray">
-                {flow.project}
-              </Badge>
-            )}
-            <Text size="xs" c="dimmed">
-              {flow.completedAt ? formatTimestamp(flow.completedAt) : ''}
-            </Text>
-          </Group>
-        </Group>
-        {flow.result?.summary && (
-          <Text size="xs" c="dimmed" mt="xs" lineClamp={1}>
-            {flow.result.summary}
-          </Text>
-        )}
-      </Card>
-    );
+  // For info/planning/success flows, just show the summary directly if available
+  // For other flows, build the label with optional task name
+  let displayText: string;
+  if ((flow.type === 'info' || flow.type === 'planning' || flow.type === 'success') && flow.result?.summary) {
+    displayText = flow.result.summary;
+  } else if (flow.taskName) {
+    displayText = `${getFlowLabel(flow.type, passed)}: ${flow.taskName}`;
+  } else {
+    displayText = getFlowLabel(flow.type, passed);
   }
 
-  // Expandable card with details
+  // Use checkmark for passed/info, X for failed
+  const showIcon = flow.type !== 'planning';  // Hide icon for planning (PA response) flows
+  const Icon = passed ? IconCheck : IconX;
+
   return (
-    <Accordion
-      variant="filled"
-      radius="sm"
-      styles={{
-        item: {
-          backgroundColor: `var(--mantine-color-${color}-0)`,
-          border: `1px solid var(--mantine-color-${color}-3)`,
-          borderRadius: 'var(--mantine-radius-sm)',
-        },
-        control: { padding: '8px 12px' },
-        panel: { padding: '0 12px 12px' },
+    <Card
+      p="sm"
+      radius="md"
+      withBorder
+      style={{
+        backgroundColor: `var(--mantine-color-${color}-0)`,
+        borderColor: `var(--mantine-color-${color}-3)`,
       }}
     >
-      <Accordion.Item value={flow.id}>
-        <Accordion.Control
-          icon={
-            <ThemeIcon size="sm" color={color} variant="light" radius="xl">
-              <Icon size={14} />
-            </ThemeIcon>
-          }
-        >
-          <Group gap="sm" justify="space-between" wrap="nowrap" style={{ flex: 1 }}>
-            <Group gap="xs">
-              <Text size="sm" fw={500}>
-                {getFlowLabel(flow.type, passed)}
-              </Text>
-              {flow.taskName && (
-                <Text size="xs" c="dimmed">"{flow.taskName}"</Text>
-              )}
-            </Group>
-            <Group gap="xs">
-              {flow.project && (
-                <Badge size="xs" variant="light" color="gray">
-                  {flow.project}
-                </Badge>
-              )}
-            </Group>
-          </Group>
-        </Accordion.Control>
-        <Accordion.Panel>
-          <Stack gap="xs">
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+          {showIcon && (
+            <Icon size={18} color={`var(--mantine-color-${color}-6)`} style={{ flexShrink: 0 }} />
+          )}
+          <Text size="sm" c={`${color}.7`} lineClamp={1} style={{ flex: 1 }}>
+            {displayText}
+          </Text>
+          {flow.project && (
+            <Badge size="xs" variant="light" color={color} style={{ flexShrink: 0 }}>
+              {flow.project}
+            </Badge>
+          )}
+        </Group>
+        <Group gap="xs">
+          <Text size="xs" c="dimmed">
+            {flow.completedAt ? formatTimestamp(flow.completedAt) : ''}
+          </Text>
+          {hasDetails && (
+            <ActionIcon variant="subtle" color={color} onClick={() => setExpanded(!expanded)} size="sm">
+              {expanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            </ActionIcon>
+          )}
+        </Group>
+      </Group>
+
+      {/* Expandable details */}
+      {hasDetails && (
+        <Collapse in={expanded}>
+          <Stack mt="sm" gap="sm" pt="sm" style={{ borderTop: `1px solid var(--mantine-color-${color}-2)` }}>
             {/* Summary */}
             {flow.result?.summary && (
               <Text size="sm" c="dimmed">
@@ -117,18 +107,17 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
             {/* Steps timeline */}
             {flow.steps.length > 1 && (
               <Box>
-                <Text size="xs" fw={500} mb="xs">Steps:</Text>
+                <Text size="xs" c="dimmed" mb="xs">Steps:</Text>
                 <Stack gap={4}>
                   {flow.steps.map((step) => (
                     <Group key={step.id} gap="xs">
-                      <ThemeIcon
-                        size="xs"
-                        color={step.status === 'completed' ? 'green' : step.status === 'failed' ? 'red' : 'gray'}
-                        variant="light"
-                        radius="xl"
-                      >
-                        {step.status === 'completed' ? <IconCheck size={10} /> : step.status === 'failed' ? <IconX size={10} /> : null}
-                      </ThemeIcon>
+                      {step.status === 'completed' ? (
+                        <IconCheck size={12} color={`var(--mantine-color-green-6)`} />
+                      ) : step.status === 'failed' ? (
+                        <IconX size={12} color={`var(--mantine-color-red-6)`} />
+                      ) : (
+                        <Box w={12} />
+                      )}
                       <Text size="xs" c="dimmed">{step.message}</Text>
                     </Group>
                   ))}
@@ -161,8 +150,8 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
               </Box>
             )}
           </Stack>
-        </Accordion.Panel>
-      </Accordion.Item>
-    </Accordion>
+        </Collapse>
+      )}
+    </Card>
   );
 }

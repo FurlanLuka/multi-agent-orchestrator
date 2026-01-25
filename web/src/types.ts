@@ -272,77 +272,6 @@ export interface TestStatusEvent {
   timestamp: number;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Unified Chat Event Types (for Planning Agent chat UX)
-// ═══════════════════════════════════════════════════════════════
-
-export type ChatEventType =
-  | 'status'          // In-progress with spinner (verifying, analyzing, running E2E)
-  | 'result'          // Pass/fail result (task verified, E2E passed/failed)
-  | 'info';           // Informational (plan approved, fix sent, waiting)
-
-export interface ChatCardEvent {
-  id: string;
-  type: ChatEventType;
-  category: 'task' | 'e2e' | 'plan' | 'fix' | 'failure';
-  project?: string;
-  taskName?: string;
-  timestamp: number;
-
-  // For 'status' type
-  message?: string;
-
-  // For 'result' type
-  passed?: boolean;
-  summary?: string;
-  details?: string;      // Markdown supported
-  fixPrompt?: string;
-  retryCount?: number;
-  maxRetries?: number;
-
-  // For chat response cards (overrides passed for color)
-  responseStatus?: 'info' | 'success' | 'warning' | 'error';
-}
-
-// Specific events emitted by backend
-export interface VerificationStartEvent {
-  project: string;
-  taskName: string;
-  taskIndex: number;
-}
-
-export interface E2EStartEvent {
-  project: string;
-  testScenarios: string[];
-}
-
-export interface E2EAnalyzingEvent {
-  project: string;
-}
-
-export interface FixSentEvent {
-  fromProject: string;
-  toProject: string;
-  reason: string;
-}
-
-export interface WaitingForProjectEvent {
-  project: string;
-  waitingFor: string[];
-}
-
-export interface PlanApprovedCardEvent {
-  feature: string;
-  taskCount: number;
-  projectCount: number;
-}
-
-export interface ChatResponseEvent {
-  message: string;
-  status: 'info' | 'success' | 'warning' | 'error';
-  details?: string;
-}
-
 // User action required event (backend → frontend)
 export interface UserActionRequiredEvent {
   taskIndex: number;
@@ -406,7 +335,7 @@ export interface FullSessionData {
 // Request Flow Types (for two-section chat UX)
 // ═══════════════════════════════════════════════════════════════
 
-export type FlowType = 'e2e' | 'task' | 'planning' | 'fix' | 'waiting';
+export type FlowType = 'e2e' | 'task' | 'planning' | 'fix' | 'waiting' | 'info' | 'success';
 
 export type FlowStepStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
 

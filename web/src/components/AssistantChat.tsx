@@ -23,9 +23,8 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, ChatCardEvent, RequestFlow } from '../types';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, RequestFlow } from '../types';
 import { PlanningStatusIndicator } from './PlanningStatusIndicator';
-import { ChatEventCard } from './ChatEventCard';
 import { TabbedPlanView } from './TabbedPlanView';
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
@@ -34,7 +33,6 @@ interface AssistantChatProps {
   messages: StreamingMessage[];
   pendingPlan: PlanProposal | null;
   planningStatus: PlanningStatusEvent | null;
-  chatEvents: ChatCardEvent[];
   activeFlows: RequestFlow[];
   completedFlows: RequestFlow[];
   onSendMessage: (message: string) => void;
@@ -383,7 +381,6 @@ const ChatMessage = memo(function ChatMessage({ message, isExpanded, onToggleExp
 // Timeline item type for unified rendering
 type TimelineItem =
   | { type: 'message'; timestamp: number; data: StreamingMessage; key: string }
-  | { type: 'event'; timestamp: number; data: ChatCardEvent; key: string }
   | { type: 'flow'; timestamp: number; data: RequestFlow; key: string };
 
 // Main chat component using external store
@@ -391,7 +388,6 @@ function ChatThread({
   messages,
   pendingPlan,
   planningStatus,
-  chatEvents,
   activeFlows,
   completedFlows,
   onSendMessage,
@@ -412,12 +408,12 @@ function ChatThread({
   // Derive effective expanded state - auto-collapse during streaming
   const effectiveExpandedId = hasStreamingMessage ? null : expandedMessageId;
 
-  // Create unified timeline: user messages + structured event cards + completed flows
-  // Hide raw Planning Agent streaming messages - only show structured cards
+  // Create unified timeline: user messages + completed flows
+  // PA responses are shown via planningStatus indicator or pendingPlan card
   const timeline = useMemo(() => {
     const items: TimelineItem[] = [];
 
-    // Only add USER messages (not assistant/Planning Agent messages)
+    // Only user messages in timeline (PA responses handled separately)
     messages
       .filter(msg => msg.role === 'user')
       .forEach(msg => {
@@ -429,17 +425,7 @@ function ChatThread({
         });
       });
 
-    // Add structured chat event cards
-    chatEvents.forEach(event => {
-      items.push({
-        type: 'event',
-        timestamp: event.timestamp,
-        data: event,
-        key: event.id,
-      });
-    });
-
-    // Add completed flows
+    // Add completed flows (task verifications, E2E results, etc.)
     completedFlows.forEach(flow => {
       items.push({
         type: 'flow',
@@ -451,9 +437,9 @@ function ChatThread({
 
     // Sort by timestamp
     return items.sort((a, b) => a.timestamp - b.timestamp);
-  }, [messages, chatEvents, completedFlows]);
+  }, [messages, completedFlows]);
 
-  // Auto-scroll to bottom when new items arrive or active flows change
+  // Auto-scroll to bottom when new items arrive, active flows change, or pendingPlan appears
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -461,7 +447,7 @@ function ChatThread({
         behavior: 'smooth',
       });
     }
-  }, [timeline, activeFlows]);
+  }, [timeline, activeFlows, pendingPlan]);
 
   const handleSend = () => {
     const input = inputRef.current;
@@ -511,10 +497,8 @@ function ChatThread({
                       )}
                     />
                   );
-                } else if (item.type === 'flow') {
-                  return <CompletedFlowCard key={item.key} flow={item.data} />;
                 } else {
-                  return <ChatEventCard key={item.key} event={item.data} />;
+                  return <CompletedFlowCard key={item.key} flow={item.data} />;
                 }
               })}
 

@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '../types';
 import { parseMarkedResponse, extractJSON, MARKERS } from './response-parser';
 
 // Full stream-json message types from Claude CLI
@@ -380,9 +380,11 @@ User: ${newMessage}`;
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Emit message start for streaming UI
+      // Include isPlanningRequest so UI knows whether to show flow or planningStatus
       const startEvent: ChatStreamEvent = {
         type: 'message_start',
-        messageId
+        messageId,
+        isPlanningRequest: this.isPlanningRequest
       };
       this.emit('stream', startEvent);
 
@@ -613,7 +615,7 @@ User: ${newMessage}`;
   }
 
   /**
-   * Handles output and extracts plans
+   * Handles output and extracts plans or structured responses
    */
   private processOutput(output: string): void {
     // Check for plan JSON in output
@@ -633,6 +635,28 @@ User: ${newMessage}`;
         this.emit('planProposal', plan);
       } catch (err) {
         console.error('[PlanningAgent] Failed to parse plan JSON:', err);
+      }
+    } else {
+      // No plan detected - check for [RESPONSE] marker (structured chat response)
+      const responseParsed = parseMarkedResponse<ChatResponseEvent>(output, MARKERS.RESPONSE, ['message', 'status']);
+      if (responseParsed.success && responseParsed.data) {
+        console.log('[PlanningAgent] Detected structured response:', responseParsed.data.status);
+        this.emit('chatResponse', responseParsed.data);
+      } else if (output.includes('[RESPONSE]')) {
+        // Marker found but parsing failed - emit generic response
+        console.error('[PlanningAgent] Failed to parse response JSON:', responseParsed.error);
+        this.emit('chatResponse', {
+          message: 'Response received (parsing error)',
+          status: 'info'
+        } as ChatResponseEvent);
+      }
+
+      // Still emit 'complete' to clear planning status if this was a planning request
+      // This fixes the bug where UI stays stuck at "Exploring codebase" when PA responds without a plan
+      if (this.isPlanningRequest) {
+        const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Response complete' };
+        this.emit('planningStatus', statusEvent);
+        this.isPlanningRequest = false;
       }
     }
   }
@@ -775,6 +799,52 @@ After exploration, analyze:
 - What patterns should new code follow?
 - What dependencies exist between projects?
 - What's the logical order of implementation?
+
+## CROSS-PROJECT API CONSISTENCY (Critical for Multi-Project Features)
+
+When tasks span multiple projects with API dependencies (e.g., frontend + backend):
+
+1. **Define the API Contract FIRST**
+   - Before writing task descriptions, establish exact endpoint paths, request bodies, and response formats
+   - Use identical naming for fields across all projects (e.g., if backend uses \`userId\`, frontend must also use \`userId\`, not \`user_id\` or \`id\`)
+
+2. **Ensure Consistency Across Tasks**
+   - If backend task says: POST /api/users with body \`{ email, password }\` returning \`{ id, token }\`
+   - Frontend task MUST reference the EXACT same: POST /api/users with \`{ email, password }\` expecting \`{ id, token }\`
+   - Copy-paste endpoint definitions between tasks to avoid typos
+
+3. **Match Data Types and Structures**
+   - If backend returns \`{ user: { id: number, name: string } }\`, frontend must expect exactly that shape
+   - Document nullable fields consistently: if backend can return \`avatar: string | null\`, frontend must handle null
+
+4. **Coordinate Error Responses**
+   - Define error format once (e.g., \`{ message: string, code: string }\`) and use everywhere
+   - List the same status codes in both backend and frontend tasks
+
+5. **Shared Constants**
+   - Use same magic strings, enum values, and status codes across projects
+   - Example: If backend uses status "PENDING", "APPROVED", "REJECTED", frontend must use identical strings
+
+**Example of GOOD cross-project consistency:**
+
+Backend task:
+\`\`\`
+POST /api/auth/login
+Body: { email: string, password: string }
+Success (200): { token: string, user: { id: number, email: string, name: string } }
+Error (401): { message: "Invalid credentials" }
+\`\`\`
+
+Frontend task:
+\`\`\`
+Call POST /api/auth/login with { email, password }
+On 200: Store token, extract user as { id: number, email: string, name: string }
+On 401: Display error.message to user
+\`\`\`
+
+**Example of BAD inconsistency (DO NOT DO THIS):**
+- Backend: \`/api/auth/login\` returns \`{ accessToken, userData }\`
+- Frontend: expects \`/auth/login\` returning \`{ token, user }\`  ← WRONG paths and field names!
 
 ## PHASE 3: PLAN CREATION
 

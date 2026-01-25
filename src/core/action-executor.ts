@@ -289,7 +289,8 @@ export class ActionExecutor extends EventEmitter {
 
       // Don't update status here - emit result for analysis
       // The listener will analyze and set status to either IDLE (passed) or E2E_FIXING (failed)
-      this.stateMachine.markAgentIdle(action.project);
+      // NOTE: Don't call markAgentIdle here - the orchestrator will do it after E2E analysis completes
+      // This prevents a race condition where session completion triggers before analysis is done
 
       this.emit('e2eComplete', { project: action.project, result });
     } catch (err) {

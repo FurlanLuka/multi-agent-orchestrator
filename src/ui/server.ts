@@ -282,6 +282,17 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('flowComplete', { flowId, status, result, timestamp: Date.now() });
   };
 
+  // Emit instant flow (already completed - goes straight to history)
+  // This is for events like "Plan Approved" that don't need an active state
+  const emitInstantFlow = (flow: Omit<RequestFlow, 'status' | 'completedAt'> & { result?: { passed: boolean; summary?: string; details?: string } }) => {
+    const completeFlow: RequestFlow = {
+      ...flow,
+      status: 'completed' as FlowStatus,
+      completedAt: Date.now(),
+    };
+    io.emit('flowStart', completeFlow);  // Emit as flowStart so frontend processes it
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -307,6 +318,7 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitFlowStart = emitFlowStart;
   (io as any).emitFlowStep = emitFlowStep;
   (io as any).emitFlowComplete = emitFlowComplete;
+  (io as any).emitInstantFlow = emitInstantFlow;
 
   return {
     app,

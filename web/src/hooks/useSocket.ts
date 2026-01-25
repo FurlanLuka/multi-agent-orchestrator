@@ -22,15 +22,6 @@ import type {
   TaskState,
   TaskStatusEvent,
   PlanningStatusEvent,
-  AnalysisResultEvent,
-  ChatCardEvent,
-  VerificationStartEvent,
-  E2EStartEvent,
-  E2EAnalyzingEvent,
-  FixSentEvent,
-  WaitingForProjectEvent,
-  PlanApprovedCardEvent,
-  ChatResponseEvent,
   UserActionRequiredEvent,
   DependencyCheckResult,
   RequestFlow,
@@ -39,14 +30,6 @@ import type {
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
-
-// Helper function for findLastIndex (not available in all ES targets)
-function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (predicate(arr[i])) return i;
-  }
-  return -1;
-}
 
 export function useSocket() {
   const [connected, setConnected] = useState(false);
@@ -75,12 +58,6 @@ export function useSocket() {
 
   // Planning status for UX feedback
   const [planningStatus, setPlanningStatus] = useState<PlanningStatusEvent | null>(null);
-
-  // Analysis results for structured display
-  const [analysisResults, setAnalysisResults] = useState<AnalysisResultEvent[]>([]);
-
-  // Unified chat events for timeline cards
-  const [chatEvents, setChatEvents] = useState<ChatCardEvent[]>([]);
 
   // Request flows for two-section layout (active operations vs history)
   const [flows, setFlows] = useState<RequestFlow[]>([]);
@@ -149,9 +126,7 @@ export function useSocket() {
       // Clear the cached messages for the new session
       activeSessionMessagesRef.current = [];
       setStreamingMessages([]);
-      // Clear chat events and flows for new session
-      setChatEvents([]);
-      setAnalysisResults([]);
+      // Clear flows for new session
       setFlows([]);
     });
 
@@ -339,189 +314,6 @@ export function useSocket() {
     socket.on('planningStatus', (event: PlanningStatusEvent) => {
       // Clear status when phase is 'complete', otherwise update
       setPlanningStatus(event.phase === 'complete' ? null : event);
-    });
-
-    // Analysis result events for structured display
-    socket.on('analysisResult', (event: AnalysisResultEvent) => {
-      setAnalysisResults(prev => [...prev, event]);
-
-      // Only mutate STATUS cards (loading state) into result cards
-      // Never mutate existing result cards (especially failed ones)
-      setChatEvents(prev => {
-        const category = event.type === 'task' ? 'task' : 'e2e';
-
-        // Find the most recent STATUS card (type === 'status') for this project/category
-        const statusIndex = findLastIndex(prev, (e: ChatCardEvent) =>
-          e.type === 'status' &&  // Only status cards can be mutated
-          e.category === category &&
-          e.project === event.project
-        );
-
-        if (statusIndex !== -1) {
-          // Mutate the status card into a result card
-          const updated = [...prev];
-          updated[statusIndex] = {
-            ...updated[statusIndex],
-            type: 'result',
-            passed: event.passed,
-            summary: event.summary,
-            details: event.details,
-            fixPrompt: event.fixPrompt,
-            taskName: event.taskName,
-            message: undefined, // Clear the status message
-          };
-          return updated;
-        }
-
-        // No status card found - add a new result card
-        // (This happens if result comes without a preceding status event)
-        return [...prev, {
-          id: `${event.type}_${event.project}_${Date.now()}`,
-          type: 'result',
-          category,
-          project: event.project,
-          taskName: event.taskName,
-          timestamp: Date.now(),
-          passed: event.passed,
-          summary: event.summary,
-          details: event.details,
-          fixPrompt: event.fixPrompt,
-        }];
-      });
-    });
-
-    // Verification start events (task verification beginning)
-    socket.on('verificationStart', (event: VerificationStartEvent) => {
-      const chatEvent: ChatCardEvent = {
-        id: `verify_${event.project}_${event.taskIndex}_${Date.now()}`,
-        type: 'status',
-        category: 'task',
-        project: event.project,
-        taskName: event.taskName,
-        timestamp: Date.now(),
-        message: `Verifying "${event.taskName}"...`,
-      };
-      setChatEvents(prev => [...prev, chatEvent]);
-    });
-
-    // E2E start events (E2E tests beginning)
-    socket.on('e2eStart', (event: E2EStartEvent) => {
-      // Check if there's already an E2E status card for this project, update it
-      setChatEvents(prev => {
-        const existingIndex = findLastIndex(prev, (e: ChatCardEvent) =>
-          e.type === 'status' &&
-          e.category === 'e2e' &&
-          e.project === event.project
-        );
-
-        if (existingIndex !== -1) {
-          // Update existing card
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            message: `Running E2E tests...`,
-            timestamp: Date.now(),
-          };
-          return updated;
-        }
-
-        // Add new card
-        return [...prev, {
-          id: `e2e_start_${event.project}_${Date.now()}`,
-          type: 'status',
-          category: 'e2e',
-          project: event.project,
-          timestamp: Date.now(),
-          message: `Running E2E tests...`,
-        }];
-      });
-    });
-
-    // E2E analyzing events (analyzing E2E results)
-    socket.on('e2eAnalyzing', (event: E2EAnalyzingEvent) => {
-      // Update the existing E2E status card instead of adding a new one
-      setChatEvents(prev => {
-        const existingIndex = findLastIndex(prev, (e: ChatCardEvent) =>
-          e.type === 'status' &&
-          e.category === 'e2e' &&
-          e.project === event.project
-        );
-
-        if (existingIndex !== -1) {
-          // Update existing card to show analyzing
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            message: `Analyzing E2E results...`,
-          };
-          return updated;
-        }
-
-        // Add new card if none exists
-        return [...prev, {
-          id: `e2e_analyzing_${event.project}_${Date.now()}`,
-          type: 'status',
-          category: 'e2e',
-          project: event.project,
-          timestamp: Date.now(),
-          message: `Analyzing E2E results...`,
-        }];
-      });
-    });
-
-    // Fix sent events (fix sent to another project)
-    socket.on('fixSent', (event: FixSentEvent) => {
-      const chatEvent: ChatCardEvent = {
-        id: `fix_sent_${event.toProject}_${Date.now()}`,
-        type: 'info',
-        category: 'fix',
-        project: event.toProject,
-        timestamp: Date.now(),
-        message: `Fix sent to ${event.toProject}`,
-        summary: `From ${event.fromProject}: ${event.reason}`,
-      };
-      setChatEvents(prev => [...prev, chatEvent]);
-    });
-
-    // Waiting for project events (waiting for dependencies)
-    socket.on('waitingForProject', (event: WaitingForProjectEvent) => {
-      const chatEvent: ChatCardEvent = {
-        id: `waiting_${event.project}_${Date.now()}`,
-        type: 'info',
-        category: 'fix',
-        project: event.project,
-        timestamp: Date.now(),
-        message: `Waiting for ${event.waitingFor.join(', ')} to complete`,
-      };
-      setChatEvents(prev => [...prev, chatEvent]);
-    });
-
-    // Plan approved card events
-    socket.on('planApprovedCard', (event: PlanApprovedCardEvent) => {
-      const chatEvent: ChatCardEvent = {
-        id: `plan_approved_${Date.now()}`,
-        type: 'info',
-        category: 'plan',
-        timestamp: Date.now(),
-        message: 'Plan Approved',
-        summary: `${event.feature} - ${event.taskCount} tasks across ${event.projectCount} project(s)`,
-      };
-      setChatEvents(prev => [...prev, chatEvent]);
-    });
-
-    // Chat response events (structured responses from Planning Agent)
-    socket.on('chatResponse', (event: ChatResponseEvent) => {
-      const chatEvent: ChatCardEvent = {
-        id: `response_${Date.now()}`,
-        type: 'result',
-        category: 'plan',  // General agent response category
-        timestamp: Date.now(),
-        passed: event.status === 'success',
-        summary: event.message,
-        details: event.details,
-        responseStatus: event.status,  // Use for color override
-      };
-      setChatEvents(prev => [...prev, chatEvent]);
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -990,10 +782,8 @@ export function useSocket() {
     }
   }, []);
 
-  // Clear analysis results, chat events, and flows when starting new session
-  const clearAnalysisResults = useCallback(() => {
-    setAnalysisResults([]);
-    setChatEvents([]);
+  // Clear flows when starting new session
+  const clearFlows = useCallback(() => {
     setFlows([]);
   }, []);
 
@@ -1055,8 +845,6 @@ export function useSocket() {
     testStates,
     taskStates,
     planningStatus,
-    analysisResults,
-    chatEvents,
     flows,
     activeFlows,
     completedFlows,
@@ -1082,7 +870,7 @@ export function useSocket() {
     respondToApproval,
     clearLogs,
     clearStreamingMessages,
-    clearAnalysisResults,
+    clearFlows,
     createProjectFromTemplate,
     addProject,
     removeProject,
