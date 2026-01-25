@@ -178,7 +178,6 @@ export const ALWAYS_DENIED: string[] = [
   'Bash(mkfs *)',
   'Bash(:(){ :|:& };:)', // Fork bomb
   'Bash(wget * | sh)',
-  'Bash(curl * | sh)',
 ];
 
 /**

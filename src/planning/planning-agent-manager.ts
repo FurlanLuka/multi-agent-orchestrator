@@ -423,6 +423,23 @@ User: ${newMessage}`;
                       contentBlock = { type: 'text', text: block.text };
                       this.emit('output', block.text);
 
+                      // Parse [PLANNER_STATUS] messages for real-time status updates
+                      const statusMatch = block.text.match(/\[PLANNER_STATUS\]\s*(\{.*?\})/);
+                      if (statusMatch) {
+                        try {
+                          const statusData = JSON.parse(statusMatch[1]);
+                          if (statusData.message) {
+                            const statusEvent: PlanningStatusEvent = {
+                              phase: this.currentPlanningPhase || 'exploring',
+                              message: statusData.message
+                            };
+                            this.emit('planningStatus', statusEvent);
+                          }
+                        } catch {
+                          // Ignore JSON parse errors
+                        }
+                      }
+
                       // Detect plan JSON appearing = generating phase
                       if (this.isPlanningRequest && block.text.includes('"tasks"') && this.currentPlanningPhase !== 'generating') {
                         this.currentPlanningPhase = 'generating';
@@ -1080,6 +1097,20 @@ BAD task (too vague - DO NOT do this):
 - If a feature involves real-time updates, test the REST API endpoints only (e.g., "POST /messages creates message" not "WebSocket receives message event")
 - Focus on request/response patterns that can be verified with curl or browser navigation
 - **EXCEPTION**: If the project's e2e testing rules specifiy custom testing tools/capabilities, follow those instructions instead
+
+## STATUS REPORTING
+
+As you work, output status markers so the user knows what you're doing:
+[PLANNER_STATUS] {"message": "Brief description of current step"}
+
+Examples:
+[PLANNER_STATUS] {"message": "Exploring backend structure"}
+[PLANNER_STATUS] {"message": "Reading auth module"}
+[PLANNER_STATUS] {"message": "Analyzing API endpoints"}
+[PLANNER_STATUS] {"message": "Designing task breakdown"}
+[PLANNER_STATUS] {"message": "Creating test plan"}
+
+Output a status marker before starting each significant step.
 
 ## BEGIN
 

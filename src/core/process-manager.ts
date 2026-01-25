@@ -294,6 +294,9 @@ export class ProcessManager extends EventEmitter {
 
       if (useDangerousMode) {
         args.push('--dangerously-skip-permissions');
+      } else {
+        // Use acceptEdits mode to respect the settings.json allow list
+        args.push('--permission-mode', 'acceptEdits');
       }
 
       const proc = spawn(claudePath, args, {
