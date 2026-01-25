@@ -1675,11 +1675,12 @@ Output these markers on their own line, not inside code blocks.`;
     });
 
     // Handle permission response from UI (for live permission approval via MCP)
-    socket.on('permissionResponse', async ({ project, taskIndex, approved, toolName }: {
+    socket.on('permissionResponse', async ({ project, taskIndex, approved, toolName, allowAll }: {
       project: string;
       taskIndex: number;
       approved: boolean;
       toolName: string;
+      allowAll?: boolean;
     }) => {
       const key = `${project}_${taskIndex}`;
       const pendingPermissions = (ui.io as any).pendingPermissions as Map<string, {
@@ -1697,7 +1698,7 @@ Output these markers on their own line, not inside code blocks.`;
         return;
       }
 
-      console.log(`[Orchestrator] Permission ${approved ? 'approved' : 'denied'} for ${project}: ${toolName}`);
+      console.log(`[Orchestrator] Permission ${approved ? 'approved' : 'denied'} for ${project}: ${toolName}${allowAll ? ' (allow all)' : ''}`);
 
       if (approved) {
         // Add permission to project config for future use (project agents only)
@@ -1707,8 +1708,37 @@ Output these markers on their own line, not inside code blocks.`;
             if (!projectConfig.permissions) {
               projectConfig.permissions = { allow: [] };
             }
-            // Convert toolName to permission format (e.g., "Bash" -> "Bash(*)")
-            const permission = toolName.includes('(') ? toolName : `${toolName}(*)`;
+
+            let permission: string;
+
+            // Get the actual command - either from toolInput.command or parsed from toolName
+            const toolInput = pending.toolInput || {};
+            const inputCommand = typeof toolInput.command === 'string' ? toolInput.command : null;
+            const toolMatch = toolName.match(/^(\w+)\((.+)\)$/);
+            const toolType = toolMatch ? toolMatch[1] : toolName;
+            const toolNameCommand = toolMatch ? toolMatch[2] : '';
+            const actualCommand = inputCommand || toolNameCommand;
+
+            if (allowAll && actualCommand) {
+              // Create a wildcard pattern for "allow all" commands of this type
+              // e.g., command "curl https://example.com" -> "Bash(curl *)"
+              const baseCommand = actualCommand.split(/\s+/)[0];
+              if (baseCommand) {
+                permission = `${toolType}(${baseCommand} *)`;
+              } else {
+                // No base command found, save exact command
+                permission = `${toolType}(${actualCommand})`;
+              }
+            } else if (actualCommand) {
+              // Allow this exact command
+              permission = `${toolType}(${actualCommand})`;
+            } else {
+              // No command found - save the exact toolName as-is (don't wildcard)
+              // This prevents dangerous patterns like Bash(*)
+              permission = toolName;
+              console.warn(`[Orchestrator] No command found in permission request, saving exact toolName: ${toolName}`);
+            }
+
             if (!projectConfig.permissions.allow.includes(permission)) {
               projectConfig.permissions.allow.push(permission);
               try {

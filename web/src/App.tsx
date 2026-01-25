@@ -212,59 +212,35 @@ function App() {
 
         <AppShell.Main>
           <Container size="100%" py="md" h="calc(100vh - 80px)">
-            {/* All Complete Banner with Dev Server Controls */}
+            {/* All Complete - Success Message Card */}
             {allComplete && (
-              <Alert
-                icon={<IconCheck size={20} />}
-                title="Feature Complete!"
-                color="green"
-                mb="md"
-                radius="md"
-                variant="light"
-                styles={{
-                  root: {
-                    border: '1px solid var(--mantine-color-green-3)',
-                  },
-                }}
-              >
-                <Stack gap="sm">
-                  <Text size="sm">All projects have completed their tasks successfully. Dev servers are still running for testing.</Text>
-                  <Group gap="sm">
-                    {session?.projects.map(projectName => {
-                      const config = projects[projectName];
-                      if (!config) return null;
-                      const url = config.devServer.url || `http://localhost:${config.devServer.port || 5173}`;
-                      return (
-                        <Button
-                          key={projectName}
-                          component="a"
-                          href={url}
-                          target="_blank"
-                          variant="light"
-                          color="blue"
-                          size="xs"
-                          leftSection={<IconExternalLink size={14} />}
-                        >
-                          {projectName}
-                        </Button>
-                      );
-                    })}
-                    <Button
-                      variant="light"
-                      color="red"
-                      size="xs"
-                      leftSection={<IconPlayerStop size={14} />}
-                      onClick={stopSession}
-                    >
-                      Stop Dev Servers
-                    </Button>
-                  </Group>
+              <Stack gap="md" mb="md">
+                {/* Green Success Card */}
+                <Alert
+                  icon={<IconCheck size={20} />}
+                  title="Feature Complete!"
+                  color="green"
+                  radius="md"
+                  variant="light"
+                  styles={{
+                    root: {
+                      border: '1px solid var(--mantine-color-green-3)',
+                    },
+                  }}
+                >
+                  <Text size="sm">All projects have completed their tasks successfully.</Text>
+                </Alert>
 
-                  {/* Git Push & Merge Buttons */}
-                  {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
-                    <>
-                      <Text size="sm" fw={500} mt="xs">Git Operations:</Text>
-                      <Group gap="sm">
+                {/* Controls Card - Git Operations + Dev Server */}
+                <Paper shadow="sm" radius="md" p="md" withBorder>
+                  <Stack gap="md">
+                    {/* Row 1: Git Operations */}
+                    {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
+                      <Group gap="sm" align="center">
+                        <Group gap="xs">
+                          <IconGitBranch size={16} color="var(--mantine-color-violet-6)" />
+                          <Text size="sm" fw={500} c="dimmed">Git:</Text>
+                        </Group>
                         {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
                           const isPushing = pushingBranch[projectName];
                           const pushResult = pushResults[projectName];
@@ -289,37 +265,35 @@ function App() {
                           // If push succeeded, show merge button
                           if (pushResult?.success) {
                             return (
-                              <Stack key={projectName} gap={4}>
-                                <Group gap="xs">
-                                  <Badge
-                                    color="green"
-                                    variant="light"
-                                    leftSection={<IconCheck size={12} />}
-                                  >
-                                    {projectName}: Pushed
-                                  </Badge>
-                                  <Button
-                                    variant="light"
-                                    color="teal"
-                                    size="xs"
-                                    leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
-                                    loading={isMerging}
-                                    onClick={() => mergeBranch(projectName, branchName)}
-                                    disabled={isMerging}
-                                  >
-                                    Merge to {mainBranch}
-                                  </Button>
-                                </Group>
+                              <Group key={projectName} gap="xs">
+                                <Badge
+                                  color="green"
+                                  variant="light"
+                                  leftSection={<IconCheck size={12} />}
+                                >
+                                  {projectName}: Pushed
+                                </Badge>
+                                <Button
+                                  variant="light"
+                                  color="teal"
+                                  size="xs"
+                                  leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
+                                  loading={isMerging}
+                                  onClick={() => mergeBranch(projectName, branchName)}
+                                  disabled={isMerging}
+                                >
+                                  Merge to {mainBranch}
+                                </Button>
                                 {mergeResult && !mergeResult.success && (
                                   <Text size="xs" c="red">{mergeResult.message}</Text>
                                 )}
-                              </Stack>
+                              </Group>
                             );
                           }
 
                           // Show push button
                           return (
-                            <Stack key={projectName} gap={4}>
+                            <Group key={projectName} gap="xs">
                               <Button
                                 variant="light"
                                 color="violet"
@@ -335,14 +309,50 @@ function App() {
                               {pushResult && !pushResult.success && (
                                 <Text size="xs" c="red">{pushResult.message}</Text>
                               )}
-                            </Stack>
+                            </Group>
                           );
                         })}
                       </Group>
-                    </>
-                  )}
-                </Stack>
-              </Alert>
+                    )}
+
+                    {/* Row 2: Dev Server Controls */}
+                    <Group gap="sm" align="center">
+                      <Group gap="xs">
+                        <IconExternalLink size={16} color="var(--mantine-color-blue-6)" />
+                        <Text size="sm" fw={500} c="dimmed">Dev Servers:</Text>
+                      </Group>
+                      {session?.projects.map(projectName => {
+                        const config = projects[projectName];
+                        if (!config) return null;
+                        const url = config.devServer.url || `http://localhost:${config.devServer.port || 5173}`;
+                        return (
+                          <Button
+                            key={projectName}
+                            component="a"
+                            href={url}
+                            target="_blank"
+                            variant="light"
+                            color="blue"
+                            size="xs"
+                            leftSection={<IconExternalLink size={14} />}
+                          >
+                            {projectName}
+                          </Button>
+                        );
+                      })}
+                      <Button
+                        variant="light"
+                        color="red"
+                        size="xs"
+                        leftSection={<IconPlayerStop size={14} />}
+                        onClick={stopSession}
+                      >
+                        Stop Dev Servers
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Paper>
+              </Stack>
             )}
 
             {/* Read-Only Banner */}

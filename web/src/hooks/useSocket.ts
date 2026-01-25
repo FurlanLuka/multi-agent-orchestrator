@@ -864,13 +864,14 @@ export function useSocket() {
   }, []);
 
   // Respond to permission prompt (for live permission approval via MCP)
-  const respondToPermission = useCallback((approved: boolean) => {
+  const respondToPermission = useCallback((approved: boolean, allowAll?: boolean) => {
     if (socketRef.current && permissionPrompt) {
       socketRef.current.emit('permissionResponse', {
         project: permissionPrompt.project,
         taskIndex: permissionPrompt.taskIndex,
         approved,
         toolName: permissionPrompt.toolName,
+        allowAll: allowAll || false,
       });
       setPermissionPrompt(null);
     }

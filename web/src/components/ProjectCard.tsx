@@ -12,7 +12,7 @@ import {
   Stack,
   Button,
 } from '@mantine/core';
-import { IconShieldQuestion, IconCheck, IconX } from '@tabler/icons-react';
+import { IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '../types';
 
 interface ProjectCardProps {
@@ -26,7 +26,7 @@ interface ProjectCardProps {
     toolName: string;
     toolInput: Record<string, unknown>;
   } | null;
-  onPermissionResponse?: (approved: boolean) => void;
+  onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
 }
 
 // Status configuration for colors and labels
@@ -187,60 +187,108 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
       </ScrollArea>
 
       {/* Permission overlay */}
-      {permissionPrompt && (
-        <Box
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            borderRadius: 'inherit',
-          }}
-        >
-          <Stack align="center" gap="md" p="xl">
-            <IconShieldQuestion size={48} color="var(--mantine-color-yellow-5)" />
-            <Text fw={600} size="lg" c="white">Permission Required</Text>
+      {permissionPrompt && (() => {
+        const input = permissionPrompt.toolInput || {};
 
-            <Code block style={{ maxWidth: '100%', overflow: 'auto' }}>
-              {permissionPrompt.toolName}
-            </Code>
+        // Get command from toolInput.command or parse from toolName
+        const toolMatch = permissionPrompt.toolName.match(/^(\w+)\((.+)\)$/);
+        const toolNameCommand = toolMatch ? toolMatch[2] : '';
 
-            {permissionPrompt.toolInput && Object.keys(permissionPrompt.toolInput).length > 0 && (
-              <Code block style={{ fontSize: '11px', maxHeight: '100px', overflow: 'auto' }}>
-                {JSON.stringify(permissionPrompt.toolInput, null, 2)}
-              </Code>
-            )}
+        // Prefer toolInput.command over parsed toolName
+        const actualCommand = typeof input.command === 'string' ? input.command : toolNameCommand;
+        const description = typeof input.description === 'string' ? input.description : null;
 
-            <Group mt="md">
-              <Button
-                color="green"
-                leftSection={<IconCheck size={16} />}
-                onClick={() => onPermissionResponse?.(true)}
+        // Extract base command for "Allow All" (e.g., "curl -s ..." -> "curl")
+        // Only show "Allow All" if we have a valid command that looks like a real command name
+        const toolTypeMatch = permissionPrompt.toolName.match(/^(\w+)/);
+        const toolType = toolTypeMatch ? toolTypeMatch[1] : 'Bash';
+        const baseCommand = actualCommand.trim().split(/\s+/)[0] || '';
+        const isValidCommand = baseCommand.length > 0 && /^[a-zA-Z][\w.-]*$/.test(baseCommand);
+        const allowAllPattern = isValidCommand ? `${toolType}(${baseCommand} *)` : null;
+
+        return (
+          <Box
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.94)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              borderRadius: 'inherit',
+              padding: '12px',
+            }}
+          >
+            <Stack align="center" gap="xs" style={{ maxWidth: '100%', width: '100%' }}>
+              <Group gap="xs">
+                <IconShield size={18} color="var(--mantine-color-blue-4)" />
+                <Text fw={600} size="sm" c="white">Permission Required</Text>
+              </Group>
+
+              {/* Description */}
+              {description && (
+                <Text size="xs" c="gray.4" ta="center" lineClamp={2}>
+                  {description}
+                </Text>
+              )}
+
+              {/* Command display */}
+              <Text
+                size="xs"
+                c="white"
+                ff="monospace"
+                ta="center"
+                lineClamp={3}
+                style={{
+                  wordBreak: 'break-all',
+                  padding: '6px 10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '4px',
+                  width: '100%',
+                }}
               >
-                Allow
-              </Button>
-              <Button
-                color="red"
-                variant="light"
-                leftSection={<IconX size={16} />}
-                onClick={() => onPermissionResponse?.(false)}
-              >
-                Deny
-              </Button>
-            </Group>
+                {actualCommand || permissionPrompt.toolName}
+              </Text>
 
-            <Text size="xs" c="dimmed" ta="center">
-              Denying will stop the agent and mark project as failed
-            </Text>
-          </Stack>
-        </Box>
-      )}
+              {/* Action buttons - compact row */}
+              <Group justify="center" gap="xs" mt="xs">
+                <Button
+                  color="blue"
+                  variant="filled"
+                  size="xs"
+                  leftSection={<IconCheck size={14} />}
+                  onClick={() => onPermissionResponse?.(true, false)}
+                >
+                  Allow
+                </Button>
+                {allowAllPattern && (
+                  <Button
+                    color="teal"
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconShieldCheck size={14} />}
+                    onClick={() => onPermissionResponse?.(true, true)}
+                  >
+                    Allow all - {allowAllPattern}
+                  </Button>
+                )}
+                <Button
+                  color="red"
+                  variant="subtle"
+                  size="xs"
+                  onClick={() => onPermissionResponse?.(false)}
+                >
+                  Deny
+                </Button>
+              </Group>
+            </Stack>
+          </Box>
+        );
+      })()}
     </Paper>
   );
 }

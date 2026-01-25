@@ -22,7 +22,7 @@ import {
   Divider,
   Button,
 } from '@mantine/core';
-import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconShieldQuestion, IconCheck, IconX } from '@tabler/icons-react';
+import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
 import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, RequestFlow, PermissionPrompt } from '../types';
 import { PlanningStatusIndicator } from './PlanningStatusIndicator';
 import { TabbedPlanView } from './TabbedPlanView';
@@ -40,7 +40,7 @@ interface AssistantChatProps {
   sessionActive: boolean;
   readOnly?: boolean;
   permissionPrompt?: PermissionPrompt | null;
-  onPermissionResponse?: (approved: boolean) => void;
+  onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
 }
 
 // Types for markdown components
@@ -589,67 +589,105 @@ function ChatThread({
       </Paper>
 
       {/* Planner permission overlay */}
-      {isPlannerPermission && permissionPrompt && (
-        <Box
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-          }}
-        >
-          <Card p="xl" radius="md" style={{ maxWidth: 500 }}>
-            <Stack align="center" gap="md">
-              <IconShieldQuestion size={48} color="var(--mantine-color-yellow-5)" />
-              <Text fw={600} size="lg">Planner Permission Required</Text>
+      {isPlannerPermission && permissionPrompt && (() => {
+        const input = permissionPrompt.toolInput || {};
 
-              <Text size="sm" c="dimmed" ta="center">
-                The planning agent needs permission to use:
-              </Text>
+        // Get command from toolInput.command or parse from toolName
+        const toolMatch = permissionPrompt.toolName.match(/^(\w+)\((.+)\)$/);
+        const toolNameCommand = toolMatch ? toolMatch[2] : '';
 
-              <Code block style={{ width: '100%' }}>
-                {permissionPrompt.toolName}
-              </Code>
+        // Prefer toolInput.command over parsed toolName
+        const actualCommand = typeof input.command === 'string' ? input.command : toolNameCommand;
+        const description = typeof input.description === 'string' ? input.description : null;
 
-              {permissionPrompt.toolInput && Object.keys(permissionPrompt.toolInput).length > 0 && (
-                <Code block style={{ fontSize: '11px', maxHeight: '150px', overflow: 'auto', width: '100%' }}>
-                  {JSON.stringify(permissionPrompt.toolInput, null, 2)}
-                </Code>
+        // Extract base command for "Allow All" (e.g., "curl -s ..." -> "curl")
+        // Only show "Allow All" if we have a valid command that looks like a real command name
+        const toolTypeMatch = permissionPrompt.toolName.match(/^(\w+)/);
+        const toolType = toolTypeMatch ? toolTypeMatch[1] : 'Bash';
+        const baseCommand = actualCommand.trim().split(/\s+/)[0] || '';
+        const isValidCommand = baseCommand.length > 0 && /^[a-zA-Z][\w.-]*$/.test(baseCommand);
+        const allowAllPattern = isValidCommand ? `${toolType}(${baseCommand} *)` : null;
+
+        return (
+          <Box
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.94)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+            }}
+          >
+            <Stack align="center" gap="md" p="xl" style={{ maxWidth: 400 }}>
+              <Group gap="xs">
+                <IconShield size={24} color="var(--mantine-color-blue-4)" />
+                <Text fw={600} size="md" c="white">Planner Permission</Text>
+              </Group>
+
+              {/* Description */}
+              {description && (
+                <Text size="sm" c="gray.4" ta="center">
+                  {description}
+                </Text>
               )}
 
-              <Group mt="md">
+              {/* Command display */}
+              <Text
+                size="sm"
+                c="white"
+                ff="monospace"
+                ta="center"
+                style={{
+                  wordBreak: 'break-all',
+                  padding: '10px 14px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  width: '100%',
+                }}
+              >
+                {actualCommand || permissionPrompt.toolName}
+              </Text>
+
+              {/* Action buttons */}
+              <Group justify="center" gap="sm">
                 <Button
-                  color="green"
-                  size="md"
-                  leftSection={<IconCheck size={18} />}
-                  onClick={() => onPermissionResponse?.(true)}
+                  color="blue"
+                  variant="filled"
+                  size="sm"
+                  leftSection={<IconCheck size={16} />}
+                  onClick={() => onPermissionResponse?.(true, false)}
                 >
                   Allow
                 </Button>
+                {allowAllPattern && (
+                  <Button
+                    color="teal"
+                    variant="light"
+                    size="sm"
+                    leftSection={<IconShieldCheck size={16} />}
+                    onClick={() => onPermissionResponse?.(true, true)}
+                  >
+                    Allow all - {allowAllPattern}
+                  </Button>
+                )}
                 <Button
                   color="red"
-                  variant="light"
-                  size="md"
-                  leftSection={<IconX size={18} />}
+                  variant="subtle"
+                  size="sm"
                   onClick={() => onPermissionResponse?.(false)}
                 >
                   Deny
                 </Button>
               </Group>
-
-              <Text size="xs" c="dimmed" ta="center">
-                Denying will stop the planning process
-              </Text>
             </Stack>
-          </Card>
-        </Box>
-      )}
+          </Box>
+        );
+      })()}
     </Box>
   );
 }

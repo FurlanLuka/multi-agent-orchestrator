@@ -145,22 +145,40 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     // Check if this permission is already in the project's allow list
     const projectConfig = deps?.config?.projects?.[project];
 
+    // Build the string to match against - prefer toolInput.command for accurate matching
+    const inputCommand = typeof toolInput?.command === 'string' ? toolInput.command : null;
+    const toolMatch = toolName.match(/^(\w+)\((.+)\)$/s);  // 's' flag for dotall
+    const toolType = toolMatch ? toolMatch[1] : toolName;
+    const toolNameCommand = toolMatch ? toolMatch[2] : '';
+    const actualCommand = inputCommand || toolNameCommand;
+
+    // Build the full match string (e.g., "Bash(curl -s ...)")
+    const matchString = actualCommand ? `${toolType}(${actualCommand})` : toolName;
+
+    console.log(`[UIServer] Matching against: ${matchString.substring(0, 100)}...`);
+
     if (projectConfig?.permissions?.allow) {
       const allowList = projectConfig.permissions.allow as string[];
       const isAllowed = allowList.some(pattern => {
         // Check exact match first
+        if (pattern === matchString) return true;
         if (pattern === toolName) return true;
 
-        // Check pattern match (e.g., "Bash(npm install *)" matches "Bash(npm install foo)")
+        // Check pattern match (e.g., "Bash(curl *)" matches "Bash(curl -s ...)")
         // Convert glob pattern to regex
         const regexPattern = pattern
           .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special chars except *
-          .replace(/\*/g, '.*');  // Convert * to .*
+          .replace(/\*/g, '[\\s\\S]*');  // Convert * to [\s\S]* to match any char including newlines
 
         try {
           const regex = new RegExp(`^${regexPattern}$`);
-          return regex.test(toolName);
-        } catch {
+          const matches = regex.test(matchString);
+          if (matches) {
+            console.log(`[UIServer] Pattern "${pattern}" matched`);
+          }
+          return matches;
+        } catch (e) {
+          console.error(`[UIServer] Invalid regex pattern: ${pattern}`, e);
           return false;
         }
       });

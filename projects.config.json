@@ -28,8 +28,7 @@
           "Bash(cat *)",
           "Bash(mkdir *)",
           "Bash(find *)",
-          "Bash(*)",
-          "WebFetch(*)"
+          "Bash(curl -s http://localhost:3000/posts)"
         ]
       }
     },
@@ -71,7 +70,7 @@
           "mcp__playwright__browser_press_key",
           "mcp__playwright__browser_console_messages",
           "mcp__playwright__browser_network_requests",
-          "Bash(*)"
+          "Bash(npm *)"
         ]
       }
     }
