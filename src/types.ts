@@ -226,6 +226,7 @@ export interface E2EPromptRequest {
   testScenarios: string[];
   devServerUrl?: string;
   devServerLogs?: string;  // Recent dev server logs for debugging
+  passedCount?: number;    // Number of tests already passed (skipped on retry)
 }
 
 // Orchestrator state machine
@@ -306,6 +307,7 @@ export interface E2EPromptRequestEvent {
   taskSummary: string;
   testScenarios: string[];
   devServerUrl?: string;
+  passedCount?: number;    // Number of tests already passed (skipped on retry)
 }
 
 export interface FailureAnalysisEvent {
@@ -356,13 +358,26 @@ export interface NoopAction {
   type: 'noop';
 }
 
+export interface SkipE2EAction {
+  type: 'skip_e2e';
+  project: string;
+  reason?: string;
+}
+
+export interface RetryE2EAction {
+  type: 'retry_e2e';
+  project: string;
+}
+
 export type PlanningAction =
   | ChatResponseAction
   | SendToAgentAction
   | SendE2EAction
   | RestartServerAction
   | CompleteAction
-  | NoopAction;
+  | NoopAction
+  | SkipE2EAction
+  | RetryE2EAction;
 
 // Hook configuration for .claude/settings.json
 export interface HookConfig {

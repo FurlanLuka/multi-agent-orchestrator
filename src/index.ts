@@ -240,16 +240,17 @@ async function main() {
   }));
 
   // Handle E2E prompt requests from queue
-  eventQueue.on('e2ePromptRequest', wrapHandler('e2ePromptRequest', async ({ project, taskSummary, testScenarios, devServerUrl }: {
+  eventQueue.on('e2ePromptRequest', wrapHandler('e2ePromptRequest', async ({ project, taskSummary, testScenarios, devServerUrl, passedCount }: {
     project: string;
     taskSummary: string;
     testScenarios: string[];
     devServerUrl?: string;
+    passedCount?: number;
   }) => {
     // Clear tracking now that we're processing this E2E request
     e2eQueuedProjects.delete(project);
 
-    const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios, devServerUrl);
+    const e2ePrompt = await chatHandler.requestE2EPrompt(project, taskSummary, testScenarios, devServerUrl, passedCount);
     if (e2ePrompt && e2ePrompt.trim()) {
       console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
       await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
@@ -586,6 +587,24 @@ After fixing, the E2E tests will be re-run automatically.`;
     // No pre-E2E verification needed - all tasks for this project already passed verification
     const devServerUrl = getDevServerUrl(project);
 
+    // Get already-passed tests to skip them on retry
+    const currentSessionId = sessionStore.getCurrentSessionId();
+    const passedTests = currentSessionId ? sessionStore.getPassedTests(currentSessionId, project) : [];
+    const allScenarios = session.plan.testPlan[project] || [];
+
+    // Filter out passed scenarios - only run pending/failed ones
+    const scenariosToTest = allScenarios.filter(s => !passedTests.includes(s));
+
+    if (scenariosToTest.length === 0) {
+      console.log(`[Orchestrator] All E2E tests already passed for ${project}, marking as complete`);
+      statusMonitor.updateStatus(project, 'IDLE', 'All E2E tests passed');
+      return;
+    }
+
+    if (passedTests.length > 0) {
+      console.log(`[Orchestrator] Skipping ${passedTests.length} already-passed tests for ${project}`);
+    }
+
     // Check if project has custom E2E instructions
     if (projectConfig?.e2eInstructions) {
       console.log(`[Orchestrator] Using custom E2E instructions for ${project}`);
@@ -601,18 +620,22 @@ Dev Server URL: ${devServerUrl}
 3. The dev server is ALREADY RUNNING at the URL above - just run tests against it
 4. If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
 5. Your ONLY job is to run E2E tests and report results
+6. **FAIL FAST**: Stop immediately after the FIRST test failure - do not continue to other tests
 
 ## Custom Testing Instructions
 
 ${projectConfig.e2eInstructions}
 
 ## Test Scenarios to Verify
-${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
+${scenariosToTest.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and skipped)` : ''}
 
 **IMPORTANT**: Output TEST STATUS MARKERS for real-time tracking:
 - Before each test: [TEST_STATUS] {"scenario": "exact scenario text", "status": "running"}
 - After passing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "passed"}
-- After failing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "failed", "error": "brief error description"}`;
+- After failing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "failed", "error": "brief error description"}
+
+**FAIL FAST**: When a test fails, STOP immediately and report the failure. Do not continue to other tests.`;
 
       // Execute E2E directly without going through Planning Agent
       await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
@@ -626,8 +649,9 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
       type: 'e2e_prompt_request',
       project,
       taskSummary: message,
-      testScenarios: session.plan.testPlan[project],
-      devServerUrl
+      testScenarios: scenariosToTest,  // Only include non-passed scenarios
+      devServerUrl,
+      passedCount: passedTests.length  // For context in prompt
     });
   };
 
@@ -654,10 +678,13 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
   statusMonitor.on('projectReady', async ({ project, message, previous }) => {
     console.log(`[Orchestrator] ${project} is READY: ${message} (previous: ${previous})`);
 
-    // Skip auto-triggering E2E when coming from E2E_FIXING state
-    // The E2E completion handler manages the re-run explicitly to avoid duplicate prompts
+    // When coming from E2E_FIXING state:
+    // - This project was fixing issues for another project's E2E failure
+    // - This project already passed its own E2E tests before (that's why it was IDLE)
+    // - Set it back to IDLE, which triggers checkPendingE2E to unblock waiting projects
     if (previous === 'E2E_FIXING') {
-      console.log(`[Orchestrator] Skipping auto E2E trigger for ${project} - E2E re-run is managed by e2eComplete handler`);
+      console.log(`[Orchestrator] ${project} completed E2E fix, setting to IDLE (will trigger pending E2E checks)`);
+      statusMonitor.updateStatus(project, 'IDLE', 'E2E fix completed');
       return;
     }
 
@@ -910,6 +937,60 @@ ${session.plan.testPlan[project].map((s, i) => `${i + 1}. ${s}`).join('\n')}
           }
           return;
         }
+      }
+
+      // Handle skip_e2e - mark project as complete, unblocking dependents
+      if (action.type === 'skip_e2e') {
+        const projectStatus = statusMonitor.getStatus(action.project);
+        const status = projectStatus?.status;
+
+        // Only allow when stuck (FATAL_DEBUGGING, BLOCKED, or FAILED)
+        if (status !== 'FATAL_DEBUGGING' && status !== 'BLOCKED' && status !== 'FAILED') {
+          chatHandler.systemMessage(
+            `Cannot skip E2E for ${action.project} - project is ${status}. ` +
+            `Skip is only available when project is FATAL_DEBUGGING, BLOCKED, or FAILED.`
+          );
+          return;
+        }
+
+        const reason = action.reason || 'Skipped by user';
+        console.log(`[Orchestrator] Skipping E2E for ${action.project}: ${reason}`);
+        statusMonitor.updateStatus(action.project, 'IDLE', `E2E skipped: ${reason}`);
+        e2eRetryCount.delete(action.project);
+        chatHandler.systemMessage(`Marked ${action.project} as complete (E2E skipped). Dependent projects can now proceed.`);
+        return;
+      }
+
+      // Handle retry_e2e - re-run E2E tests
+      if (action.type === 'retry_e2e') {
+        const projectStatus = statusMonitor.getStatus(action.project);
+        const status = projectStatus?.status;
+
+        // BLOCKED means waiting for dependency - retry won't help
+        if (status === 'BLOCKED') {
+          chatHandler.systemMessage(
+            `Cannot retry E2E for ${action.project} - project is BLOCKED waiting for dependencies. ` +
+            `Either wait for dependencies to complete, or use skip_e2e to mark this project as complete.`
+          );
+          return;
+        }
+
+        // Only allow when stuck (FATAL_DEBUGGING or FAILED)
+        if (status !== 'FATAL_DEBUGGING' && status !== 'FAILED') {
+          chatHandler.systemMessage(
+            `Cannot retry E2E for ${action.project} - project is ${status}. ` +
+            `Retry is only available when project is FATAL_DEBUGGING or FAILED.`
+          );
+          return;
+        }
+
+        console.log(`[Orchestrator] Retrying E2E for ${action.project}`);
+        e2eRetryCount.delete(action.project); // Reset retry count
+        chatHandler.systemMessage(`Retrying E2E tests for ${action.project}...`);
+
+        // Trigger E2E through normal flow
+        await tryTriggerE2E(action.project, 'Retry requested by user');
+        return;
       }
 
       // Fallback for other action types

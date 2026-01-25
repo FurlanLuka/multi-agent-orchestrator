@@ -189,11 +189,12 @@ export class ChatHandler extends EventEmitter {
   /**
    * Requests E2E prompt for a project
    */
-  async requestE2EPrompt(project: string, taskSummary: string, testScenarios: string[], devServerUrl?: string): Promise<string> {
-    this.addMessage('system', `Generating E2E test prompt for ${project}...`);
+  async requestE2EPrompt(project: string, taskSummary: string, testScenarios: string[], devServerUrl?: string, passedCount?: number): Promise<string> {
+    const skippedNote = passedCount && passedCount > 0 ? ` (${passedCount} already passed, skipped)` : '';
+    this.addMessage('system', `Generating E2E test prompt for ${project}...${skippedNote}`);
 
     try {
-      return await this.planningAgent.requestE2EPrompt({ project, taskSummary, testScenarios, devServerUrl });
+      return await this.planningAgent.requestE2EPrompt({ project, taskSummary, testScenarios, devServerUrl, passedCount });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${error.message}`);

@@ -286,6 +286,31 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
+   * Gets test states for a project
+   */
+  getTestStates(
+    sessionId: string,
+    project: string
+  ): Array<{ name: string; status: TestScenarioStatus; error?: string }> | null {
+    const session = this.loadSession(sessionId);
+    if (!session) return null;
+
+    return session.testStates[project]?.scenarios ?? null;
+  }
+
+  /**
+   * Gets passed test scenarios for a project (for filtering on retry)
+   */
+  getPassedTests(sessionId: string, project: string): string[] {
+    const testStates = this.getTestStates(sessionId, project);
+    if (!testStates) return [];
+
+    return testStates
+      .filter(s => s.status === 'passed')
+      .map(s => s.name);
+  }
+
+  /**
    * Marks a session as completed
    */
   markCompleted(sessionId: string): void {

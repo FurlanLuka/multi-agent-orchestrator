@@ -78,6 +78,26 @@
       },
       "buildCommand": "npm run build",
       "hasE2E": true
+    },
+    "wrtcbe": {
+      "path": "~/Documents/wrtcbe",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
+    },
+    "wrtcfe": {
+      "path": "wrtcfe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {}
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true
     }
   },
   "defaults": {

@@ -31,6 +31,14 @@ export class EventQueue extends EventEmitter {
     this.stateMachine.on('resumed', () => {
       this.processNext();
     });
+
+    // When Planning Agent becomes free, try to process queued events
+    this.planningAgent.on('free', () => {
+      if (this.queue.length > 0 && !this.processing) {
+        console.log('[EventQueue] Planning Agent is free, processing queued events...');
+        this.processNext();
+      }
+    });
   }
 
   /**

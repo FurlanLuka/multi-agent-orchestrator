@@ -188,11 +188,27 @@ Users may ask you to perform actions like:
 - "restart backend server"
 - "send a prompt to frontend agent"
 - "run e2e tests on backend"
+- "skip e2e tests for backend" / "mark backend as complete"
+- "retry e2e tests for frontend"
 
 ### Available Actions
 - {"type": "restart_server", "project": "projectName"} - Always allowed
 - {"type": "send_to_agent", "project": "projectName", "prompt": "..."} - Only when FAILED or IDLE
 - {"type": "send_e2e", "project": "projectName", "prompt": "..."} - Only when FAILED or IDLE
+- {"type": "skip_e2e", "project": "projectName", "reason": "..."} - Only when FATAL_DEBUGGING, BLOCKED, or FAILED
+- {"type": "retry_e2e", "project": "projectName"} - Only when FATAL_DEBUGGING or FAILED (NOT BLOCKED)
+
+### Skip E2E and Retry E2E Actions
+
+**skip_e2e** - Available when FATAL_DEBUGGING, BLOCKED, or FAILED:
+- Marks the project as complete (IDLE) without running E2E tests
+- Unblocks any dependent projects waiting for this one
+- Use when E2E tests are too difficult to run or not critical
+
+**retry_e2e** - Available when FATAL_DEBUGGING or FAILED (NOT when BLOCKED):
+- Re-runs the E2E tests from scratch
+- Use when the underlying issue has been fixed and tests should pass now
+- NOT available when BLOCKED because that means waiting for dependencies - retrying won't help
 
 ### CRITICAL: When Can You Send Prompts to Agents?
 
@@ -214,6 +230,8 @@ When executing an action, respond with BOTH:
 1. A brief explanation of what you're doing
 2. The action JSON on its own line with the [ACTION] marker:
    [ACTION] {"type": "restart_server", "project": "backend"}
+   [ACTION] {"type": "skip_e2e", "project": "backend", "reason": "E2E tests too complex to automate"}
+   [ACTION] {"type": "retry_e2e", "project": "frontend"}
 
 When NOT executing (refusing):
 - Explain why based on the current project status
@@ -393,6 +411,7 @@ User: ${newMessage}`;
       proc.on('error', (err) => {
         console.error('[PlanningAgent] Process error:', err);
         this.currentProcess = null;
+        this.emit('free'); // Signal that PA is available for new requests
         const errorEvent: ChatStreamEvent = {
           type: 'error',
           messageId,
@@ -418,6 +437,7 @@ User: ${newMessage}`;
 
         console.log(`[PlanningAgent] Process exited (code: ${code}, signal: ${signal}, lines: ${lineCount})`);
         this.currentProcess = null;
+        this.emit('free'); // Signal that PA is available for new requests
 
         const finalResult = resultText || responseBuffer;
         if (code === 0 || finalResult) {
@@ -453,6 +473,7 @@ User: ${newMessage}`;
           console.error(`[PlanningAgent] Timeout after ${timeoutMs}ms - killing process`);
           this.currentProcess.kill('SIGKILL');
           this.currentProcess = null;
+          this.emit('free'); // Signal that PA is available for new requests
           reject(new Error(`Planning Agent timeout after ${timeoutMs}ms`));
         }
       }, timeoutMs);
@@ -641,6 +662,10 @@ Start with PHASE 1: Use Glob and Read tools to explore each project NOW. Then pr
    * Requests E2E test prompt for a project
    */
   async requestE2EPrompt(request: E2EPromptRequest): Promise<string> {
+    const passedNote = request.passedCount && request.passedCount > 0
+      ? `\n\nNote: ${request.passedCount} tests have already passed and are being skipped. Only the remaining tests need to be run.`
+      : '';
+
     const prompt = `Project "${request.project}" has completed its task and is ready for E2E testing.
 
 Task completed: ${request.taskSummary}
@@ -648,7 +673,7 @@ Task completed: ${request.taskSummary}
 Dev server URL: ${request.devServerUrl || 'http://localhost:5173'}
 
 Test scenarios to verify:
-${request.testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+${request.testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}${passedNote}
 
 Generate an E2E test prompt that instructs the agent to:
 
@@ -658,6 +683,7 @@ Generate an E2E test prompt that instructs the agent to:
 - The dev server is ALREADY RUNNING at the URL above - just run tests against it
 - If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
 - The agent's ONLY job is to run E2E tests and report results
+- **FAIL FAST**: Stop immediately after the FIRST test failure - do not continue to other tests
 
 1. READ the project's E2E testing skill at: ~/${request.project}/.claude/skills/e2e-testing.md
    - This skill contains project-specific testing instructions (Playwright MCP for frontend, curl for backend, etc.)
@@ -668,22 +694,28 @@ Generate an E2E test prompt that instructs the agent to:
    - After passing: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "passed"}
    - After failing: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "failed", "error": "brief error message"}
 
-3. If required tools are NOT AVAILABLE (e.g., Playwright MCP tools for frontend):
+3. **FAIL FAST BEHAVIOR**: When a test FAILS:
+   - STOP immediately - do not run any more tests
+   - Output the TEST_STATUS marker with status "failed"
+   - Proceed directly to step 5 (analysis) and step 6 (structured response)
+   - The orchestrator will handle fixing the failure before continuing
+
+4. If required tools are NOT AVAILABLE (e.g., Playwright MCP tools for frontend):
    - DO NOT attempt to analyze code as a workaround
    - Immediately fail all tests with error explaining the missing tools
    - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Required testing tools not available"}
 
-4. If the server is NOT RESPONDING:
+5. If the server is NOT RESPONDING:
    - DO NOT try to start or fix the server
    - Immediately fail all tests with error explaining the server is not available
    - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Dev server not responding at ${request.devServerUrl || 'http://localhost:5173'}"}
 
-5. If ANY tests fail, ANALYZE the codebase to understand WHY:
+6. If ANY tests fail, ANALYZE the codebase to understand WHY:
    - Trace the failing scenario to the relevant code
    - Identify what the code is trying to do and where it fails
    - Determine if the issue is in THIS project or another
 
-6. Return a structured response at the END:
+7. Return a structured response at the END:
 
 \`\`\`json
 {
