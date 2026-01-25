@@ -104,6 +104,34 @@
       "hasE2E": true,
       "gitEnabled": true,
       "mainBranch": "main"
+    },
+    "blogbe": {
+      "path": "~/Documents/blogbe",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {},
+        "port": 3000,
+        "url": "http://localhost:3000"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
+    },
+    "blogfe": {
+      "path": "~/Documents/blogfe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {},
+        "port": 5173,
+        "url": "http://localhost:5173"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
     }
   },
   "defaults": {

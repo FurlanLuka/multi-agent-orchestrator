@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent } from '../types';
+import { parseMarkedResponse, extractJSON, MARKERS } from './response-parser';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -43,52 +44,6 @@ interface ProjectConfig {
   hasE2E: boolean;
 }
 
-/**
- * Extracts JSON from a response that may be wrapped in markdown code blocks
- * Handles: ```json {...} ```, ``` {...} ```, or raw JSON
- */
-function extractJSON<T>(response: string, requiredFields: string[] = []): T | null {
-  // Try to extract from markdown code block first
-  const codeBlockMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : response;
-
-  // Find the outermost JSON object
-  let braceCount = 0;
-  let startIdx = -1;
-  let endIdx = -1;
-
-  for (let i = 0; i < jsonStr.length; i++) {
-    if (jsonStr[i] === '{') {
-      if (braceCount === 0) startIdx = i;
-      braceCount++;
-    } else if (jsonStr[i] === '}') {
-      braceCount--;
-      if (braceCount === 0 && startIdx !== -1) {
-        endIdx = i + 1;
-        break;
-      }
-    }
-  }
-
-  if (startIdx === -1 || endIdx === -1) return null;
-
-  try {
-    const parsed = JSON.parse(jsonStr.slice(startIdx, endIdx)) as T;
-
-    // Validate required fields
-    for (const field of requiredFields) {
-      if (!(field in (parsed as any))) {
-        console.warn(`[extractJSON] Missing required field: ${field}`);
-        return null;
-      }
-    }
-
-    return parsed;
-  } catch (err) {
-    console.error('[extractJSON] Parse error:', err);
-    return null;
-  }
-}
 
 export class PlanningAgentManager extends EventEmitter {
   private orchestratorDir: string;
@@ -1184,18 +1139,32 @@ Consider carefully:
 
 Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
 
-**RESPOND WITH ONLY THIS JSON (no markdown, no code blocks, no explanation - just raw JSON):**
-{"passed": true or false, "analysis": "1-2 sentence explanation", "fixPrompt": "If failed: fix instructions. If passed: omit.", "suggestedAction": "retry" or "escalate" or "skip"}
+## RESPONSE FORMAT (REQUIRED)
 
-Your ENTIRE response must be valid JSON starting with { and ending with }. Do NOT wrap in \`\`\`json code blocks.`;
+You may add brief explanation text before the marker, but you MUST end with:
+
+[TASK_RESULT] {"passed": true/false, "analysis": "1-2 sentence explanation", "fixPrompt": "If failed: fix instructions", "suggestedAction": "retry/escalate/skip"}
+
+The [TASK_RESULT] marker followed by JSON is REQUIRED. This is how the orchestrator parses your response.`;
 
     console.log(`[PlanningAgent] Analyzing task result for ${context.project}:${context.taskName}`);
 
     try {
       const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.TASK_ANALYSIS);
 
-      // Parse JSON from response using robust extractor
-      const result = extractJSON<TaskAnalysisResult>(response, ['passed', 'analysis']);
+      // Try marker-based parsing first
+      const parsed = parseMarkedResponse<TaskAnalysisResult>(response, MARKERS.TASK_RESULT, ['passed']);
+
+      let result: TaskAnalysisResult | null = null;
+
+      if (parsed.success && parsed.data) {
+        result = parsed.data;
+        console.log(`[PlanningAgent] Parsed via [TASK_RESULT] marker`);
+      } else {
+        // Fallback to legacy JSON extraction
+        console.log(`[PlanningAgent] Marker not found, falling back to extractJSON: ${parsed.error}`);
+        result = extractJSON<TaskAnalysisResult>(response, ['passed']);
+      }
 
       if (result) {
         console.log(`[PlanningAgent] Analysis result: passed=${result.passed}, action=${result.suggestedAction}`);
@@ -1215,12 +1184,39 @@ Your ENTIRE response must be valid JSON starting with { and ending with }. Do NO
         return result;
       }
 
-      // Fallback: if we can't parse, assume failure and use raw response as fix prompt
-      console.log('[PlanningAgent] Could not parse structured response, using fallback');
+      // Fallback: check for explicit "passed": false/true in raw text
+      console.log('[PlanningAgent] Could not parse structured response, checking for patterns');
       console.log('[PlanningAgent] Raw response (first 500 chars):', response.slice(0, 500));
+
+      // Simple fallback: check for "passed": false in raw text
+      if (/"passed"\s*:\s*false/i.test(response)) {
+        console.log('[PlanningAgent] Found "passed": false pattern in raw response');
+        const fallbackResult = {
+          passed: false,
+          analysis: 'Parse failed but found failure indicator',
+          fixPrompt: response,
+          suggestedAction: 'retry' as const
+        };
+
+        // Emit fallback analysis result
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'task',
+          project: context.project,
+          taskName: context.taskName,
+          passed: false,
+          summary: 'Task failed (from pattern match)',
+          details: fallbackResult.analysis,
+          fixPrompt: response
+        };
+        this.emit('analysisResult', analysisEvent);
+
+        return fallbackResult;
+      }
+
+      // Default: treat as failure
       const fallbackResult = {
         passed: false,
-        analysis: 'Failed to parse analysis response - treating as failure',
+        analysis: 'Could not parse response - treating as failure',
         fixPrompt: response,
         suggestedAction: 'retry' as const
       };
@@ -1289,12 +1285,26 @@ Return one of these action types as JSON:
 - {"type": "complete", "summary": "..."}
 - {"type": "noop"}
 
-IMPORTANT: Return ONLY the JSON object, no other text.`;
+## RESPONSE FORMAT (REQUIRED)
+
+You may add brief explanation text before the marker, but you MUST end with:
+
+[EVENT_ACTION] {"type": "...", ...}
+
+The [EVENT_ACTION] marker followed by JSON is REQUIRED.`;
 
     try {
       const result = await this.sendChat(prompt);
 
-      // Extract JSON from response
+      // Try marker-based parsing first
+      const parsed = parseMarkedResponse<{ type: string }>(result, MARKERS.EVENT_ACTION, ['type']);
+      if (parsed.success && parsed.data) {
+        console.log(`[PlanningAgent] Parsed event action via [EVENT_ACTION] marker`);
+        return JSON.stringify(parsed.data);
+      }
+
+      // Fallback: Extract JSON from response (legacy format)
+      console.log(`[PlanningAgent] Event action marker not found, falling back to regex: ${parsed.error}`);
       const jsonMatch = result.match(/\{[\s\S]*?"type"\s*:\s*"[^"]+"[\s\S]*?\}/);
       if (jsonMatch) {
         try {
@@ -1371,26 +1381,43 @@ Analyze the output and determine:
    - "both" → send coordinated fixes to both
 ${projectList}
 
-**RESPOND WITH ONLY RAW JSON (no markdown, no code blocks, no explanation):**
-{"passed": true or false, "analysis": "Brief summary", "isInfrastructureFailure": false, "fixes": [{"project": "name", "prompt": "fix instructions"}]}
+## RESPONSE FORMAT (REQUIRED)
+
+You may add brief explanation text before the marker, but you MUST end with:
+
+[E2E_RESULT] {"passed": true/false, "analysis": "Brief summary", "isInfrastructureFailure": false, "fixes": [{"project": "name", "prompt": "fix instructions"}]}
+
+The [E2E_RESULT] marker followed by JSON is REQUIRED. This is how the orchestrator parses your response.
 
 Rules:
-- Your ENTIRE response must be valid JSON starting with { and ending with }
-- Do NOT wrap in \`\`\`json code blocks
 - Set "isInfrastructureFailure": true if tests COULD NOT RUN (missing tools, no browser automation)
 - "fixes" array: one entry per project that needs changes, using the agent's codeAnalysis`;
 
     try {
-      const result = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
+      const response = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
 
-      // Extract JSON from response using robust extractor
-      const parsed = extractJSON<{
+      // Type for E2E analysis result
+      type E2EParseResult = {
         passed: boolean;
         analysis?: string;
         isInfrastructureFailure?: boolean;
         fixes?: Array<{ project: string; prompt: string }>;
         fixPrompt?: string;
-      }>(result, ['passed']);
+      };
+
+      // Try marker-based parsing first
+      const markerResult = parseMarkedResponse<E2EParseResult>(response, MARKERS.E2E_RESULT, ['passed']);
+
+      let parsed: E2EParseResult | null = null;
+
+      if (markerResult.success && markerResult.data) {
+        parsed = markerResult.data;
+        console.log(`[PlanningAgent] Parsed via [E2E_RESULT] marker`);
+      } else {
+        // Fallback to legacy JSON extraction
+        console.log(`[PlanningAgent] Marker not found, falling back to extractJSON: ${markerResult.error}`);
+        parsed = extractJSON<E2EParseResult>(response, ['passed']);
+      }
 
       if (parsed) {
         console.log(`[PlanningAgent] Parsed E2E analysis: passed=${parsed.passed}, isInfrastructureFailure=${parsed.isInfrastructureFailure}, fixes=${JSON.stringify(parsed.fixes)}`);
@@ -1439,8 +1466,8 @@ Rules:
       console.warn('[PlanningAgent] Could not parse E2E analysis JSON, checking for failure patterns');
 
       // CRITICAL FIX: Check PA's response for explicit "passed": false/true
-      const hasExplicitFalse = /"passed"\s*:\s*false/i.test(result);
-      const hasExplicitTrue = /"passed"\s*:\s*true/i.test(result);
+      const hasExplicitFalse = /"passed"\s*:\s*false/i.test(response);
+      const hasExplicitTrue = /"passed"\s*:\s*true/i.test(response);
 
       if (hasExplicitFalse) {
         console.log('[PlanningAgent] Found "passed": false in raw response - treating as failure');
@@ -1449,13 +1476,13 @@ Rules:
           project,
           passed: false,
           summary: 'E2E tests failed (from raw response)',
-          details: result.slice(0, 500)
+          details: response.slice(0, 500)
         };
         this.emit('analysisResult', analysisEvent);
         return {
           passed: false,
-          analysis: result.slice(0, 500),
-          fixPrompt: result
+          analysis: response.slice(0, 500),
+          fixPrompt: response
         };
       }
 
@@ -1466,12 +1493,12 @@ Rules:
           project,
           passed: true,
           summary: 'E2E tests passed (from raw response)',
-          details: result.slice(0, 500)
+          details: response.slice(0, 500)
         };
         this.emit('analysisResult', analysisEvent);
         return {
           passed: true,
-          analysis: result.slice(0, 500)
+          analysis: response.slice(0, 500)
         };
       }
 
@@ -1516,14 +1543,14 @@ Rules:
         project,
         passed: !hasFailure,
         summary: hasFailure ? 'E2E tests failed' : 'E2E tests passed',
-        details: result.slice(0, 500)
+        details: response.slice(0, 500)
       };
       this.emit('analysisResult', analysisEvent);
 
       return {
         passed: !hasFailure,
-        analysis: result.slice(0, 500),
-        fixPrompt: hasFailure ? result : undefined
+        analysis: response.slice(0, 500),
+        fixPrompt: hasFailure ? response : undefined
       };
     } catch (err) {
       console.error('[PlanningAgent] Error analyzing E2E result:', err);

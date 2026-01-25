@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { StateMachine } from './state-machine';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
+import { parseMarkedResponse, MARKERS } from '../planning/response-parser';
 
 /**
  * Queues events for the Planning Agent to analyze
@@ -224,11 +225,21 @@ export class EventQueue extends EventEmitter {
   }
 
   /**
-   * Parses action JSON from Planning Agent response
+   * Parses action JSON from Planning Agent response using marker pattern
    */
   private parseAction(response: string): PlanningAction | null {
     try {
-      // Look for JSON in the response
+      // Try marker-based parsing first (EVENT_ACTION marker)
+      const parsed = parseMarkedResponse<PlanningAction>(response, MARKERS.EVENT_ACTION, ['type']);
+      if (parsed.success && parsed.data) {
+        console.log(`[EventQueue] Parsed action via [EVENT_ACTION] marker: ${parsed.data.type}`);
+        return parsed.data;
+      }
+
+      // Fallback: Look for JSON in the response (legacy format)
+      if (parsed.error) {
+        console.log(`[EventQueue] Marker not found, falling back to regex: ${parsed.error}`);
+      }
       const jsonMatch = response.match(/\{[\s\S]*?"type"\s*:\s*"[\s\S]*?\}/);
       if (jsonMatch) {
         const action = JSON.parse(jsonMatch[0]) as PlanningAction;

@@ -338,6 +338,23 @@ export class ProcessManager extends EventEmitter {
                             // Invalid JSON, ignore
                           }
                         }
+
+                        // Detect worker status markers for real-time project status updates
+                        const workerStatusMatch = textLine.match(/`?\[WORKER_STATUS\]\s*(\{.*\})`?/);
+                        if (workerStatusMatch) {
+                          try {
+                            const status = JSON.parse(workerStatusMatch[1]);
+                            if (status.message) {
+                              this.emit('workerStatus', {
+                                project,
+                                message: status.message,
+                                timestamp: Date.now()
+                              });
+                            }
+                          } catch {
+                            // Invalid JSON, ignore
+                          }
+                        }
                       }
                     }
                   }

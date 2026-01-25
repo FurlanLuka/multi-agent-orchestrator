@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
 import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '../types';
+import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {
   id: string;
@@ -136,33 +137,27 @@ export class ChatHandler extends EventEmitter {
     try {
       const response = await this.planningAgent.sendChat(message);
 
-      // Check for structured response marker
-      const responseMatch = response.match(/\[RESPONSE\]\s*(\{.*\})/s);
-      if (responseMatch) {
-        try {
-          const chatResponse = JSON.parse(responseMatch[1]) as ChatResponseEvent;
-          console.log('[ChatHandler] Structured response:', chatResponse.status, chatResponse.message.substring(0, 50));
-          this.emit('chatResponse', chatResponse);
-        } catch (parseErr) {
-          console.error('[ChatHandler] Failed to parse response JSON:', parseErr);
-          // Fallback: emit a generic response if parse fails
-          this.emit('chatResponse', {
-            message: 'Response received (parsing error)',
-            status: 'info'
-          } as ChatResponseEvent);
-        }
+      // Check for structured response marker using unified parser
+      const responseParsed = parseMarkedResponse<ChatResponseEvent>(response, MARKERS.RESPONSE, ['message', 'status']);
+      if (responseParsed.success && responseParsed.data) {
+        console.log('[ChatHandler] Structured response:', responseParsed.data.status, responseParsed.data.message.substring(0, 50));
+        this.emit('chatResponse', responseParsed.data);
+      } else if (response.includes('[RESPONSE]')) {
+        // Marker found but parsing failed
+        console.error('[ChatHandler] Failed to parse response JSON:', responseParsed.error);
+        this.emit('chatResponse', {
+          message: 'Response received (parsing error)',
+          status: 'info'
+        } as ChatResponseEvent);
       }
 
-      // Check for action marker in response
-      const actionMatch = response.match(/\[ACTION\]\s*(\{.*\})/);
-      if (actionMatch) {
-        try {
-          const action = JSON.parse(actionMatch[1]) as PlanningAction;
-          console.log('[ChatHandler] User-requested action detected:', action.type);
-          this.emit('userAction', action);
-        } catch (parseErr) {
-          console.error('[ChatHandler] Failed to parse action JSON:', parseErr);
-        }
+      // Check for action marker using unified parser
+      const actionParsed = parseMarkedResponse<PlanningAction>(response, MARKERS.ACTION, ['type']);
+      if (actionParsed.success && actionParsed.data) {
+        console.log('[ChatHandler] User-requested action detected:', actionParsed.data.type);
+        this.emit('userAction', actionParsed.data);
+      } else if (response.includes('[ACTION]')) {
+        console.error('[ChatHandler] Failed to parse action JSON:', actionParsed.error);
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

@@ -103,6 +103,15 @@ async function main() {
     }
   });
 
+  // Forward worker status events for real-time project status updates
+  processManager.on('workerStatus', (event: { project: string; message: string; timestamp: number }) => {
+    // Update the project status message (keeps status as WORKING, just updates message)
+    const currentStatus = statusMonitor.getStatus(event.project);
+    if (currentStatus?.status === 'WORKING') {
+      statusMonitor.updateStatus(event.project, 'WORKING', event.message);
+    }
+  });
+
   processManager.on('ready', ({ project, type }) => {
     console.log(`[Orchestrator] ${project} ${type} is ready`);
     // Don't set status to IDLE here - that's reserved for when the full task is complete

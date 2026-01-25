@@ -247,6 +247,19 @@ export class TaskExecutor extends EventEmitter {
 4. DO NOT use browser automation tools (Playwright, browser_*, mcp__playwright__*) to test or verify your work - the orchestrator handles all testing
 5. Focus ONLY on implementing the feature code - write the code and nothing else`;
 
+    // Add status reporting instructions
+    prompt += `\n\n**STATUS REPORTING**:
+As you work, output status markers to show what you're doing:
+[WORKER_STATUS] {"message": "Brief description of current step"}
+
+Examples:
+[WORKER_STATUS] {"message": "Reading existing code structure"}
+[WORKER_STATUS] {"message": "Creating auth controller"}
+[WORKER_STATUS] {"message": "Adding login endpoint"}
+[WORKER_STATUS] {"message": "Writing DTO classes"}
+
+Output a status marker before starting each significant step.`;
+
     return prompt;
   }
 
