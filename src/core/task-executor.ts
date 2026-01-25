@@ -297,6 +297,7 @@ Please fix the issue and try again.`;
     }
 
     // Step 2: Run build and capture full output
+    let buildFailed = false;
     if (projectConfig?.buildCommand) {
       console.log(`[TaskExecutor] [Context] Running build for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Running build...');
@@ -306,31 +307,45 @@ Please fix the issue and try again.`;
         stderr: buildResult.stderr,
         exitCode: buildResult.exitCode
       };
+      buildFailed = buildResult.exitCode !== 0;
+      if (buildFailed) {
+        console.log(`[TaskExecutor] Build failed for ${project}, skipping dev server restart`);
+      }
     }
 
-    // Step 3: Restart dev server
-    console.log(`[TaskExecutor] [Context] Restarting dev server for ${project}...`);
-    this.statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
-    try {
-      await this.processManager.restartDevServer(project);
-    } catch (err) {
-      console.log(`[TaskExecutor] [Context] Dev server restart failed: ${err}`);
+    // Step 3: Restart dev server (skip if build failed - server won't start anyway)
+    if (!buildFailed) {
+      console.log(`[TaskExecutor] [Context] Restarting dev server for ${project}...`);
+      this.statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
+      try {
+        await this.processManager.restartDevServer(project);
+      } catch (err) {
+        console.log(`[TaskExecutor] [Context] Dev server restart failed: ${err}`);
+      }
     }
 
     // Step 4: Collect dev server logs (recent output)
     const devLogs = this.logAggregator.getLogsByType(project, 'devServer', 100);
     context.devServerLogs = devLogs.map(l => l.text).join('\n');
 
-    // Step 5: Health check
-    console.log(`[TaskExecutor] [Context] Health check for ${project}...`);
-    this.statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
-    const health = await this.processManager.checkDevServerHealthWithRetry(project, 5, 2000);
-    context.healthCheck = {
-      healthy: health.healthy,
-      error: health.error
-    };
+    // Step 5: Health check (skip if build failed)
+    if (!buildFailed) {
+      console.log(`[TaskExecutor] [Context] Health check for ${project}...`);
+      this.statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
+      const health = await this.processManager.checkDevServerHealthWithRetry(project, 5, 2000);
+      context.healthCheck = {
+        healthy: health.healthy,
+        error: health.error
+      };
+    } else {
+      console.log(`[TaskExecutor] [Context] Skipping health check (build failed)`);
+      context.healthCheck = {
+        healthy: false,
+        error: 'Build failed - server not started'
+      };
+    }
 
-    console.log(`[TaskExecutor] [Context] Collection complete for ${project}. Health: ${health.healthy ? 'OK' : 'FAILED'}`);
+    console.log(`[TaskExecutor] [Context] Collection complete for ${project}. Health: ${context.healthCheck?.healthy ? 'OK' : 'FAILED'}`);
     return context;
   }
 

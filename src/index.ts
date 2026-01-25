@@ -308,6 +308,9 @@ async function main() {
   const e2eRetryCount: Map<string, number> = new Map();
   const MAX_E2E_RETRIES = 3;
 
+  // Bug 1 fix: Track which project each fix is for (fixingProject -> failingProject)
+  const e2eFixingFor: Map<string, string> = new Map();
+
   // Handle E2E completion - queue for Planning Agent analysis
   actionExecutor.on('e2eComplete', ({ project, result }) => {
     console.log(`[Orchestrator] E2E completed for ${project}, queueing for analysis...`);
@@ -351,11 +354,13 @@ async function main() {
       console.log(`[Orchestrator] E2E tests PASSED for ${project}`);
       statusMonitor.updateStatus(project, 'IDLE', 'E2E tests passed');
       e2eRetryCount.delete(project); // Reset retry count on success
-      // Reset any E2E_FIXING projects back to IDLE since tests passed
+
+      // Bug 1 fix: Only reset E2E_FIXING projects that were fixing issues for THIS project
       for (const proj of allProjects) {
         const status = statusMonitor.getStatus(proj);
-        if (status?.status === 'E2E_FIXING') {
+        if (status?.status === 'E2E_FIXING' && e2eFixingFor.get(proj) === project) {
           statusMonitor.updateStatus(proj, 'IDLE', 'E2E tests passed');
+          e2eFixingFor.delete(proj);
         }
       }
       return;
@@ -425,6 +430,9 @@ After fixing, the E2E tests will be re-run automatically.`;
         console.log(`[Orchestrator] >>> SENDING FIX TO: "${targetProject}" (E2E failed in "${project}")`);
         statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
 
+        // Bug 1 fix: Track which project this fix is for
+        e2eFixingFor.set(targetProject, project);
+
         // Emit fix sent event for UI
         (ui.io as any).emitFixSent({
           fromProject: project,
@@ -432,8 +440,20 @@ After fixing, the E2E tests will be re-run automatically.`;
           reason: 'E2E test failure'
         });
 
-        await actionExecutor.sendE2EFix(targetProject, fixPrompt);
-        console.log(`[Orchestrator] <<< FIX SENT TO: "${targetProject}"`);
+        // Bug 5 fix: Capture and validate fix results
+        try {
+          const result = await actionExecutor.sendE2EFix(targetProject, fixPrompt);
+          const fixSuccess = !(/error|exception|failed|cannot|unable/i.test((result || '').slice(-500)));
+
+          if (!fixSuccess) {
+            console.warn(`[Orchestrator] Fix may have failed for ${targetProject}`);
+          }
+          console.log(`[Orchestrator] <<< FIX SENT TO: "${targetProject}"`);
+        } catch (err) {
+          console.error(`[Orchestrator] Fix FAILED for ${targetProject}:`, err);
+          statusMonitor.updateStatus(targetProject, 'FAILED', `Fix failed: ${err}`);
+          e2eFixingFor.delete(targetProject);
+        }
       }
 
       // Check if fixes were ONLY sent to the failing project, or to other projects too
@@ -662,13 +682,23 @@ After fixing, the E2E tests will be re-run automatically.`;
     // No pre-E2E verification needed - all tasks for this project already passed verification
     const devServerUrl = getDevServerUrl(project);
 
-    // Get already-passed tests to skip them on retry
+    // Bug 6 fix: Use new API to distinguish "no tests passed" from "no data exists"
     const currentSessionId = sessionStore.getCurrentSessionId();
-    const passedTests = currentSessionId ? sessionStore.getPassedTests(currentSessionId, project) : [];
+    const passedTestsResult = currentSessionId
+      ? sessionStore.getPassedTestsWithMeta(currentSessionId, project)
+      : { exists: false, passedTests: [], totalTests: 0 };
+
+    const passedTests = passedTestsResult.passedTests;
     const allScenarios = session.plan.testPlan[project] || [];
 
+    // Bug 2 fix: Use normalized names for comparison
+    const normalizeScenarioName = (name: string): string =>
+      name.toLowerCase().trim().replace(/\s+/g, ' ');
+
     // Filter out passed scenarios - only run pending/failed ones
-    const scenariosToTest = allScenarios.filter(s => !passedTests.includes(s));
+    const scenariosToTest = allScenarios.filter(s =>
+      !passedTests.includes(normalizeScenarioName(s))
+    );
 
     if (scenariosToTest.length === 0) {
       console.log(`[Orchestrator] All E2E tests already passed for ${project}, marking as complete`);
@@ -678,6 +708,9 @@ After fixing, the E2E tests will be re-run automatically.`;
 
     if (passedTests.length > 0) {
       console.log(`[Orchestrator] Skipping ${passedTests.length} already-passed tests for ${project}`);
+      if (passedTestsResult.exists) {
+        console.log(`[Orchestrator] Test state exists: ${passedTestsResult.totalTests} total tests tracked`);
+      }
     }
 
     // Check if project has custom E2E instructions
@@ -1870,6 +1903,9 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
 
   const shutdown = () => {
     console.log('\n[Orchestrator] Shutting down...');
+
+    // Bug 4 fix: Flush all pending session writes before shutdown
+    sessionStore.flushAll();
 
     // Mark current session as interrupted if it exists and isn't completed
     const currentSession = sessionManager.getCurrentSession();

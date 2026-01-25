@@ -25,10 +25,23 @@ export class SessionStore extends EventEmitter {
   private sessionsDir: string;
   private currentSessionId: string | null = null;
 
+  // Bug 4 fix: Cache and write debouncing to prevent race conditions
+  private sessionCache: Map<string, PersistedSession> = new Map();
+  private pendingWrites: Map<string, NodeJS.Timeout> = new Map();
+  private readonly WRITE_DEBOUNCE_MS = 100;
+
   constructor(orchestratorDir: string) {
     super();
     this.sessionsDir = path.join(orchestratorDir, '.sessions');
     fs.mkdirSync(this.sessionsDir, { recursive: true });
+  }
+
+  /**
+   * Normalizes a scenario name for case-insensitive matching
+   * Bug 2 fix: Prevents case mismatch issues when checking passed tests
+   */
+  private normalizeScenarioName(name: string): string {
+    return name.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
   /**
@@ -92,8 +105,12 @@ export class SessionStore extends EventEmitter {
       };
     }
 
-    // Write session.json
-    this.writeSession(session);
+    // Cache and write session.json
+    this.sessionCache.set(id, session);
+    // Write directly without debounce for initial creation
+    const sessionJsonPath = this.getSessionJsonPath(id);
+    session.updatedAt = Date.now();
+    fs.writeFileSync(sessionJsonPath, JSON.stringify(session, null, 2));
 
     // Create empty chat.jsonl
     fs.writeFileSync(this.getChatPath(id), '');
@@ -106,8 +123,15 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Loads an existing session
+   * Bug 4 fix: Check cache first to prevent race conditions
    */
   loadSession(sessionId: string): PersistedSession | null {
+    // Check cache first for faster access and consistency
+    if (this.sessionCache.has(sessionId)) {
+      this.currentSessionId = sessionId;
+      return this.sessionCache.get(sessionId)!;
+    }
+
     const sessionPath = this.getSessionJsonPath(sessionId);
 
     if (!fs.existsSync(sessionPath)) {
@@ -119,6 +143,8 @@ export class SessionStore extends EventEmitter {
       const data = fs.readFileSync(sessionPath, 'utf-8');
       const session = JSON.parse(data) as PersistedSession;
       this.currentSessionId = sessionId;
+      // Cache the loaded session
+      this.sessionCache.set(sessionId, session);
       console.log(`[SessionStore] Loaded session: ${sessionId}`);
       return session;
     } catch (err) {
@@ -185,11 +211,55 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Writes session data to disk
+   * Bug 4 fix: Debounce writes to prevent race conditions from rapid updates
    */
   private writeSession(session: PersistedSession): void {
-    const sessionPath = this.getSessionJsonPath(session.id);
     session.updatedAt = Date.now();
-    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+
+    // Update cache immediately for consistency
+    this.sessionCache.set(session.id, session);
+
+    // Debounce disk write
+    const existingTimeout = this.pendingWrites.get(session.id);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      this.flushSession(session.id);
+      this.pendingWrites.delete(session.id);
+    }, this.WRITE_DEBOUNCE_MS);
+
+    this.pendingWrites.set(session.id, timeout);
+  }
+
+  /**
+   * Immediately flush a session to disk
+   * Bug 4 fix: Used for debounced writes
+   */
+  flushSession(sessionId: string): void {
+    const session = this.sessionCache.get(sessionId);
+    if (!session) return;
+
+    const sessionPath = this.getSessionJsonPath(sessionId);
+    try {
+      fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+    } catch (err) {
+      console.error(`[SessionStore] Failed to flush session ${sessionId}:`, err);
+    }
+  }
+
+  /**
+   * Flush all pending writes to disk
+   * Bug 4 fix: Called on shutdown to ensure all data is persisted
+   */
+  flushAll(): void {
+    for (const [sessionId, timeout] of this.pendingWrites.entries()) {
+      clearTimeout(timeout);
+      this.flushSession(sessionId);
+    }
+    this.pendingWrites.clear();
+    console.log('[SessionStore] Flushed all pending writes');
   }
 
   /**
@@ -256,6 +326,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Updates test state for a project
+   * Bug 2 fix: Uses normalized scenario names for case-insensitive matching
    */
   updateTestState(
     sessionId: string,
@@ -275,7 +346,11 @@ export class SessionStore extends EventEmitter {
     }
 
     const testState = session.testStates[project];
-    const existingIndex = testState.scenarios.findIndex(s => s.name === scenario);
+    // Bug 2 fix: Use normalized names for comparison
+    const normalizedScenario = this.normalizeScenarioName(scenario);
+    const existingIndex = testState.scenarios.findIndex(
+      s => this.normalizeScenarioName(s.name) === normalizedScenario
+    );
 
     if (existingIndex >= 0) {
       testState.scenarios[existingIndex] = { name: scenario, status, error };
@@ -328,6 +403,7 @@ export class SessionStore extends EventEmitter {
 
   /**
    * Gets passed test scenarios for a project (for filtering on retry)
+   * Bug 2 fix: Returns normalized names for consistent matching
    */
   getPassedTests(sessionId: string, project: string): string[] {
     const testStates = this.getTestStates(sessionId, project);
@@ -335,7 +411,29 @@ export class SessionStore extends EventEmitter {
 
     return testStates
       .filter(s => s.status === 'passed')
-      .map(s => s.name);
+      .map(s => this.normalizeScenarioName(s.name));
+  }
+
+  /**
+   * Gets passed tests with metadata to distinguish "no tests passed" from "no data exists"
+   * Bug 6 fix: Richer API for better state handling
+   */
+  getPassedTestsWithMeta(sessionId: string, project: string): {
+    exists: boolean;
+    passedTests: string[];
+    totalTests: number;
+  } {
+    const testStates = this.getTestStates(sessionId, project);
+    if (!testStates) {
+      return { exists: false, passedTests: [], totalTests: 0 };
+    }
+    return {
+      exists: true,
+      passedTests: testStates
+        .filter(s => s.status === 'passed')
+        .map(s => this.normalizeScenarioName(s.name)),
+      totalTests: testStates.length
+    };
   }
 
   /**
@@ -491,6 +589,14 @@ export class SessionStore extends EventEmitter {
     }
 
     try {
+      // Clear from cache and cancel any pending writes
+      this.sessionCache.delete(sessionId);
+      const pendingTimeout = this.pendingWrites.get(sessionId);
+      if (pendingTimeout) {
+        clearTimeout(pendingTimeout);
+        this.pendingWrites.delete(sessionId);
+      }
+
       fs.rmSync(sessionPath, { recursive: true, force: true });
       console.log(`[SessionStore] Deleted session: ${sessionId}`);
 

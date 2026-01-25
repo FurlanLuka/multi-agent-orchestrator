@@ -4,7 +4,7 @@
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-SUCCESS=$(echo "$INPUT" | jq -r '.tool_response.success // true')
+SUCCESS=$(echo "$INPUT" | jq -r '.tool_response.success // true' 2>/dev/null || echo "true")
 
 SESSION_DIR=$(find "$(pwd)/.orchestrator" -maxdepth 1 -name "session_*" 2>/dev/null | head -1)
 [ -z "$SESSION_DIR" ] && exit 0

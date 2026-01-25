@@ -105,6 +105,15 @@ export class PlanningAgentManager extends EventEmitter {
   private currentPlanningPhase: PlanningPhase = 'exploring';
   private isPlanningRequest: boolean = false;
 
+  // Request queue for serializing Claude calls (prevents race conditions)
+  private requestQueue: Array<{
+    prompt: string;
+    timeout: number;
+    resolve: (result: string) => void;
+    reject: (error: Error) => void;
+  }> = [];
+  private isExecuting: boolean = false;
+
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
     CHAT: 600000,           // 2 min - general chat responses
@@ -616,6 +625,39 @@ User: ${newMessage}`;
   }
 
   /**
+   * Queues a request and ensures only one executes at a time.
+   * This prevents race conditions where multiple Claude processes spawn simultaneously.
+   */
+  private async queuedExecute(prompt: string, timeout: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({ prompt, timeout, resolve, reject });
+      this.processQueue();
+    });
+  }
+
+  /**
+   * Processes the request queue sequentially.
+   * Only one request executes at a time; others wait in queue.
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isExecuting || this.requestQueue.length === 0) return;
+
+    this.isExecuting = true;
+    const request = this.requestQueue.shift()!;
+
+    try {
+      const result = await this.executeOneShot(request.prompt, request.timeout);
+      request.resolve(result);
+    } catch (err) {
+      request.reject(err as Error);
+    } finally {
+      this.isExecuting = false;
+      // Process next item in queue (if any)
+      this.processQueue();
+    }
+  }
+
+  /**
    * Handles output and extracts plans
    */
   private processOutput(output: string): void {
@@ -655,8 +697,8 @@ User: ${newMessage}`;
     this.conversationHistory.push({ role: 'user', content: message });
 
     try {
-      // Execute one-shot with specified timeout
-      const result = await this.executeOneShot(contextPrompt, timeoutMs);
+      // Execute through queue to prevent race conditions
+      const result = await this.queuedExecute(contextPrompt, timeoutMs);
 
       // Add assistant response to history
       this.conversationHistory.push({ role: 'assistant', content: result });
@@ -1142,13 +1184,10 @@ Consider carefully:
 
 Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
 
-**RESPOND WITH ONLY THIS JSON (no other text):**
-{
-  "passed": true or false,
-  "analysis": "1-2 sentence explanation of what you found",
-  "fixPrompt": "If failed: detailed, specific instructions for the agent to fix the issue. Include file names, line numbers from errors, and exact steps. If passed: omit this field.",
-  "suggestedAction": "retry" or "escalate" or "skip"
-}`;
+**RESPOND WITH ONLY THIS JSON (no markdown, no code blocks, no explanation - just raw JSON):**
+{"passed": true or false, "analysis": "1-2 sentence explanation", "fixPrompt": "If failed: fix instructions. If passed: omit.", "suggestedAction": "retry" or "escalate" or "skip"}
+
+Your ENTIRE response must be valid JSON starting with { and ending with }. Do NOT wrap in \`\`\`json code blocks.`;
 
     console.log(`[PlanningAgent] Analyzing task result for ${context.project}:${context.taskName}`);
 
@@ -1332,18 +1371,14 @@ Analyze the output and determine:
    - "both" → send coordinated fixes to both
 ${projectList}
 
-IMPORTANT: Respond with ONLY a JSON object in this exact format:
-{
-  "passed": true or false,
-  "analysis": "Brief summary of test results",
-  "isInfrastructureFailure": false,
-  "fixes": [
-    { "project": "project_name", "prompt": "Specific fix instructions for this project" }
-  ]
-}
+**RESPOND WITH ONLY RAW JSON (no markdown, no code blocks, no explanation):**
+{"passed": true or false, "analysis": "Brief summary", "isInfrastructureFailure": false, "fixes": [{"project": "name", "prompt": "fix instructions"}]}
 
-- Set "isInfrastructureFailure": true if tests COULD NOT RUN due to missing tools (Playwright MCP unavailable, no browser automation, etc.). This is NOT a code issue - do not include fixes.
-- The "fixes" array should contain an entry for EACH project that needs code changes. Use the agent's codeAnalysis to provide specific, actionable fix instructions.`;
+Rules:
+- Your ENTIRE response must be valid JSON starting with { and ending with }
+- Do NOT wrap in \`\`\`json code blocks
+- Set "isInfrastructureFailure": true if tests COULD NOT RUN (missing tools, no browser automation)
+- "fixes" array: one entry per project that needs changes, using the agent's codeAnalysis`;
 
     try {
       const result = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
@@ -1400,9 +1435,61 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
         };
       }
 
-      // If we can't parse, assume failure and use the raw response
+      // If we can't parse, check for explicit "passed" value in raw response first
       console.warn('[PlanningAgent] Could not parse E2E analysis JSON, checking for failure patterns');
-      const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+
+      // CRITICAL FIX: Check PA's response for explicit "passed": false/true
+      const hasExplicitFalse = /"passed"\s*:\s*false/i.test(result);
+      const hasExplicitTrue = /"passed"\s*:\s*true/i.test(result);
+
+      if (hasExplicitFalse) {
+        console.log('[PlanningAgent] Found "passed": false in raw response - treating as failure');
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'e2e',
+          project,
+          passed: false,
+          summary: 'E2E tests failed (from raw response)',
+          details: result.slice(0, 500)
+        };
+        this.emit('analysisResult', analysisEvent);
+        return {
+          passed: false,
+          analysis: result.slice(0, 500),
+          fixPrompt: result
+        };
+      }
+
+      if (hasExplicitTrue) {
+        console.log('[PlanningAgent] Found "passed": true in raw response - treating as success');
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'e2e',
+          project,
+          passed: true,
+          summary: 'E2E tests passed (from raw response)',
+          details: result.slice(0, 500)
+        };
+        this.emit('analysisResult', analysisEvent);
+        return {
+          passed: true,
+          analysis: result.slice(0, 500)
+        };
+      }
+
+      // Fallback to pattern matching on agent output
+      // Check for EXPLICIT pass indicators first
+      const hasExplicitPass = /\ball(?:Passed|tests passed)\s*[:\s]*true\b|all.*tests.*passed|tests.*completed.*successfully|e2e.*passed/i.test(e2eOutput);
+
+      // Use word boundaries and context for failures
+      const failurePatterns = [
+        /\bfail(ed|ure|ing)?\b/i,
+        /\berror(s)?\b(?!.*expected)/i,
+        /\bassert(ion)?\s*(fail|error)/i,
+        /\btimeout\b/i,
+        /\bexpected\s+.+\s+but\s+(got|received|was)\b/i,
+        /\btest(s)?\s+(did not|didn't)\s+pass/i,
+      ];
+
+      const hasFailure = !hasExplicitPass && failurePatterns.some(pattern => pattern.test(e2eOutput));
       const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);
 
       // If tests weren't executed at all, that's an infrastructure failure - not fixable by code changes
@@ -1452,7 +1539,17 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
       this.emit('analysisResult', analysisEvent);
 
       // On error, check output for obvious failures
-      const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
+      // Bug 3 fix: Use robust patterns with word boundaries and context
+      const hasExplicitPassCatch = /\ball(?:Passed|tests passed)\s*[:\s]*true\b|all.*tests.*passed|tests.*completed.*successfully|e2e.*passed/i.test(e2eOutput);
+      const failurePatternsCatch = [
+        /\bfail(ed|ure|ing)?\b/i,
+        /\berror(s)?\b(?!.*expected)/i,
+        /\bassert(ion)?\s*(fail|error)/i,
+        /\btimeout\b/i,
+        /\bexpected\s+.+\s+but\s+(got|received|was)\b/i,
+        /\btest(s)?\s+(did not|didn't)\s+pass/i,
+      ];
+      const hasFailure = !hasExplicitPassCatch && failurePatternsCatch.some(pattern => pattern.test(e2eOutput));
       const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);
 
       // If tests weren't executed at all, that's a failure
@@ -1483,7 +1580,7 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
    * Checks if the Planning Agent is currently busy processing a request
    */
   isBusy(): boolean {
-    return this.currentProcess !== null;
+    return this.isExecuting || this.requestQueue.length > 0;
   }
 
   /**

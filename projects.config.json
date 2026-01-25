@@ -76,6 +76,34 @@
       "hasE2E": true,
       "gitEnabled": true,
       "mainBranch": "main"
+    },
+    "notefe": {
+      "path": "~/Documents/notefe",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {},
+        "port": 5173,
+        "url": "http://localhost:5173"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
+    },
+    "notebe": {
+      "path": "~/Documents/notebe",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {},
+        "port": 3000,
+        "url": "http://localhost:3000"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main"
     }
   },
   "defaults": {
