@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   MantineProvider,
   AppShell,
@@ -50,7 +50,7 @@ function App() {
     testStates,
     taskStates,
     planningStatus,
-    analysisResults,
+    chatEvents,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -84,6 +84,24 @@ function App() {
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
+
+  // Memoize expensive computations
+  const isStreaming = useMemo(
+    () => streamingMessages.some(m => m.status === 'streaming'),
+    [streamingMessages]
+  );
+
+  // Memoize logs by project to avoid filtering on every render
+  const logsByProject = useMemo(() => {
+    const grouped: Record<string, typeof logs> = {};
+    for (const log of logs) {
+      if (!grouped[log.project]) {
+        grouped[log.project] = [];
+      }
+      grouped[log.project].push(log);
+    }
+    return grouped;
+  }, [logs]);
 
   // Handler for starting a new session
   const handleNewSession = () => {
@@ -291,12 +309,12 @@ function App() {
                         </Text>
                       </Group>
                       <Badge
-                        color={streamingMessages.some(m => m.status === 'streaming') ? 'blue' : 'gray'}
+                        color={isStreaming ? 'blue' : 'gray'}
                         variant="light"
                         size="sm"
                         radius="md"
                       >
-                        {streamingMessages.some(m => m.status === 'streaming') ? 'Thinking...' : 'Ready'}
+                        {isStreaming ? 'Thinking...' : 'Ready'}
                       </Badge>
                     </Group>
                     <Box h="calc(100% - 57px)">
@@ -305,7 +323,7 @@ function App() {
                         pendingPlan={pendingPlan}
                         queueStatus={queueStatus}
                         planningStatus={planningStatus}
-                        analysisResults={analysisResults}
+                        chatEvents={chatEvents}
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}
@@ -440,7 +458,7 @@ function App() {
                               status={statuses[project]?.status || 'PENDING'}
                               message={statuses[project]?.message || ''}
                               updatedAt={statuses[project]?.updatedAt || 0}
-                              logs={logs.filter(l => l.project === project)}
+                              logs={logsByProject[project] || []}
                               testState={testStates[project]}
                             />
                           ))}

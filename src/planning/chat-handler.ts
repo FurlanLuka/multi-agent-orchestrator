@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent } from '../types';
+import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -62,6 +62,16 @@ export class ChatHandler extends EventEmitter {
     // Forward analysis result events for structured results display
     this.planningAgent.on('analysisResult', (event: AnalysisResultEvent) => {
       this.emit('analysisResult', event);
+    });
+
+    // Forward verification start events for UI
+    this.planningAgent.on('verificationStart', (event: VerificationStartEvent) => {
+      this.emit('verificationStart', event);
+    });
+
+    // Forward E2E analyzing events for UI
+    this.planningAgent.on('e2eAnalyzing', (event: E2EAnalyzingEvent) => {
+      this.emit('e2eAnalyzing', event);
     });
   }
 
@@ -126,6 +136,23 @@ export class ChatHandler extends EventEmitter {
     try {
       const response = await this.planningAgent.sendChat(message);
 
+      // Check for structured response marker
+      const responseMatch = response.match(/\[RESPONSE\]\s*(\{.*\})/s);
+      if (responseMatch) {
+        try {
+          const chatResponse = JSON.parse(responseMatch[1]) as ChatResponseEvent;
+          console.log('[ChatHandler] Structured response:', chatResponse.status, chatResponse.message.substring(0, 50));
+          this.emit('chatResponse', chatResponse);
+        } catch (parseErr) {
+          console.error('[ChatHandler] Failed to parse response JSON:', parseErr);
+          // Fallback: emit a generic response if parse fails
+          this.emit('chatResponse', {
+            message: 'Response received (parsing error)',
+            status: 'info'
+          } as ChatResponseEvent);
+        }
+      }
+
       // Check for action marker in response
       const actionMatch = response.match(/\[ACTION\]\s*(\{.*\})/);
       if (actionMatch) {
@@ -140,6 +167,11 @@ export class ChatHandler extends EventEmitter {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${error.message}`);
+      // Emit error response
+      this.emit('chatResponse', {
+        message: `Error: ${error.message}`,
+        status: 'error'
+      } as ChatResponseEvent);
     }
   }
 
@@ -236,6 +268,7 @@ export class ChatHandler extends EventEmitter {
     analysis: string;
     fixPrompt?: string;  // Legacy: fix for originating project
     fixes?: Array<{ project: string; prompt: string }>;  // New: targeted fixes per project
+    isInfrastructureFailure?: boolean;  // If true, go straight to FATAL - not fixable by code
   }> {
     this.addMessage('system', `Analyzing E2E test results for ${project}...`);
 

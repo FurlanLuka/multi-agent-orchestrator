@@ -343,6 +343,15 @@ async function main() {
       return;
     }
 
+    // Check for infrastructure failures (e.g., no access to testing tools)
+    // These should go straight to FATAL_DEBUGGING - not fixable by code changes
+    if (analysis.isInfrastructureFailure) {
+      console.error(`[Orchestrator] E2E infrastructure failure for ${project}: ${analysis.analysis}`);
+      chatHandler.systemMessage(`E2E tests could not run for ${project}: ${analysis.analysis}. This requires manual intervention (e.g., Playwright MCP tools unavailable).`);
+      statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', 'E2E infrastructure issue - tools unavailable');
+      return;
+    }
+
     // E2E failed - check retry count
     const retries = e2eRetryCount.get(project) || 0;
 
@@ -397,6 +406,14 @@ After fixing, the E2E tests will be re-run automatically.`;
 
         console.log(`[Orchestrator] >>> SENDING FIX TO: "${targetProject}" (E2E failed in "${project}")`);
         statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
+
+        // Emit fix sent event for UI
+        (ui.io as any).emitFixSent({
+          fromProject: project,
+          toProject: targetProject,
+          reason: 'E2E test failure'
+        });
+
         await actionExecutor.sendE2EFix(targetProject, fixPrompt);
         console.log(`[Orchestrator] <<< FIX SENT TO: "${targetProject}"`);
       }
@@ -408,12 +425,18 @@ After fixing, the E2E tests will be re-run automatically.`;
         // Fixes were sent to other projects (e.g., backend fix for frontend E2E failure)
         // DON'T immediately re-run E2E - wait for the other project(s) to complete
         // The normal flow will handle it: other project → READY → IDLE → checkPendingE2E
-        console.log(`[Orchestrator] Fixes sent to other projects (${Array.from(projectsWithFixes).filter(p => p !== project).join(', ')}). Waiting for them to complete before re-running ${project} E2E.`);
+        const waitingOn = Array.from(projectsWithFixes).filter(p => p !== project);
+        console.log(`[Orchestrator] Fixes sent to other projects (${waitingOn.join(', ')}). Waiting for them to complete before re-running ${project} E2E.`);
         // Set the failing project to wait for the fixed projects
-        statusMonitor.updateStatus(project, 'BLOCKED', `Waiting for ${Array.from(projectsWithFixes).filter(p => p !== project).join(', ')} to complete fixes`);
+        statusMonitor.updateStatus(project, 'BLOCKED', `Waiting for ${waitingOn.join(', ')} to complete fixes`);
+
+        // Emit waiting for project event for UI
+        (ui.io as any).emitWaitingForProject({
+          project,
+          waitingFor: waitingOn
+        });
 
         // Add to pendingE2E so it will be triggered when the other projects go to IDLE
-        const waitingOn = Array.from(projectsWithFixes).filter(p => p !== project);
         pendingE2E.set(project, { message: `Re-running E2E after fixes`, waitingOn });
       } else {
         // Only the failing project itself received fixes - re-run E2E directly
@@ -645,6 +668,13 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     // Queue E2E prompt request - will be processed when Planning Agent is free
     console.log(`[Orchestrator] Queueing E2E prompt request for ${project}`);
     e2eQueuedProjects.add(project);  // Track to prevent duplicates
+
+    // Emit E2E start event for UI
+    (ui.io as any).emitE2EStart({
+      project,
+      testScenarios: scenariosToTest
+    });
+
     eventQueue.add({
       type: 'e2e_prompt_request',
       project,
@@ -1013,6 +1043,21 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     (ui.io as any).emitAnalysisResult(event);
   });
 
+  // Forward verification start events to UI
+  chatHandler.on('verificationStart', (event) => {
+    (ui.io as any).emitVerificationStart(event);
+  });
+
+  // Forward E2E analyzing events to UI
+  chatHandler.on('e2eAnalyzing', (event) => {
+    (ui.io as any).emitE2EAnalyzing(event);
+  });
+
+  // Forward chat response events to UI (structured responses from Planning Agent)
+  chatHandler.on('chatResponse', (event) => {
+    (ui.io as any).emitChatResponse(event);
+  });
+
   // Forward streaming events to UI for agentic chat
   // Also persist chat messages on message_complete
   chatHandler.on('stream', (event) => {
@@ -1127,6 +1172,14 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
       if (updatedSession) {
         (ui.io as any).emitSession(updatedSession);
       }
+
+      // Emit plan approved card event for UI
+      (ui.io as any).emitPlanApprovedCard({
+        feature: plan.feature,
+        taskCount: plan.tasks.length,
+        projectCount: new Set(plan.tasks.map(t => t.project)).size
+      });
+
       chatHandler.systemMessage('Plan approved! Ready to start execution.');
     });
 

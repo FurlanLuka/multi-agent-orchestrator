@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -23,9 +23,9 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconLoader2 } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus, PlanningStatusEvent, AnalysisResultEvent } from '../types';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus, PlanningStatusEvent, ChatCardEvent } from '../types';
 import { PlanningStatusIndicator } from './PlanningStatusIndicator';
-import { AnalysisResultCard } from './AnalysisResultCard';
+import { ChatEventCard } from './ChatEventCard';
 import { TabbedPlanView } from './TabbedPlanView';
 
 interface AssistantChatProps {
@@ -33,7 +33,7 @@ interface AssistantChatProps {
   pendingPlan: PlanProposal | null;
   queueStatus: QueueStatus | null;
   planningStatus: PlanningStatusEvent | null;
-  analysisResults: AnalysisResultEvent[];
+  chatEvents: ChatCardEvent[];
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
   sessionActive: boolean;
@@ -102,8 +102,8 @@ const markdownComponents = {
   },
 };
 
-// Custom message content renderer for our content blocks
-function MessageContent({ content }: { content: ContentBlock[] }) {
+// Custom message content renderer for our content blocks - memoized
+const MessageContent = memo(function MessageContent({ content }: { content: ContentBlock[] }) {
   return (
     <Stack gap="sm">
       {content.map((block, index) => {
@@ -244,7 +244,7 @@ function MessageContent({ content }: { content: ContentBlock[] }) {
       })}
     </Stack>
   );
-}
+});
 
 // Format timestamp
 function formatTimestamp(timestamp: number): string {
@@ -252,66 +252,39 @@ function formatTimestamp(timestamp: number): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-// Check if content looks like a plan message
-function isPlanContent(content: ContentBlock[]): boolean {
+// Check if content looks like a long plan message that should be collapsible
+function isLongPlanContent(content: ContentBlock[]): boolean {
   const textBlocks = content.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
   if (textBlocks.length === 0) return false;
 
   const fullText = textBlocks.map(b => b.text).join('\n');
 
-  // Check for plan indicators
-  return (
+  // Only collapse very long structured messages
+  return fullText.length > 2000 && (
     fullText.includes('## Implementation Plan') ||
     fullText.includes('## Tasks') ||
-    fullText.includes('### Frontend') ||
-    fullText.includes('### Backend') ||
-    /^\d+\.\s+\*\*[^*]+\*\*/m.test(fullText) || // Numbered bold items like "1. **Task**"
-    (fullText.includes('plan') && fullText.length > 1000) // Long message mentioning "plan"
+    fullText.includes('```json')
   );
 }
 
-// Detect plan type from content keywords
-function detectPlanType(content: ContentBlock[]): string {
-  const textBlocks = content.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
-  if (textBlocks.length === 0) return 'Plan';
-
-  const fullText = textBlocks.map(b => b.text).join('\n').toLowerCase();
-
-  // Check for specific plan types based on keywords
-  if (fullText.includes('e2e') && fullText.includes('fix')) return 'E2E Fix';
-  if (fullText.includes('e2e') && fullText.includes('debug')) return 'E2E Debug';
-  if (fullText.includes('e2e') && (fullText.includes('run') || fullText.includes('test'))) return 'E2E Run';
-  if (fullText.includes('e2e') && fullText.includes('setup')) return 'E2E Setup';
-  if (fullText.includes('fatal') && fullText.includes('debug')) return 'Fatal Debug';
-  if (fullText.includes('debug')) return 'Debug';
-  if (fullText.includes('recovery') || fullText.includes('recover')) return 'Recovery';
-  if (fullText.includes('initial') || fullText.includes('implementation plan')) return 'Initial Plan';
-  if (fullText.includes('build') && fullText.includes('fix')) return 'Build Fix';
-
-  return 'Plan';
-}
-
-// Collapsible plan content component
-interface CollapsiblePlanContentProps {
+// Collapsible long content component (no type badges)
+interface CollapsibleContentProps {
   content: ContentBlock[];
   expanded: boolean;
   onToggle: () => void;
 }
 
-function CollapsiblePlanContent({ content, expanded, onToggle }: CollapsiblePlanContentProps) {
-  const planType = detectPlanType(content);
-
+function CollapsibleContent({ content, expanded, onToggle }: CollapsibleContentProps) {
   if (!expanded) {
     return (
       <Box>
-        <Badge size="sm" variant="light" color="violet" mb="sm">{planType}</Badge>
         <Button
           variant="subtle"
           size="xs"
           onClick={onToggle}
           leftSection={<IconChevronDown size={14} />}
         >
-          Show full plan
+          Show full message
         </Button>
       </Box>
     );
@@ -319,7 +292,6 @@ function CollapsiblePlanContent({ content, expanded, onToggle }: CollapsiblePlan
 
   return (
     <Box>
-      <Badge size="sm" variant="light" color="violet" mb="sm">{planType}</Badge>
       <MessageContent content={content} />
       <Button
         variant="subtle"
@@ -334,18 +306,18 @@ function CollapsiblePlanContent({ content, expanded, onToggle }: CollapsiblePlan
   );
 }
 
-// Single message component
+// Single message component - memoized to prevent re-renders
 interface ChatMessageProps {
   message: StreamingMessage;
   isExpanded: boolean;
   onToggleExpand: () => void;
 }
 
-function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) {
+const ChatMessage = memo(function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const isStreaming = message.status === 'streaming';
   const isQueued = message.status === 'queued';
-  const isPlan = !isUser && isPlanContent(message.content);
+  const isLongContent = useMemo(() => !isUser && isLongPlanContent(message.content), [isUser, message.content]);
 
   return (
     <Card
@@ -391,9 +363,9 @@ function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) 
 
       <Divider mb="sm" color={isUser ? 'blue.1' : 'gray.2'} />
 
-      {/* Message content - collapsible for plan messages */}
-      {isPlan ? (
-        <CollapsiblePlanContent
+      {/* Message content - collapsible for very long messages */}
+      {isLongContent ? (
+        <CollapsibleContent
           content={message.content}
           expanded={isExpanded}
           onToggle={onToggleExpand}
@@ -403,7 +375,7 @@ function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) 
       )}
     </Card>
   );
-}
+});
 
 // Queue status banner component
 function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
@@ -468,13 +440,18 @@ function QueueStatusBanner({ queueStatus }: { queueStatus: QueueStatus }) {
   );
 }
 
+// Timeline item type for unified rendering
+type TimelineItem =
+  | { type: 'message'; timestamp: number; data: StreamingMessage; key: string }
+  | { type: 'event'; timestamp: number; data: ChatCardEvent; key: string };
+
 // Main chat component using external store
 function ChatThread({
   messages,
   pendingPlan,
   queueStatus,
   planningStatus,
-  analysisResults,
+  chatEvents,
   onSendMessage,
   onApprovePlan,
   sessionActive,
@@ -484,13 +461,47 @@ function ChatThread({
   const inputRef = useRef<HTMLInputElement>(null);
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
 
-  // Check if any message is currently streaming
-  const hasStreamingMessage = messages.some(m => m.status === 'streaming');
+  // Check if any message is currently streaming - memoized
+  const hasStreamingMessage = useMemo(
+    () => messages.some(m => m.status === 'streaming'),
+    [messages]
+  );
 
   // Derive effective expanded state - auto-collapse during streaming
   const effectiveExpandedId = hasStreamingMessage ? null : expandedMessageId;
 
-  // Auto-scroll to bottom when new messages arrive
+  // Create unified timeline: user messages + structured event cards only
+  // Hide raw Planning Agent streaming messages - only show structured cards
+  const timeline = useMemo(() => {
+    const items: TimelineItem[] = [];
+
+    // Only add USER messages (not assistant/Planning Agent messages)
+    messages
+      .filter(msg => msg.role === 'user')
+      .forEach(msg => {
+        items.push({
+          type: 'message',
+          timestamp: msg.createdAt,
+          data: msg,
+          key: msg.id,
+        });
+      });
+
+    // Add structured chat event cards
+    chatEvents.forEach(event => {
+      items.push({
+        type: 'event',
+        timestamp: event.timestamp,
+        data: event,
+        key: event.id,
+      });
+    });
+
+    // Sort by timestamp
+    return items.sort((a, b) => a.timestamp - b.timestamp);
+  }, [messages, chatEvents]);
+
+  // Auto-scroll to bottom when new items arrive
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -498,7 +509,7 @@ function ChatThread({
         behavior: 'smooth',
       });
     }
-  }, [messages]);
+  }, [timeline]);
 
   const handleSend = () => {
     const input = inputRef.current;
@@ -538,7 +549,7 @@ function ChatThread({
               <PlanningStatusIndicator status={planningStatus} />
             )}
 
-            {messages.length === 0 && !planningStatus ? (
+            {timeline.length === 0 && !planningStatus ? (
               <Card p="xl" withBorder shadow="sm" radius="md">
                 <Stack align="center" gap="sm">
                   <IconRobot size={48} color="var(--mantine-color-gray-5)" />
@@ -551,27 +562,22 @@ function ChatThread({
               </Card>
             ) : (
               <>
-                {/* Hide messages during planning for cleaner UX */}
-                {!planningStatus && messages.map((msg) => (
-                  <ChatMessage
-                    key={msg.id}
-                    message={msg}
-                    isExpanded={effectiveExpandedId === msg.id}
-                    onToggleExpand={() => setExpandedMessageId(
-                      expandedMessageId === msg.id ? null : msg.id
-                    )}
-                  />
+                {/* Unified timeline - hide during planning for cleaner UX */}
+                {!planningStatus && timeline.map((item) => (
+                  item.type === 'message' ? (
+                    <ChatMessage
+                      key={item.key}
+                      message={item.data}
+                      isExpanded={effectiveExpandedId === item.data.id}
+                      onToggleExpand={() => setExpandedMessageId(
+                        expandedMessageId === item.data.id ? null : item.data.id
+                      )}
+                    />
+                  ) : (
+                    <ChatEventCard key={item.key} event={item.data} />
+                  )
                 ))}
               </>
-            )}
-
-            {/* Analysis Results - show recent task/E2E analysis results */}
-            {analysisResults.length > 0 && (
-              <Stack gap="xs">
-                {analysisResults.slice(-5).map((result, idx) => (
-                  <AnalysisResultCard key={idx} result={result} />
-                ))}
-              </Stack>
             )}
 
             {/* Pending Plan with TabbedPlanView */}
@@ -661,11 +667,17 @@ function convertMessage(msg: StreamingMessage) {
 
 // Wrapper with AssistantUI runtime
 export function AssistantChat(props: AssistantChatProps) {
+  // Memoize isRunning to avoid recomputation
+  const isRunning = useMemo(
+    () => props.messages.some((m) => m.status === 'streaming'),
+    [props.messages]
+  );
+
   // Create external store runtime with proper adapter
   const runtime = useExternalStoreRuntime({
     messages: props.messages,
     convertMessage: (msg: StreamingMessage) => convertMessage(msg),
-    isRunning: props.messages.some((m) => m.status === 'streaming'),
+    isRunning,
     onNew: async (message) => {
       // Extract text content from the message
       const textContent = message.content

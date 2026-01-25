@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -217,6 +217,41 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('analysisResult', event);
   };
 
+  // Emit verification start event (task verification beginning)
+  const emitVerificationStart = (event: VerificationStartEvent) => {
+    io.emit('verificationStart', event);
+  };
+
+  // Emit E2E start event (E2E tests beginning)
+  const emitE2EStart = (event: E2EStartEvent) => {
+    io.emit('e2eStart', event);
+  };
+
+  // Emit E2E analyzing event (analyzing E2E results)
+  const emitE2EAnalyzing = (event: E2EAnalyzingEvent) => {
+    io.emit('e2eAnalyzing', event);
+  };
+
+  // Emit fix sent event (fix sent to another project)
+  const emitFixSent = (event: FixSentEvent) => {
+    io.emit('fixSent', event);
+  };
+
+  // Emit waiting for project event (waiting for dependencies)
+  const emitWaitingForProject = (event: WaitingForProjectEvent) => {
+    io.emit('waitingForProject', event);
+  };
+
+  // Emit plan approved card event
+  const emitPlanApprovedCard = (event: PlanApprovedCardEvent) => {
+    io.emit('planApprovedCard', event);
+  };
+
+  // Emit chat response event (structured response from Planning Agent)
+  const emitChatResponse = (event: ChatResponseEvent) => {
+    io.emit('chatResponse', event);
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -231,6 +266,13 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitTaskStates = emitTaskStates;
   (io as any).emitPlanningStatus = emitPlanningStatus;
   (io as any).emitAnalysisResult = emitAnalysisResult;
+  (io as any).emitVerificationStart = emitVerificationStart;
+  (io as any).emitE2EStart = emitE2EStart;
+  (io as any).emitE2EAnalyzing = emitE2EAnalyzing;
+  (io as any).emitFixSent = emitFixSent;
+  (io as any).emitWaitingForProject = emitWaitingForProject;
+  (io as any).emitPlanApprovedCard = emitPlanApprovedCard;
+  (io as any).emitChatResponse = emitChatResponse;
 
   return {
     app,

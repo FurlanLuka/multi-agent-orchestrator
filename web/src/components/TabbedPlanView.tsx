@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo, useMemo } from 'react';
 import {
   Stack,
   Title,
@@ -100,18 +100,22 @@ function ProjectStatusBadge({ project, taskStates }: { project: string; taskStat
   return <Badge size="xs" color="gray" variant="light">{completedCount}/{projectTasks.length}</Badge>;
 }
 
-export function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
-  const projects = [...new Set(plan.tasks.map(t => t.project))];
+export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
+  const projects = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
   const [activeTab, setActiveTab] = useState<string | null>(projects[0] || null);
   const [expandedTaskIdx, setExpandedTaskIdx] = useState<number | null>(null);
   // Architecture expanded by default for approval, collapsed for execution view
   const [architectureExpanded, setArchitectureExpanded] = useState(isApproval ?? false);
 
-  // Get tasks and tests for active project
-  const projectTasks = plan.tasks
-    .map((task, idx) => ({ task, idx }))
-    .filter(({ task }) => task.project === activeTab);
-  const projectTests = activeTab ? (plan.testPlan[activeTab] || []) : [];
+  // Get tasks and tests for active project - memoized
+  const projectTasks = useMemo(
+    () => plan.tasks.map((task, idx) => ({ task, idx })).filter(({ task }) => task.project === activeTab),
+    [plan.tasks, activeTab]
+  );
+  const projectTests = useMemo(
+    () => activeTab ? (plan.testPlan[activeTab] || []) : [],
+    [plan.testPlan, activeTab]
+  );
 
   return (
     <Stack gap="sm">
@@ -309,4 +313,4 @@ export function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Pro
       `}</style>
     </Stack>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import {
   Paper,
   Group,
@@ -53,7 +53,7 @@ const getStatusProgress = (status: AgentStatus): number => {
   }
 };
 
-export function ProjectCard({ project, status, message, updatedAt, logs, testState }: ProjectCardProps) {
+function ProjectCardInner({ project, status, message, updatedAt, logs, testState }: ProjectCardProps) {
   const [logType, setLogType] = useState<string>('agent');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -64,14 +64,23 @@ export function ProjectCard({ project, status, message, updatedAt, logs, testSta
   // Show tests tab when in E2E state
   const showTestsTab = status === 'E2E' || status === 'E2E_FIXING';
 
-  // Test stats
-  const passedCount = testState?.scenarios.filter(s => s.status === 'passed').length || 0;
-  const totalCount = testState?.scenarios.length || 0;
+  // Memoize test stats
+  const { passedCount, totalCount } = useMemo(() => ({
+    passedCount: testState?.scenarios.filter(s => s.status === 'passed').length || 0,
+    totalCount: testState?.scenarios.length || 0,
+  }), [testState?.scenarios]);
 
-  // Filter logs based on selected type
-  const filteredLogs = logs
-    .filter(l => l.type === logType)
-    .slice(-100); // Keep last 100 logs
+  // Memoize log counts for tabs
+  const logCounts = useMemo(() => ({
+    agent: logs.filter(l => l.type === 'agent').length,
+    devServer: logs.filter(l => l.type === 'devServer').length,
+  }), [logs]);
+
+  // Filter logs based on selected type - memoized
+  const filteredLogs = useMemo(
+    () => logs.filter(l => l.type === logType).slice(-100),
+    [logs, logType]
+  );
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -123,8 +132,8 @@ export function ProjectCard({ project, status, message, updatedAt, logs, testSta
         value={logType}
         onChange={setLogType}
         data={[
-          { label: `Agent Output (${logs.filter(l => l.type === 'agent').length})`, value: 'agent' },
-          { label: `Dev Server (${logs.filter(l => l.type === 'devServer').length})`, value: 'devServer' },
+          { label: `Agent Output (${logCounts.agent})`, value: 'agent' },
+          { label: `Dev Server (${logCounts.devServer})`, value: 'devServer' },
           ...(showTestsTab ? [{ label: `Tests (${passedCount}/${totalCount})`, value: 'tests' }] : [])
         ]}
         size="xs"
@@ -212,3 +221,6 @@ export function ProjectCard({ project, status, message, updatedAt, logs, testSta
     </Paper>
   );
 }
+
+// Export memoized component to prevent re-renders when props haven't changed
+export const ProjectCard = memo(ProjectCardInner);

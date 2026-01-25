@@ -24,9 +24,25 @@ import type {
   TaskStatusEvent,
   PlanningStatusEvent,
   AnalysisResultEvent,
+  ChatCardEvent,
+  VerificationStartEvent,
+  E2EStartEvent,
+  E2EAnalyzingEvent,
+  FixSentEvent,
+  WaitingForProjectEvent,
+  PlanApprovedCardEvent,
+  ChatResponseEvent,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
+
+// Helper function for findLastIndex (not available in all ES targets)
+function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (predicate(arr[i])) return i;
+  }
+  return -1;
+}
 
 export function useSocket() {
   const [connected, setConnected] = useState(false);
@@ -60,6 +76,9 @@ export function useSocket() {
   // Analysis results for structured display
   const [analysisResults, setAnalysisResults] = useState<AnalysisResultEvent[]>([]);
 
+  // Unified chat events for timeline cards
+  const [chatEvents, setChatEvents] = useState<ChatCardEvent[]>([]);
+
   // Session persistence state
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
@@ -72,6 +91,10 @@ export function useSocket() {
   const activeSessionIdRef = useRef<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
+
+  // Batching for content_block events to reduce re-renders
+  const pendingEventsRef = useRef<ChatStreamEvent[]>([]);
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -104,6 +127,9 @@ export function useSocket() {
       // Clear the cached messages for the new session
       activeSessionMessagesRef.current = [];
       setStreamingMessages([]);
+      // Clear chat events for new session
+      setChatEvents([]);
+      setAnalysisResults([]);
     });
 
     // Status events
@@ -166,68 +192,91 @@ export function useSocket() {
     });
 
     // Streaming chat events for agentic UI
-    // These events always come from the active session
+    // We still track messages for internal state, but UI shows only structured cards
     socket.on('chatStream', (event: ChatStreamEvent) => {
-      // Helper function to apply event to message array
-      const applyEvent = (messages: StreamingMessage[]): StreamingMessage[] => {
-        switch (event.type) {
-          case 'message_start': {
-            // Create new streaming message
-            const newMessage: StreamingMessage = {
-              id: event.messageId,
-              role: 'assistant',
-              content: [],
-              status: 'streaming',
-              createdAt: Date.now(),
-            };
-            // Also mark the most recent queued user message as complete
-            const updatedPrev = messages.map((msg, idx) => {
-              if (msg.role === 'user' && msg.status === 'queued') {
-                const hasAssistantAfter = messages.slice(idx + 1).some(m => m.role === 'assistant');
-                if (!hasAssistantAfter) {
-                  return { ...msg, status: 'complete' as const };
+      // Helper function to apply events to message array
+      const applyEvents = (messages: StreamingMessage[], events: ChatStreamEvent[]): StreamingMessage[] => {
+        let result = messages;
+        for (const evt of events) {
+          switch (evt.type) {
+            case 'message_start': {
+              // Create new streaming message
+              const newMessage: StreamingMessage = {
+                id: evt.messageId,
+                role: 'assistant',
+                content: [],
+                status: 'streaming',
+                createdAt: Date.now(),
+              };
+              // Also mark the most recent queued user message as complete
+              const updatedPrev = result.map((msg, idx) => {
+                if (msg.role === 'user' && msg.status === 'queued') {
+                  const hasAssistantAfter = result.slice(idx + 1).some(m => m.role === 'assistant');
+                  if (!hasAssistantAfter) {
+                    return { ...msg, status: 'complete' as const };
+                  }
                 }
-              }
-              return msg;
-            });
-            return [...updatedPrev, newMessage];
-          }
+                return msg;
+              });
+              result = [...updatedPrev, newMessage];
+              break;
+            }
 
-          case 'content_block': {
-            if (!event.block) return messages;
-            return messages.map(msg =>
-              msg.id === event.messageId
-                ? { ...msg, content: [...msg.content, event.block as ContentBlock] }
-                : msg
-            );
-          }
+            case 'content_block': {
+              if (!evt.block) break;
+              result = result.map(msg =>
+                msg.id === evt.messageId
+                  ? { ...msg, content: [...msg.content, evt.block as ContentBlock] }
+                  : msg
+              );
+              break;
+            }
 
-          case 'message_complete': {
-            return messages.map(msg =>
-              msg.id === event.messageId
-                ? { ...msg, status: 'complete' as const }
-                : msg
-            );
-          }
+            case 'message_complete': {
+              result = result.map(msg =>
+                msg.id === evt.messageId
+                  ? { ...msg, status: 'complete' as const }
+                  : msg
+              );
+              break;
+            }
 
-          case 'error': {
-            return messages.map(msg =>
-              msg.id === event.messageId
-                ? { ...msg, status: 'error' as const }
-                : msg
-            );
+            case 'error': {
+              result = result.map(msg =>
+                msg.id === evt.messageId
+                  ? { ...msg, status: 'error' as const }
+                  : msg
+              );
+              break;
+            }
           }
-
-          default:
-            return messages;
         }
+        return result;
       };
 
-      // Always update the active session's cached messages
-      activeSessionMessagesRef.current = applyEvent(activeSessionMessagesRef.current);
+      // For content_block events, batch them and process on next animation frame
+      // This reduces re-renders during fast streaming
+      if (event.type === 'content_block') {
+        pendingEventsRef.current.push(event);
 
-      // Update displayed messages
-      setStreamingMessages(prev => applyEvent(prev));
+        // Schedule batch update if not already scheduled
+        if (rafIdRef.current === null) {
+          rafIdRef.current = requestAnimationFrame(() => {
+            const events = pendingEventsRef.current;
+            pendingEventsRef.current = [];
+            rafIdRef.current = null;
+
+            // Apply all batched events at once
+            activeSessionMessagesRef.current = applyEvents(activeSessionMessagesRef.current, events);
+            setStreamingMessages(prev => applyEvents(prev, events));
+          });
+        }
+      } else {
+        // For non-content_block events (message_start, message_complete, error),
+        // apply immediately to ensure proper state transitions
+        activeSessionMessagesRef.current = applyEvents(activeSessionMessagesRef.current, [event]);
+        setStreamingMessages(prev => applyEvents(prev, [event]));
+      }
     });
 
     // Queue status events (for Planning Agent visibility)
@@ -279,6 +328,184 @@ export function useSocket() {
     // Analysis result events for structured display
     socket.on('analysisResult', (event: AnalysisResultEvent) => {
       setAnalysisResults(prev => [...prev, event]);
+
+      // Only mutate STATUS cards (loading state) into result cards
+      // Never mutate existing result cards (especially failed ones)
+      setChatEvents(prev => {
+        const category = event.type === 'task' ? 'task' : 'e2e';
+
+        // Find the most recent STATUS card (type === 'status') for this project/category
+        const statusIndex = findLastIndex(prev, (e: ChatCardEvent) =>
+          e.type === 'status' &&  // Only status cards can be mutated
+          e.category === category &&
+          e.project === event.project
+        );
+
+        if (statusIndex !== -1) {
+          // Mutate the status card into a result card
+          const updated = [...prev];
+          updated[statusIndex] = {
+            ...updated[statusIndex],
+            type: 'result',
+            passed: event.passed,
+            summary: event.summary,
+            details: event.details,
+            fixPrompt: event.fixPrompt,
+            taskName: event.taskName,
+            message: undefined, // Clear the status message
+          };
+          return updated;
+        }
+
+        // No status card found - add a new result card
+        // (This happens if result comes without a preceding status event)
+        return [...prev, {
+          id: `${event.type}_${event.project}_${Date.now()}`,
+          type: 'result',
+          category,
+          project: event.project,
+          taskName: event.taskName,
+          timestamp: Date.now(),
+          passed: event.passed,
+          summary: event.summary,
+          details: event.details,
+          fixPrompt: event.fixPrompt,
+        }];
+      });
+    });
+
+    // Verification start events (task verification beginning)
+    socket.on('verificationStart', (event: VerificationStartEvent) => {
+      const chatEvent: ChatCardEvent = {
+        id: `verify_${event.project}_${event.taskIndex}_${Date.now()}`,
+        type: 'status',
+        category: 'task',
+        project: event.project,
+        taskName: event.taskName,
+        timestamp: Date.now(),
+        message: `Verifying "${event.taskName}"...`,
+      };
+      setChatEvents(prev => [...prev, chatEvent]);
+    });
+
+    // E2E start events (E2E tests beginning)
+    socket.on('e2eStart', (event: E2EStartEvent) => {
+      // Check if there's already an E2E status card for this project, update it
+      setChatEvents(prev => {
+        const existingIndex = findLastIndex(prev, (e: ChatCardEvent) =>
+          e.type === 'status' &&
+          e.category === 'e2e' &&
+          e.project === event.project
+        );
+
+        if (existingIndex !== -1) {
+          // Update existing card
+          const updated = [...prev];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            message: `Running E2E tests...`,
+            timestamp: Date.now(),
+          };
+          return updated;
+        }
+
+        // Add new card
+        return [...prev, {
+          id: `e2e_start_${event.project}_${Date.now()}`,
+          type: 'status',
+          category: 'e2e',
+          project: event.project,
+          timestamp: Date.now(),
+          message: `Running E2E tests...`,
+        }];
+      });
+    });
+
+    // E2E analyzing events (analyzing E2E results)
+    socket.on('e2eAnalyzing', (event: E2EAnalyzingEvent) => {
+      // Update the existing E2E status card instead of adding a new one
+      setChatEvents(prev => {
+        const existingIndex = findLastIndex(prev, (e: ChatCardEvent) =>
+          e.type === 'status' &&
+          e.category === 'e2e' &&
+          e.project === event.project
+        );
+
+        if (existingIndex !== -1) {
+          // Update existing card to show analyzing
+          const updated = [...prev];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            message: `Analyzing E2E results...`,
+          };
+          return updated;
+        }
+
+        // Add new card if none exists
+        return [...prev, {
+          id: `e2e_analyzing_${event.project}_${Date.now()}`,
+          type: 'status',
+          category: 'e2e',
+          project: event.project,
+          timestamp: Date.now(),
+          message: `Analyzing E2E results...`,
+        }];
+      });
+    });
+
+    // Fix sent events (fix sent to another project)
+    socket.on('fixSent', (event: FixSentEvent) => {
+      const chatEvent: ChatCardEvent = {
+        id: `fix_sent_${event.toProject}_${Date.now()}`,
+        type: 'info',
+        category: 'fix',
+        project: event.toProject,
+        timestamp: Date.now(),
+        message: `Fix sent to ${event.toProject}`,
+        summary: `From ${event.fromProject}: ${event.reason}`,
+      };
+      setChatEvents(prev => [...prev, chatEvent]);
+    });
+
+    // Waiting for project events (waiting for dependencies)
+    socket.on('waitingForProject', (event: WaitingForProjectEvent) => {
+      const chatEvent: ChatCardEvent = {
+        id: `waiting_${event.project}_${Date.now()}`,
+        type: 'info',
+        category: 'fix',
+        project: event.project,
+        timestamp: Date.now(),
+        message: `Waiting for ${event.waitingFor.join(', ')} to complete`,
+      };
+      setChatEvents(prev => [...prev, chatEvent]);
+    });
+
+    // Plan approved card events
+    socket.on('planApprovedCard', (event: PlanApprovedCardEvent) => {
+      const chatEvent: ChatCardEvent = {
+        id: `plan_approved_${Date.now()}`,
+        type: 'info',
+        category: 'plan',
+        timestamp: Date.now(),
+        message: 'Plan Approved',
+        summary: `${event.feature} - ${event.taskCount} tasks across ${event.projectCount} project(s)`,
+      };
+      setChatEvents(prev => [...prev, chatEvent]);
+    });
+
+    // Chat response events (structured responses from Planning Agent)
+    socket.on('chatResponse', (event: ChatResponseEvent) => {
+      const chatEvent: ChatCardEvent = {
+        id: `response_${Date.now()}`,
+        type: 'result',
+        category: 'plan',  // General agent response category
+        timestamp: Date.now(),
+        passed: event.status === 'success',
+        summary: event.message,
+        details: event.details,
+        responseStatus: event.status,  // Use for color override
+      };
+      setChatEvents(prev => [...prev, chatEvent]);
     });
 
     // Test status events for real-time E2E test tracking
@@ -470,6 +697,11 @@ export function useSocket() {
     socket.emit('getSessions');
 
     return () => {
+      // Cancel any pending animation frame
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       socket.disconnect();
     };
   }, []);
@@ -660,9 +892,10 @@ export function useSocket() {
     }
   }, []);
 
-  // Clear analysis results when starting new session
+  // Clear analysis results and chat events when starting new session
   const clearAnalysisResults = useCallback(() => {
     setAnalysisResults([]);
+    setChatEvents([]);
   }, []);
 
   return {
@@ -677,6 +910,7 @@ export function useSocket() {
     taskStates,
     planningStatus,
     analysisResults,
+    chatEvents,
     currentApproval,
     pendingPlan,
     allComplete,

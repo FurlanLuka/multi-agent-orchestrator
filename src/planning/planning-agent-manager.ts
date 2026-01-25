@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent } from '../types';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -176,6 +176,35 @@ ${projectsSection}
 - **Respond to events** from worker agents (status updates, errors, completion)
 - **Ask clarifying questions** to the user
 
+## PARALLEL ANALYSIS WITH SUBAGENTS
+
+For faster analysis, you can spawn multiple subagents to explore different parts of the codebase in parallel. Use this when:
+- Exploring multiple projects simultaneously
+- Searching for patterns across different directories
+- Analyzing frontend and backend code at the same time
+- Gathering context from multiple sources
+
+**How to use parallel subagents:**
+1. Use the Task tool with subagent_type="Explore" for codebase exploration
+2. Launch multiple agents in a SINGLE message by including multiple Task tool calls
+3. Each agent can explore a different project or aspect of the codebase
+4. Wait for all agents to complete, then synthesize their findings
+
+**Example - Parallel project exploration:**
+- Agent 1: "Explore the frontend project structure and find React components"
+- Agent 2: "Explore the backend project and identify API endpoints"
+- Agent 3: "Search for authentication-related code across all projects"
+
+**When to use parallel agents:**
+- Multi-project features (explore each project simultaneously)
+- Complex features touching many areas (split by concern)
+- Initial codebase analysis (explore structure, patterns, and conventions in parallel)
+
+**Tips:**
+- Be specific in each agent's task to avoid duplicate work
+- Use "quick" thoroughness for initial scans, "thorough" for deep dives
+- Combine findings from all agents before creating the plan
+
 ## RESPONDING TO USER REQUESTS
 
 When a user asks you to implement a feature:
@@ -239,7 +268,37 @@ When executing an action, respond with BOTH:
 
 When NOT executing (refusing):
 - Explain why based on the current project status
-- Tell user what status would allow the action`;
+- Tell user what status would allow the action
+
+## STRUCTURED RESPONSE FORMAT (REQUIRED)
+
+ALL your responses to the user MUST end with a structured JSON block using the [RESPONSE] marker.
+This is how the UI displays your responses - without it, users won't see your message!
+
+Format:
+[RESPONSE] {"message": "Your main response", "status": "info", "details": "Optional markdown details"}
+
+Status options:
+- "info" - General information, explanations, answers (blue)
+- "success" - Confirmations, completed actions (green)
+- "warning" - Cautions, things to watch out for (yellow)
+- "error" - Problems, failures, things that went wrong (red)
+
+Examples:
+
+**Answering a question:**
+[RESPONSE] {"message": "The backend uses NestJS with TypeORM for database access", "status": "info", "details": "Key files:\\n- src/app.module.ts - Main module\\n- src/entities/ - Database entities"}
+
+**Confirming an action:**
+[RESPONSE] {"message": "Restarting backend server", "status": "success"}
+
+**Warning about something:**
+[RESPONSE] {"message": "Cannot send prompt - backend is currently working", "status": "warning", "details": "Wait for the current task to complete or fail before sending new instructions."}
+
+**Reporting an error:**
+[RESPONSE] {"message": "Failed to analyze the codebase", "status": "error", "details": "Could not find package.json in the specified path."}
+
+IMPORTANT: Always include [RESPONSE] at the end of your message. The UI depends on this!`;
 
     // Build state context for user action requests
     const stateContext = this.buildStateContext();
@@ -607,7 +666,15 @@ ${projectInfo}${e2eExclusionNote}
 
 ## PHASE 1: EXPLORATION (Required - Do this FIRST)
 
-Before writing ANY plan, you MUST thoroughly explore the codebase. Use these tools:
+Before writing ANY plan, you MUST thoroughly explore the codebase.
+
+**SPEED UP WITH PARALLEL SUBAGENTS:**
+For multi-project features, spawn multiple Task agents simultaneously to explore in parallel:
+- Launch one Explore agent per project (e.g., "Explore frontend structure" + "Explore backend structure")
+- Use quick thoroughness for initial scans
+- Combine findings from all agents before Phase 2
+
+**What to explore:**
 
 1. **Understand Project Structure**
    - Use Glob to find key files: "**/{package.json,tsconfig.json}"
@@ -697,55 +764,36 @@ CRITICAL RULES:
 }
 \`\`\`
 
-## ARCHITECTURE DIAGRAM - REQUIRED
+## ARCHITECTURE DIAGRAM
 
-For multi-project features, you MUST create a detailed ASCII architecture diagram showing:
-- All components/services being created or modified
-- API endpoints with HTTP methods (GET, POST, PUT, DELETE)
-- Data flow with arrows: ───▶ (request), ◀─── (response), ◀──▶ (bidirectional)
-- Database tables/storage if applicable
-- Frontend pages/components and their connections
+Create a CONCISE but INFORMATIVE diagram (8-15 lines):
+- Show main components being created/modified
+- Include key API endpoints (method + path)
+- Show data flow direction with arrows
+- Label what data flows between components
 
-DETAILED EXAMPLE (show this level of detail):
+Example:
 \`\`\`
-┌─────────────────────────────────────────────────────────────────┐
-│                         FRONTEND                                 │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │  LoginPage   │    │ RegisterPage │    │  AuthContext │       │
-│  │  - email     │    │  - email     │    │  - user      │       │
-│  │  - password  │    │  - password  │    │  - token     │       │
-│  │  - submit()  │    │  - name      │    │  - login()   │       │
-│  └──────┬───────┘    └──────┬───────┘    │  - logout()  │       │
-│         │                   │            └──────────────┘       │
-└─────────┼───────────────────┼───────────────────────────────────┘
-          │                   │
-          ▼                   ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                          BACKEND                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    AuthController                        │    │
-│  │  POST /auth/login    → {email, password} → {token, user} │    │
-│  │  POST /auth/register → {email, pass, name} → {token}     │    │
-│  │  GET  /auth/me       → (token header) → {user}           │    │
-│  └─────────────────────────┬───────────────────────────────┘    │
-│                            ▼                                     │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  AuthService: validateUser(), hashPassword(), genToken() │    │
-│  └─────────────────────────┬───────────────────────────────┘    │
-│                            ▼                                     │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  DB: users(id, email, password_hash, name, created_at)   │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  FRONTEND                                                    │
+│  ┌────────────┐    ┌─────────────┐    ┌──────────────┐      │
+│  │ LoginPage  │───▶│ AuthContext │───▶│ axios config │      │
+│  │ RegisterPage│    │ (user,token)│    │ (JWT header) │      │
+│  └────────────┘    └─────────────┘    └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+         POST /auth/login     │    POST /auth/register
+         POST /auth/me        ▼
+┌─────────────────────────────────────────────────────────────┐
+│  BACKEND                                                     │
+│  ┌──────────────┐    ┌─────────────┐    ┌────────────┐      │
+│  │AuthController│───▶│ AuthService │───▶│  Database  │      │
+│  │ JwtGuard     │    │ (bcrypt,jwt)│    │  (users)   │      │
+│  └──────────────┘    └─────────────┘    └────────────┘      │
+└─────────────────────────────────────────────────────────────┘
 \`\`\`
 
-COMPACT EXAMPLE (minimum acceptable):
-\`\`\`
-┌──────────┐  POST /auth/login   ┌─────────────┐  query  ┌───────┐
-│ Frontend │ ──────────────────▶ │ AuthService │ ──────▶ │  DB   │
-│ LoginForm│ ◀────────────────── │ genToken()  │ ◀────── │ users │
-└──────────┘    {token, user}    └─────────────┘  user   └───────┘
-\`\`\`
+Focus on what's being built - avoid cluttering with every detail.
 
 ## TASK REQUIREMENTS
 
@@ -900,7 +948,15 @@ Focus on:
    * Uses intelligent analysis of build output, dev server logs, and health check.
    * Returns pass/fail decision with context-aware fix prompt if needed.
    */
-  async analyzeTaskResult(context: TaskVerificationContext): Promise<TaskAnalysisResult> {
+  async analyzeTaskResult(context: TaskVerificationContext, taskIndex?: number): Promise<TaskAnalysisResult> {
+    // Emit verification start event for UI
+    const verificationStartEvent: VerificationStartEvent = {
+      project: context.project,
+      taskName: context.taskName,
+      taskIndex: taskIndex ?? -1
+    };
+    this.emit('verificationStart', verificationStartEvent);
+
     const prompt = `## TASK VERIFICATION ANALYSIS
 
 You are analyzing whether a task completed successfully. Review ALL the context below and make an intelligent decision.
@@ -1088,7 +1144,12 @@ IMPORTANT: Return ONLY the JSON object, no other text.`;
     analysis: string;
     fixPrompt?: string;  // Legacy: fix for the originating project
     fixes?: Array<{ project: string; prompt: string }>;  // New: targeted fixes per project
+    isInfrastructureFailure?: boolean;  // If true, go straight to FATAL - not fixable by code
   }> {
+    // Emit e2eAnalyzing event for UI
+    const e2eAnalyzingEvent: E2EAnalyzingEvent = { project };
+    this.emit('e2eAnalyzing', e2eAnalyzingEvent);
+
     const devServerSection = devServerLogs?.trim()
       ? `\nDev Server Logs (stdout/stderr - includes request logs, errors, exceptions):
 \`\`\`
@@ -1138,12 +1199,14 @@ IMPORTANT: Respond with ONLY a JSON object in this exact format:
 {
   "passed": true or false,
   "analysis": "Brief summary of test results",
+  "isInfrastructureFailure": false,
   "fixes": [
     { "project": "project_name", "prompt": "Specific fix instructions for this project" }
   ]
 }
 
-The "fixes" array should contain an entry for EACH project that needs changes. Use the agent's codeAnalysis to provide specific, actionable fix instructions.`;
+- Set "isInfrastructureFailure": true if tests COULD NOT RUN due to missing tools (Playwright MCP unavailable, no browser automation, etc.). This is NOT a code issue - do not include fixes.
+- The "fixes" array should contain an entry for EACH project that needs code changes. Use the agent's codeAnalysis to provide specific, actionable fix instructions.`;
 
     try {
       const result = await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.E2E_ANALYSIS);
@@ -1164,6 +1227,16 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
             details: parsed.analysis || 'No analysis provided'
           };
           this.emit('analysisResult', analysisEvent);
+
+          // Check for infrastructure failure first
+          if (parsed.isInfrastructureFailure) {
+            console.log(`[PlanningAgent] Infrastructure failure detected - E2E tools unavailable`);
+            return {
+              passed: false,
+              analysis: parsed.analysis || 'E2E infrastructure failure',
+              isInfrastructureFailure: true
+            };
+          }
 
           // Handle new format with fixes array
           if (parsed.fixes && Array.isArray(parsed.fixes)) {
@@ -1194,21 +1267,21 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
       const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
       const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);
 
-      // If tests weren't executed at all, that's a failure
+      // If tests weren't executed at all, that's an infrastructure failure - not fixable by code changes
       if (testsNotExecuted) {
         const analysisEvent: AnalysisResultEvent = {
           type: 'e2e',
           project,
           passed: false,
-          summary: 'E2E tests were NOT executed - infrastructure issue',
-          details: 'Missing Playwright MCP or similar'
+          summary: 'E2E tests could not be executed',
+          details: 'Testing tools or infrastructure unavailable. This requires manual intervention.'
         };
         this.emit('analysisResult', analysisEvent);
 
         return {
           passed: false,
-          analysis: 'E2E tests were NOT executed - infrastructure issue (missing Playwright MCP or similar)',
-          fixPrompt: 'E2E tests could not be executed. Ensure Playwright MCP tools are available and properly configured.'
+          analysis: 'E2E tests could not be executed - testing infrastructure unavailable',
+          isInfrastructureFailure: true  // Signal to orchestrator to go to FATAL, not retry
         };
       }
 

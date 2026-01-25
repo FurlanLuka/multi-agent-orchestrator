@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Card, Group, Text, ActionIcon, Collapse, Stack, Code, Badge } from '@mantine/core';
+import { Card, Group, Text, ActionIcon, Collapse, Stack, Badge } from '@mantine/core';
 import { IconCheck, IconX, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
+import { MarkdownMessage } from './MarkdownMessage';
 import type { AnalysisResultEvent } from '../types';
 
 interface Props {
@@ -73,17 +74,13 @@ export function AnalysisResultCard({ result }: Props) {
           {result.details && (
             <>
               <Text size="sm" fw={500} c="red.7">Analysis:</Text>
-              <Text size="sm" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>
-                {result.details}
-              </Text>
+              <MarkdownMessage content={result.details} />
             </>
           )}
           {result.fixPrompt && (
             <>
               <Text size="sm" fw={500} c="red.7">Fix requested:</Text>
-              <Code block style={{ fontSize: '12px', maxHeight: '150px', overflow: 'auto' }}>
-                {result.fixPrompt}
-              </Code>
+              <MarkdownMessage content={result.fixPrompt} />
             </>
           )}
         </Stack>
