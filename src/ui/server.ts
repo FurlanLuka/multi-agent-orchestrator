@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -153,6 +153,12 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
       }
     });
 
+    // Handle user action response (user submitted credentials/config values)
+    socket.on('userActionResponse', (response: UserActionResponseEvent) => {
+      console.log(`[UIServer] User action response for task #${response.taskIndex}`);
+      io.emit('userActionResponse', response);  // Forward to orchestrator
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });
@@ -252,6 +258,11 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('chatResponse', event);
   };
 
+  // Emit user action required event (task needs user input)
+  const emitUserActionRequired = (event: UserActionRequiredEvent) => {
+    io.emit('userActionRequired', event);
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -273,6 +284,7 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitWaitingForProject = emitWaitingForProject;
   (io as any).emitPlanApprovedCard = emitPlanApprovedCard;
   (io as any).emitChatResponse = emitChatResponse;
+  (io as any).emitUserActionRequired = emitUserActionRequired;
 
   return {
     app,

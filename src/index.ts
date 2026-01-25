@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState } from './types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent } from './types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -1296,6 +1296,12 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
         failedTaskIndex.set(project, taskIndex);
       });
 
+      // Forward userActionRequired events to UI
+      taskExecutor.on('userActionRequired', (event) => {
+        console.log(`[Orchestrator] User action required for task #${event.taskIndex}`);
+        (ui.io as any).emitUserActionRequired(event);
+      });
+
       // Run tasks: parallel across projects, sequential within each project
       const projectPromises = Array.from(tasksByProject.entries()).map(async ([project, projectTasks]) => {
         console.log(`[Orchestrator] Starting ${projectTasks.length} task(s) for ${project}`);
@@ -1356,6 +1362,16 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     // Handle approval responses from UI
     socket.on('approve', ({ id, approved }: { id: string; approved: boolean }) => {
       approvalQueue.respond(id, approved);
+    });
+
+    // Handle user action response (credentials/config submitted by user)
+    socket.on('userActionResponse', ({ taskIndex, values }: { taskIndex: number; values: Record<string, string> }) => {
+      console.log(`[Orchestrator] User action response received for task #${taskIndex}`);
+      if (taskExecutor) {
+        taskExecutor.handleUserActionResponse(taskIndex, values);
+      } else {
+        console.error(`[Orchestrator] TaskExecutor not available to handle user action response`);
+      }
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -1598,18 +1614,24 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     });
 
     // Stop the active session (stops dev servers, marks as interrupted)
+    // Also works for completed sessions where user wants to stop dev servers
     socket.on('stopSession', ({ sessionId }: { sessionId: string }) => {
       try {
         const currentSession = sessionManager.getCurrentSession();
-        if (!currentSession || currentSession.id !== sessionId) {
+
+        // If there's an active session that doesn't match, reject
+        // But if currentSession is null (completed), allow stopping dev servers
+        if (currentSession && currentSession.id !== sessionId) {
           socket.emit('stopSessionError', { sessionId, error: 'Session not active' });
           return;
         }
 
-        // Mark session as interrupted
-        sessionManager.markSessionInterrupted();
+        // Mark session as interrupted (if still active)
+        if (currentSession) {
+          sessionManager.markSessionInterrupted();
+        }
 
-        // Stop all processes
+        // Stop all processes (dev servers, agents, etc.)
         processManager.stopAll();
 
         // Stop file watchers
@@ -1621,7 +1643,7 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
         // Send updated session list to all clients
         (ui.io as any).emit('sessionList', sessionManager.listSessions());
 
-        console.log(`[Orchestrator] Session ${sessionId} stopped`);
+        console.log(`[Orchestrator] Session ${sessionId} stopped (dev servers terminated)`);
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Failed to stop session:', error);

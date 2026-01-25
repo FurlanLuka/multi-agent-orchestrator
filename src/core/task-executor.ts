@@ -1,11 +1,13 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, Config } from '../types';
+import { TaskDefinition, TaskVerificationContext, Config, UserActionRequiredEvent } from '../types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
 import { LogAggregator } from './log-aggregator';
 import { ProjectManager } from './project-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface TaskExecutorConfig {
   processManager: ProcessManager;
@@ -43,6 +45,12 @@ export class TaskExecutor extends EventEmitter {
   private getSessionDir: (project: string) => string | null;
   private getDevServerUrl: (project: string) => string;
 
+  // Pending user input promises - resolved when user submits values
+  private pendingUserInputs: Map<number, {
+    resolve: (values: Record<string, string>) => void;
+    reject: (reason: Error) => void;
+  }> = new Map();
+
   constructor(deps: TaskExecutorConfig) {
     super();
     this.processManager = deps.processManager;
@@ -61,6 +69,11 @@ export class TaskExecutor extends EventEmitter {
    * Runs agent → collects context → Planning Agent analyzes → fixes if needed
    */
   async executeTask(task: TaskDefinition, taskIndex: number): Promise<TaskResult> {
+    // Handle user_action tasks differently - they require user input before proceeding
+    if (task.type === 'user_action') {
+      return this.handleUserActionTask(task, taskIndex);
+    }
+
     const sessionDir = this.getSessionDir(task.project);
     if (!sessionDir) {
       return {
@@ -366,5 +379,155 @@ Please fix the issue and try again.`;
         resolve({ success: false, stdout, stderr, exitCode: 1, error: String(err) });
       });
     });
+  }
+
+  /**
+   * Handles user_action tasks that require user input before proceeding.
+   * Sets status to awaiting_input, emits event requesting input, waits for response.
+   */
+  private async handleUserActionTask(task: TaskDefinition, taskIndex: number): Promise<TaskResult> {
+    if (!task.userAction) {
+      return {
+        success: false,
+        taskIndex,
+        project: task.project,
+        message: 'User action task missing userAction configuration'
+      };
+    }
+
+    console.log(`[TaskExecutor] Task #${taskIndex} is user_action - waiting for user input...`);
+
+    // 1. Set status to awaiting_input
+    this.statusMonitor.updateTaskStatus(taskIndex, 'awaiting_input', 'Waiting for user input...');
+
+    // 2. Emit event requesting input from UI
+    const event: UserActionRequiredEvent = {
+      taskIndex,
+      project: task.project,
+      taskName: task.name,
+      userAction: task.userAction
+    };
+    this.emit('userActionRequired', event);
+
+    try {
+      // 3. Wait for user input
+      const userInput = await this.waitForUserInput(taskIndex);
+
+      // 4. Write values to .env file
+      await this.writeToEnvFile(task.project, userInput);
+
+      // 5. Mark task complete
+      this.statusMonitor.updateTaskStatus(taskIndex, 'completed', 'Credentials configured');
+      this.emit('taskCompleted', { taskIndex, project: task.project });
+
+      console.log(`[TaskExecutor] Task #${taskIndex} user_action completed - credentials written to .env`);
+
+      return {
+        success: true,
+        taskIndex,
+        project: task.project,
+        message: 'Credentials configured successfully'
+      };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[TaskExecutor] Task #${taskIndex} user_action failed:`, err);
+      this.statusMonitor.updateTaskStatus(taskIndex, 'failed', `Failed: ${errorMsg}`);
+      this.emit('taskFailed', { taskIndex, project: task.project, error: errorMsg });
+
+      return {
+        success: false,
+        taskIndex,
+        project: task.project,
+        message: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Creates a promise that waits for user input for a specific task.
+   * The promise is resolved when handleUserActionResponse is called with matching taskIndex.
+   */
+  private waitForUserInput(taskIndex: number): Promise<Record<string, string>> {
+    return new Promise((resolve, reject) => {
+      // Store the resolve/reject callbacks so they can be called when response arrives
+      this.pendingUserInputs.set(taskIndex, { resolve, reject });
+    });
+  }
+
+  /**
+   * Called by the orchestrator when user submits values for a user_action task.
+   * Resolves the pending promise and allows the task to continue.
+   */
+  handleUserActionResponse(taskIndex: number, values: Record<string, string>): void {
+    const pending = this.pendingUserInputs.get(taskIndex);
+    if (pending) {
+      console.log(`[TaskExecutor] Received user action response for task #${taskIndex}`);
+      this.pendingUserInputs.delete(taskIndex);
+      pending.resolve(values);
+    } else {
+      console.warn(`[TaskExecutor] Received user action response for unknown task #${taskIndex}`);
+    }
+  }
+
+  /**
+   * Writes user-provided values to the project's .env file.
+   * Appends to existing .env or creates a new one if it doesn't exist.
+   */
+  private async writeToEnvFile(project: string, values: Record<string, string>): Promise<void> {
+    const projectConfig = this.config.projects[project];
+    if (!projectConfig) {
+      throw new Error(`Project ${project} not found in config`);
+    }
+
+    // Expand ~ to home directory
+    let projectPath = projectConfig.path;
+    if (projectPath.startsWith('~')) {
+      projectPath = projectPath.replace('~', process.env.HOME || '');
+    }
+
+    const envFilePath = path.join(projectPath, '.env');
+
+    // Read existing .env content (if any)
+    let existingContent = '';
+    try {
+      existingContent = fs.readFileSync(envFilePath, 'utf-8');
+    } catch {
+      // File doesn't exist - will create new
+    }
+
+    // Parse existing env vars to avoid duplicates
+    const existingVars = new Set<string>();
+    existingContent.split('\n').forEach(line => {
+      const match = line.match(/^([^=]+)=/);
+      if (match) existingVars.add(match[1]);
+    });
+
+    // Build new entries
+    const newEntries: string[] = [];
+    for (const [key, value] of Object.entries(values)) {
+      if (!existingVars.has(key)) {
+        // Escape any quotes in the value
+        const escapedValue = value.replace(/"/g, '\\"');
+        newEntries.push(`${key}="${escapedValue}"`);
+      } else {
+        // Update existing variable - rewrite the whole file with updated value
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        const escapedValue = value.replace(/"/g, '\\"');
+        existingContent = existingContent.replace(regex, `${key}="${escapedValue}"`);
+      }
+    }
+
+    // Write back to file
+    let finalContent = existingContent.trim();
+    if (newEntries.length > 0) {
+      if (finalContent) {
+        finalContent += '\n';
+      }
+      finalContent += newEntries.join('\n');
+    }
+    finalContent += '\n';
+
+    fs.writeFileSync(envFilePath, finalContent, 'utf-8');
+    console.log(`[TaskExecutor] Wrote ${Object.keys(values).length} env vars to ${envFilePath}`);
   }
 }

@@ -32,6 +32,7 @@ import type {
   WaitingForProjectEvent,
   PlanApprovedCardEvent,
   ChatResponseEvent,
+  UserActionRequiredEvent,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -314,6 +315,22 @@ export function useSocket() {
               ...task,
               status: event.status,
               message: event.message
+            }
+          : task
+      ));
+    });
+
+    // User action required event - update task state with userAction info
+    socket.on('userActionRequired', (event: UserActionRequiredEvent) => {
+      console.log('[useSocket] User action required for task #' + event.taskIndex);
+      setTaskStates(prev => prev.map(task =>
+        task.taskIndex === event.taskIndex
+          ? {
+              ...task,
+              status: 'awaiting_input' as const,
+              type: 'user_action' as const,
+              userAction: event.userAction,
+              message: 'Waiting for user input...'
             }
           : task
       ));
@@ -880,6 +897,14 @@ export function useSocket() {
     }
   }, [activeSessionId]);
 
+  // Submit user action response (for user_action tasks)
+  const submitUserAction = useCallback((taskIndex: number, values: Record<string, string>) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Submitting user action for task #' + taskIndex);
+      socketRef.current.emit('userActionResponse', { taskIndex, values });
+    }
+  }, []);
+
   const clearSession = useCallback(() => {
     setSession(null);
     setStatuses({});
@@ -946,5 +971,6 @@ export function useSocket() {
     clearSession,
     viewSession,
     stopSession,
+    submitUserAction,
   };
 }

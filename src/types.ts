@@ -101,10 +101,29 @@ export interface Session {
   plan?: Plan;
 }
 
+// User action input field for secrets/configuration collection
+export interface UserActionInput {
+  name: string;           // e.g., "GOOGLE_CLIENT_ID" (env var name)
+  label: string;          // e.g., "Google OAuth Client ID"
+  description: string;    // Help text for the user
+  sensitive: boolean;     // true = password field, don't log
+  required: boolean;
+  placeholder?: string;
+  helpUrl?: string;       // e.g., "https://console.cloud.google.com/apis/credentials"
+}
+
+// User action definition for tasks that require user input
+export interface UserActionDefinition {
+  prompt: string;                  // Explanation for user
+  inputs: UserActionInput[];       // Fields to collect
+}
+
 export interface TaskDefinition {
   project: string;
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
+  type?: 'implementation' | 'user_action';  // Task type, default: 'implementation'
+  userAction?: UserActionDefinition;        // Only for type: 'user_action'
 }
 
 export interface Plan {
@@ -451,15 +470,16 @@ export interface TestStatusEvent {
 
 // Task status tracking for dependency-aware execution
 export type TaskStatus =
-  | 'pending'      // Not started yet
-  | 'waiting'      // Waiting on dependency tasks
-  | 'working'      // Agent is implementing
-  | 'verifying'    // Running deps install, build, restart, health check
-  | 'fixing'       // Agent fixing verification errors
-  | 'completed'    // Implementation done (no E2E or E2E passed)
-  | 'e2e'          // Running E2E tests after implementation
-  | 'e2e_failed'   // E2E tests failed (may retry or redistribute)
-  | 'failed';      // Implementation failed
+  | 'pending'         // Not started yet
+  | 'awaiting_input'  // Waiting for user to provide required input (user_action tasks)
+  | 'waiting'         // Waiting on dependency tasks
+  | 'working'         // Agent is implementing
+  | 'verifying'       // Running deps install, build, restart, health check
+  | 'fixing'          // Agent fixing verification errors
+  | 'completed'       // Implementation done (no E2E or E2E passed)
+  | 'e2e'             // Running E2E tests after implementation
+  | 'e2e_failed'      // E2E tests failed (may retry or redistribute)
+  | 'failed';         // Implementation failed
 
 export interface TaskState {
   taskIndex: number;     // Index in the tasks array
@@ -470,6 +490,8 @@ export interface TaskState {
   message?: string;
   startedAt?: number;
   completedAt?: number;
+  type?: 'implementation' | 'user_action';  // Task type
+  userAction?: UserActionDefinition;        // Only for type: 'user_action'
 }
 
 export interface TaskStatusEvent {
@@ -626,6 +648,20 @@ export interface ChatResponseEvent {
   message: string;
   status: 'info' | 'success' | 'warning' | 'error';
   details?: string;
+}
+
+// User action required event (backend → frontend)
+export interface UserActionRequiredEvent {
+  taskIndex: number;
+  project: string;
+  taskName: string;
+  userAction: UserActionDefinition;
+}
+
+// User action response (frontend → backend)
+export interface UserActionResponseEvent {
+  taskIndex: number;
+  values: Record<string, string>;
 }
 
 // Session persistence types

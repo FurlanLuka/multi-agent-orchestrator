@@ -20,15 +20,18 @@ import {
   IconClock,
   IconChevronRight,
   IconChevronDown,
+  IconAlertCircle,
 } from '@tabler/icons-react';
 import type { Plan, TaskState, TaskStatus, ProjectTestState, TestScenarioStatus } from '../types';
 import { MarkdownMessage } from './MarkdownMessage';
+import { UserActionCard } from './UserActionCard';
 
 interface Props {
   plan: Plan;
   taskStates?: TaskState[];           // For execution tracking
   testStates?: Record<string, ProjectTestState>; // For test tracking
   isApproval?: boolean;               // True when showing for approval (no tracking)
+  onSubmitUserAction?: (taskIndex: number, values: Record<string, string>) => void;  // For user_action tasks
 }
 
 // Get status icon for tasks
@@ -36,6 +39,7 @@ function getTaskStatusIcon(status?: TaskStatus) {
   if (!status || status === 'pending') return <IconCircle size={16} />;
   if (status === 'completed') return <IconCircleCheck size={16} />;
   if (status === 'failed' || status === 'e2e_failed') return <IconCircleX size={16} />;
+  if (status === 'awaiting_input') return <IconAlertCircle size={16} />;
   if (status === 'working' || status === 'verifying' || status === 'fixing' || status === 'e2e') {
     return <IconLoader size={16} className="animate-spin" />;
   }
@@ -48,6 +52,7 @@ function getTaskStatusColor(status?: TaskStatus): string {
   if (!status || status === 'pending') return 'gray';
   if (status === 'completed') return 'green';
   if (status === 'failed' || status === 'e2e_failed') return 'red';
+  if (status === 'awaiting_input') return 'yellow';
   if (status === 'working') return 'blue';
   if (status === 'verifying') return 'cyan';
   if (status === 'fixing') return 'orange';
@@ -74,8 +79,12 @@ function getTestStatusColor(status?: TestScenarioStatus): string {
   return 'gray';
 }
 
-// Project status badge based on all tasks for that project
-function ProjectStatusBadge({ project, taskStates }: { project: string; taskStates?: TaskState[] }) {
+// Project status badge based on all tasks AND E2E test states for that project
+function ProjectStatusBadge({ project, taskStates, testStates }: {
+  project: string;
+  taskStates?: TaskState[];
+  testStates?: Record<string, ProjectTestState>;
+}) {
   if (!taskStates) return null;
 
   const projectTasks = taskStates.filter(t => t.project === project);
@@ -87,13 +96,32 @@ function ProjectStatusBadge({ project, taskStates }: { project: string; taskStat
     t.status === 'working' || t.status === 'verifying' || t.status === 'fixing' || t.status === 'e2e'
   ).length;
 
-  if (failedCount > 0) {
-    return <Badge size="xs" color="red" variant="filled">{failedCount} failed</Badge>;
+  // Check E2E test status
+  const projectTests = testStates?.[project]?.scenarios || [];
+  const hasTests = projectTests.length > 0;
+  const allTestsPassed = hasTests && projectTests.every(s => s.status === 'passed');
+  const anyTestFailed = hasTests && projectTests.some(s => s.status === 'failed');
+  const testsRunning = hasTests && projectTests.some(s => s.status === 'running');
+  const testsPending = hasTests && projectTests.some(s => s.status === 'pending');
+
+  if (failedCount > 0 || anyTestFailed) {
+    return <Badge size="xs" color="red" variant="filled">{failedCount > 0 ? `${failedCount} failed` : 'tests failed'}</Badge>;
   }
   if (workingCount > 0) {
     return <Badge size="xs" color="blue" variant="light">working...</Badge>;
   }
+  if (testsRunning) {
+    return <Badge size="xs" color="violet" variant="light">testing...</Badge>;
+  }
+  // All tasks completed - but check if E2E tests are done too
   if (completedCount === projectTasks.length) {
+    if (hasTests && !allTestsPassed) {
+      // Tasks done but tests not all passed yet
+      if (testsPending) {
+        return <Badge size="xs" color="yellow" variant="light">awaiting tests</Badge>;
+      }
+      return <Badge size="xs" color="gray" variant="light">tasks done</Badge>;
+    }
     return <Badge size="xs" color="green" variant="filled">complete</Badge>;
   }
   return <Badge size="xs" color="gray" variant="light">{completedCount}/{projectTasks.length}</Badge>;
@@ -126,7 +154,7 @@ function getProjectE2EStatus(project: string, taskStates?: TaskState[], testStat
   return allTasksComplete ? 'in_progress' : 'waiting';
 }
 
-export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
+export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval, onSubmitUserAction }: Props) {
   const projectsRaw = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
 
   // Track completion order for stable sorting (completed projects stay in place)
@@ -268,7 +296,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
             <Tabs.Tab key={project} value={project}>
               <Group gap="xs">
                 <Text size="sm">{project}</Text>
-                {!isApproval && <ProjectStatusBadge project={project} taskStates={taskStates} />}
+                {!isApproval && <ProjectStatusBadge project={project} taskStates={taskStates} testStates={testStates} />}
               </Group>
             </Tabs.Tab>
           ))}
@@ -295,6 +323,26 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                     const isExpanded = expandedTaskIdx === idx;
                     const isLast = i === projectTasks.length - 1;
 
+                    // Show UserActionCard for user_action tasks that are awaiting input
+                    const isUserActionAwaitingInput =
+                      !isApproval &&
+                      task.type === 'user_action' &&
+                      state?.status === 'awaiting_input' &&
+                      state.userAction &&
+                      onSubmitUserAction;
+
+                    if (isUserActionAwaitingInput && state?.userAction) {
+                      return (
+                        <Box key={idx} mb="sm">
+                          <UserActionCard
+                            task={state}
+                            userAction={state.userAction}
+                            onSubmit={onSubmitUserAction}
+                          />
+                        </Box>
+                      );
+                    }
+
                     return (
                       <Box key={idx}>
                         <UnstyledButton
@@ -315,7 +363,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                             </Text>
                             {status && !isApproval && (
                               <Badge size="xs" variant="light" color={color}>
-                                {status}
+                                {status === 'awaiting_input' ? 'action required' : status}
                               </Badge>
                             )}
                             {task.task && (

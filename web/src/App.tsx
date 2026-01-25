@@ -76,6 +76,7 @@ function App() {
     stopSession,
     getSessions,
     clearSession,
+    submitUserAction,
   } = useSocket();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -426,6 +427,7 @@ function App() {
                                 taskStates={taskStates}
                                 testStates={testStates}
                                 isApproval={false}
+                                onSubmitUserAction={submitUserAction}
                               />
                             </Box>
                           </Collapse>

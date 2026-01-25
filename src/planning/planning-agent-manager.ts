@@ -793,6 +793,81 @@ Guidelines:
 - Use appropriate shapes: [] for services, [()] for databases, {} for decisions
 - Use subgraphs to group components by project/layer
 
+## SECRET/CREDENTIAL DETECTION
+
+When analyzing a feature request, identify if it requires:
+- OAuth credentials (client_id, client_secret)
+- API keys (third-party services like Stripe, SendGrid, Twilio, etc.)
+- Database credentials (if not already configured)
+- Any environment variables that need user-provided values
+
+If secrets are required, generate a \`user_action\` task as the FIRST task before any implementation tasks:
+
+\`\`\`json
+{
+  "project": "backend",
+  "name": "Configure [Service] Credentials",
+  "task": "User must provide required credentials before implementation can proceed.",
+  "type": "user_action",
+  "userAction": {
+    "prompt": "To implement [feature], you need to provide the following credentials. You can get these from [instructions on where to find them].",
+    "inputs": [
+      {
+        "name": "API_KEY_NAME",
+        "label": "Human Readable Label",
+        "description": "Where to find this value and what it's used for",
+        "sensitive": true,
+        "required": true,
+        "helpUrl": "https://example.com/docs/api-keys"
+      }
+    ]
+  }
+}
+\`\`\`
+
+### Common Secret Patterns:
+
+**Google OAuth:**
+\`\`\`json
+{
+  "project": "backend",
+  "name": "Configure Google OAuth Credentials",
+  "task": "User must provide Google OAuth credentials.",
+  "type": "user_action",
+  "userAction": {
+    "prompt": "To implement Google OAuth, create OAuth 2.0 credentials in Google Cloud Console.",
+    "inputs": [
+      {
+        "name": "GOOGLE_CLIENT_ID",
+        "label": "Google Client ID",
+        "description": "OAuth 2.0 Client ID from Google Cloud Console",
+        "sensitive": false,
+        "required": true,
+        "helpUrl": "https://console.cloud.google.com/apis/credentials"
+      },
+      {
+        "name": "GOOGLE_CLIENT_SECRET",
+        "label": "Google Client Secret",
+        "description": "OAuth 2.0 Client Secret",
+        "sensitive": true,
+        "required": true
+      }
+    ]
+  }
+}
+\`\`\`
+
+**Stripe:**
+- STRIPE_SECRET_KEY (sensitive), STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET (sensitive)
+
+**SendGrid/Email:**
+- SENDGRID_API_KEY (sensitive), SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD (sensitive)
+
+**AWS:**
+- AWS_ACCESS_KEY_ID (sensitive), AWS_SECRET_ACCESS_KEY (sensitive), AWS_REGION
+
+IMPORTANT: Always use "type": "user_action" for credential collection tasks. These tasks will pause execution and show a form to the user.
+
 ## TASK REQUIREMENTS
 
 Each task MUST be detailed enough for an AI agent to implement without asking questions:
