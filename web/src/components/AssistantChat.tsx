@@ -23,12 +23,17 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconLoader2 } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus } from '../types';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, QueueStatus, PlanningStatusEvent, AnalysisResultEvent } from '../types';
+import { PlanningStatusIndicator } from './PlanningStatusIndicator';
+import { AnalysisResultCard } from './AnalysisResultCard';
+import { TabbedPlanView } from './TabbedPlanView';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
   pendingPlan: PlanProposal | null;
   queueStatus: QueueStatus | null;
+  planningStatus: PlanningStatusEvent | null;
+  analysisResults: AnalysisResultEvent[];
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
   sessionActive: boolean;
@@ -468,6 +473,8 @@ function ChatThread({
   messages,
   pendingPlan,
   queueStatus,
+  planningStatus,
+  analysisResults,
   onSendMessage,
   onApprovePlan,
   sessionActive,
@@ -526,7 +533,12 @@ function ChatThread({
               <QueueStatusBanner queueStatus={queueStatus} />
             )}
 
-            {messages.length === 0 ? (
+            {/* Planning Status Indicator - shown when generating plan */}
+            {planningStatus && (
+              <PlanningStatusIndicator status={planningStatus} />
+            )}
+
+            {messages.length === 0 && !planningStatus ? (
               <Card p="xl" withBorder shadow="sm" radius="md">
                 <Stack align="center" gap="sm">
                   <IconRobot size={48} color="var(--mantine-color-gray-5)" />
@@ -538,33 +550,45 @@ function ChatThread({
                 </Stack>
               </Card>
             ) : (
-              messages.map((msg) => (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  isExpanded={effectiveExpandedId === msg.id}
-                  onToggleExpand={() => setExpandedMessageId(
-                    expandedMessageId === msg.id ? null : msg.id
-                  )}
-                />
-              ))
+              <>
+                {/* Hide messages during planning for cleaner UX */}
+                {!planningStatus && messages.map((msg) => (
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    isExpanded={effectiveExpandedId === msg.id}
+                    onToggleExpand={() => setExpandedMessageId(
+                      expandedMessageId === msg.id ? null : msg.id
+                    )}
+                  />
+                ))}
+              </>
             )}
 
+            {/* Analysis Results - show recent task/E2E analysis results */}
+            {analysisResults.length > 0 && (
+              <Stack gap="xs">
+                {analysisResults.slice(-5).map((result, idx) => (
+                  <AnalysisResultCard key={idx} result={result} />
+                ))}
+              </Stack>
+            )}
+
+            {/* Pending Plan with TabbedPlanView */}
             {pendingPlan && (
               <Card p="md" withBorder shadow="sm" radius="md" bg="green.0" style={{ borderColor: 'var(--mantine-color-green-4)' }}>
-                <Stack gap="sm">
-                  <Group gap="xs">
-                    <Badge color="green" variant="filled">Plan Ready</Badge>
-                    <Text fw={600}>{pendingPlan.plan.feature}</Text>
+                <Stack gap="md">
+                  <Badge color="green" variant="filled" size="lg">Plan Ready for Review</Badge>
+                  <TabbedPlanView plan={pendingPlan.plan} isApproval={true} />
+                  <Group>
+                    <Button
+                      variant="filled"
+                      color="green"
+                      onClick={() => onApprovePlan(pendingPlan.plan)}
+                    >
+                      Approve & Start
+                    </Button>
                   </Group>
-                  <Text size="sm" c="dimmed">{pendingPlan.summary}</Text>
-                  <Button
-                    variant="filled"
-                    color="green"
-                    onClick={() => onApprovePlan(pendingPlan.plan)}
-                  >
-                    Approve & Start
-                  </Button>
                 </Stack>
               </Card>
             )}

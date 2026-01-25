@@ -29,8 +29,36 @@ export interface TaskDefinition {
 export interface Plan {
   feature: string;
   description: string;
+  overview?: string;           // High-level summary of the implementation approach
+  architecture?: string;       // ASCII diagram showing component relationships
   tasks: TaskDefinition[];
   testPlan: Record<string, string[]>;
+}
+
+// Planning status phases for UX feedback
+export type PlanningPhase =
+  | 'exploring'      // "Exploring codebase..."
+  | 'analyzing'      // "Analyzing requirements..."
+  | 'generating'     // "Generating plan..."
+  | 'complete';      // Done
+
+export interface PlanningStatusEvent {
+  phase: PlanningPhase;
+  message: string;    // Human-readable status
+  project?: string;   // If analyzing specific project
+}
+
+// Analysis result types (for task verification and E2E)
+export type AnalysisType = 'task' | 'e2e';
+
+export interface AnalysisResultEvent {
+  type: AnalysisType;
+  project: string;
+  taskName?: string;           // For task analysis
+  passed: boolean;
+  summary: string;             // Brief result
+  details?: string;            // Full analysis (shown on expand)
+  fixPrompt?: string;          // If failed, what fix was requested
 }
 
 // Project state

@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus } from '../types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent } from '../types';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -53,6 +53,10 @@ export class PlanningAgentManager extends EventEmitter {
   // State tracking for user action requests
   private orchestratorState: OrchestratorState = 'IDLE';
   private projectStatuses: Record<string, { status: AgentStatus; message: string }> = {};
+
+  // Planning status tracking for UX feedback
+  private currentPlanningPhase: PlanningPhase = 'exploring';
+  private isPlanningRequest: boolean = false;
 
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
@@ -346,6 +350,13 @@ User: ${newMessage}`;
                       responseBuffer += block.text;
                       contentBlock = { type: 'text', text: block.text };
                       this.emit('output', block.text);
+
+                      // Detect plan JSON appearing = generating phase
+                      if (this.isPlanningRequest && block.text.includes('"tasks"') && this.currentPlanningPhase !== 'generating') {
+                        this.currentPlanningPhase = 'generating';
+                        const statusEvent: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
+                        this.emit('planningStatus', statusEvent);
+                      }
                     } else if (block.type === 'tool_use' && block.id && block.name) {
                       contentBlock = {
                         type: 'tool_use',
@@ -353,6 +364,15 @@ User: ${newMessage}`;
                         name: block.name,
                         input: block.input || {}
                       };
+
+                      // File/code reading tools = exploring phase
+                      if (this.isPlanningRequest && ['Read', 'Glob', 'Grep'].includes(block.name)) {
+                        if (this.currentPlanningPhase !== 'exploring') {
+                          this.currentPlanningPhase = 'exploring';
+                          const statusEvent: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
+                          this.emit('planningStatus', statusEvent);
+                        }
+                      }
                     } else if (block.type === 'tool_result' && block.tool_use_id) {
                       contentBlock = {
                         type: 'tool_result',
@@ -362,6 +382,13 @@ User: ${newMessage}`;
                       };
                     } else if (block.type === 'thinking' && block.thinking) {
                       contentBlock = { type: 'thinking', thinking: block.thinking };
+
+                      // Thinking blocks = analyzing phase (after exploring)
+                      if (this.isPlanningRequest && this.currentPlanningPhase === 'exploring') {
+                        this.currentPlanningPhase = 'analyzing';
+                        const statusEvent: PlanningStatusEvent = { phase: 'analyzing', message: 'Analyzing requirements...' };
+                        this.emit('planningStatus', statusEvent);
+                      }
                     }
 
                     // Emit content block for streaming UI and collect for persistence
@@ -492,6 +519,14 @@ User: ${newMessage}`;
       try {
         const plan: Plan = JSON.parse(planMatch[1]);
         console.log('[PlanningAgent] Detected plan proposal');
+
+        // Emit planning complete status
+        if (this.isPlanningRequest) {
+          const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Plan ready!' };
+          this.emit('planningStatus', statusEvent);
+          this.isPlanningRequest = false;
+        }
+
         this.emit('planProposal', plan);
       } catch (err) {
         console.error('[PlanningAgent] Failed to parse plan JSON:', err);
@@ -536,6 +571,12 @@ User: ${newMessage}`;
    * Requests the Planning Agent to create a plan for a feature
    */
   async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
+    // Set planning request flag and emit initial status
+    this.isPlanningRequest = true;
+    this.currentPlanningPhase = 'exploring';
+    const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
+    this.emit('planningStatus', initialStatus);
+
     // Build project paths info if available
     let projectInfo = `Available projects: ${projects.join(', ')}`;
     if (projectPaths) {
@@ -610,6 +651,8 @@ CRITICAL RULES:
 {
   "feature": "Feature name",
   "description": "Brief description",
+  "overview": "A 2-3 sentence high-level summary of the implementation approach, key technologies/patterns used, and how components interact.",
+  "architecture": "ASCII diagram showing component relationships (optional, for multi-component features). Example:\n┌─────────┐    ┌─────────┐    ┌─────────┐\n│ Frontend│───▶│   API   │───▶│   DB    │\n└─────────┘    └─────────┘    └─────────┘",
   "tasks": [
     {
       "project": "backend",
@@ -827,6 +870,19 @@ Be intelligent - a passing build with runtime errors in logs should FAIL. A heal
         try {
           const result = JSON.parse(jsonMatch[0]) as TaskAnalysisResult;
           console.log(`[PlanningAgent] Analysis result: passed=${result.passed}, action=${result.suggestedAction}`);
+
+          // Emit analysis result event for UI
+          const analysisEvent: AnalysisResultEvent = {
+            type: 'task',
+            project: context.project,
+            taskName: context.taskName,
+            passed: result.passed,
+            summary: result.passed ? 'Task verified successfully' : result.analysis.slice(0, 100),
+            details: result.analysis,
+            fixPrompt: result.fixPrompt
+          };
+          this.emit('analysisResult', analysisEvent);
+
           return result;
         } catch (parseErr) {
           console.error('[PlanningAgent] Failed to parse analysis JSON:', parseErr);
@@ -835,14 +891,40 @@ Be intelligent - a passing build with runtime errors in logs should FAIL. A heal
 
       // Fallback: if we can't parse, assume failure and use raw response as fix prompt
       console.log('[PlanningAgent] Could not parse structured response, using fallback');
-      return {
+      const fallbackResult = {
         passed: false,
         analysis: 'Failed to parse analysis response - treating as failure',
         fixPrompt: response,
-        suggestedAction: 'retry'
+        suggestedAction: 'retry' as const
       };
+
+      // Emit fallback analysis result
+      const analysisEvent: AnalysisResultEvent = {
+        type: 'task',
+        project: context.project,
+        taskName: context.taskName,
+        passed: false,
+        summary: 'Failed to parse analysis response',
+        details: fallbackResult.analysis,
+        fixPrompt: response
+      };
+      this.emit('analysisResult', analysisEvent);
+
+      return fallbackResult;
     } catch (err) {
       console.error('[PlanningAgent] Error analyzing task result:', err);
+
+      // Emit error analysis result
+      const analysisEvent: AnalysisResultEvent = {
+        type: 'task',
+        project: context.project,
+        taskName: context.taskName,
+        passed: false,
+        summary: `Analysis failed: ${err}`,
+        details: String(err)
+      };
+      this.emit('analysisResult', analysisEvent);
+
       return {
         passed: false,
         analysis: `Analysis failed: ${err}`,
@@ -978,6 +1060,16 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
           const parsed = JSON.parse(jsonMatch[0]);
           console.log(`[PlanningAgent] Parsed E2E analysis: passed=${parsed.passed}, fixes=${JSON.stringify(parsed.fixes)}`);
 
+          // Emit analysis result event for UI
+          const analysisEvent: AnalysisResultEvent = {
+            type: 'e2e',
+            project,
+            passed: !!parsed.passed,
+            summary: parsed.passed ? 'E2E tests passed' : (parsed.analysis || 'E2E tests failed').slice(0, 100),
+            details: parsed.analysis || 'No analysis provided'
+          };
+          this.emit('analysisResult', analysisEvent);
+
           // Handle new format with fixes array
           if (parsed.fixes && Array.isArray(parsed.fixes)) {
             const validFixes = parsed.fixes.filter((f: any) => f.project && f.prompt);
@@ -1009,12 +1101,31 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
 
       // If tests weren't executed at all, that's a failure
       if (testsNotExecuted) {
+        const analysisEvent: AnalysisResultEvent = {
+          type: 'e2e',
+          project,
+          passed: false,
+          summary: 'E2E tests were NOT executed - infrastructure issue',
+          details: 'Missing Playwright MCP or similar'
+        };
+        this.emit('analysisResult', analysisEvent);
+
         return {
           passed: false,
           analysis: 'E2E tests were NOT executed - infrastructure issue (missing Playwright MCP or similar)',
           fixPrompt: 'E2E tests could not be executed. Ensure Playwright MCP tools are available and properly configured.'
         };
       }
+
+      // Emit generic analysis result
+      const analysisEvent: AnalysisResultEvent = {
+        type: 'e2e',
+        project,
+        passed: !hasFailure,
+        summary: hasFailure ? 'E2E tests failed' : 'E2E tests passed',
+        details: result.slice(0, 500)
+      };
+      this.emit('analysisResult', analysisEvent);
 
       return {
         passed: !hasFailure,
@@ -1023,6 +1134,17 @@ The "fixes" array should contain an entry for EACH project that needs changes. U
       };
     } catch (err) {
       console.error('[PlanningAgent] Error analyzing E2E result:', err);
+
+      // Emit error analysis result
+      const analysisEvent: AnalysisResultEvent = {
+        type: 'e2e',
+        project,
+        passed: false,
+        summary: 'Could not analyze E2E results',
+        details: String(err)
+      };
+      this.emit('analysisResult', analysisEvent);
+
       // On error, check output for obvious failures
       const hasFailure = /fail|error|assert|timeout|expected/i.test(e2eOutput);
       const testsNotExecuted = /not executed|weren't executed|weren't run|not run|no tests ran|mcp.*unavailable|playwright.*not.*installed|cannot.*run.*tests/i.test(e2eOutput);

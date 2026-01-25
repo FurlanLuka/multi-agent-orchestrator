@@ -17,8 +17,6 @@ import {
   ScrollArea,
   Button,
   Collapse,
-  List,
-  ActionIcon,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -31,11 +29,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconEye,
-  IconCircle,
-  IconClock,
-  IconLoader,
-  IconCircleCheck,
-  IconCircleX,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -44,7 +37,7 @@ import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
 import { SessionSidebar } from './components/SessionSidebar';
-import { MarkdownMessage } from './components/MarkdownMessage';
+import { TabbedPlanView } from './components/TabbedPlanView';
 
 function App() {
   const {
@@ -56,6 +49,8 @@ function App() {
     queueStatus,
     testStates,
     taskStates,
+    planningStatus,
+    analysisResults,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -85,21 +80,7 @@ function App() {
   const sessionProjects = session?.projects || Object.keys(statuses);
   const availableProjects = Object.keys(projects);
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [showNewSession, setShowNewSession] = useState(false);
-
-  // Toggle task expansion
-  const toggleTaskExpanded = (taskId: string) => {
-    setExpandedTasks(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
-    });
-  };
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
@@ -323,6 +304,8 @@ function App() {
                         messages={streamingMessages}
                         pendingPlan={pendingPlan}
                         queueStatus={queueStatus}
+                        planningStatus={planningStatus}
+                        analysisResults={analysisResults}
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
                         sessionActive={!!session}
@@ -378,7 +361,7 @@ function App() {
                           </Group>
                         </Group>
 
-                        {/* Collapsible Plan Details */}
+                        {/* Collapsible Plan Details - Now using TabbedPlanView */}
                         {session.plan && (
                           <Collapse in={showPlan}>
                             <Box
@@ -386,131 +369,12 @@ function App() {
                               pt="md"
                               style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}
                             >
-                              <Stack gap="md">
-                                {/* Plan Description */}
-                                {session.plan.description && (
-                                  <Box>
-                                    <Text size="xs" fw={600} c="dimmed" mb="xs">Description</Text>
-                                    <Text size="sm">{session.plan.description}</Text>
-                                  </Box>
-                                )}
-
-                                {/* Tasks by Project */}
-                                <Box>
-                                  <Text size="xs" fw={600} c="dimmed" mb="xs">Tasks</Text>
-                                  <Stack gap="xs">
-                                    {session.plan.tasks.map((task, idx) => {
-                                      const taskState = taskStates.find(t => t.taskIndex === idx);
-                                      const status = taskState?.status || 'pending';
-                                      const isExpanded = expandedTasks.has(String(idx));
-
-                                      // Get status icon and color
-                                      const getStatusIcon = () => {
-                                        switch (status) {
-                                          case 'completed': return <IconCircleCheck size={16} />;
-                                          case 'working': return <IconLoader size={16} className="animate-spin" />;
-                                          case 'verifying': return <IconLoader size={16} className="animate-spin" />;
-                                          case 'fixing': return <IconLoader size={16} className="animate-spin" />;
-                                          case 'waiting': return <IconClock size={16} />;
-                                          case 'e2e': return <IconLoader size={16} className="animate-spin" />;
-                                          case 'e2e_failed': return <IconCircleX size={16} />;
-                                          case 'failed': return <IconCircleX size={16} />;
-                                          default: return <IconCircle size={16} />;
-                                        }
-                                      };
-
-                                      const getStatusColor = () => {
-                                        switch (status) {
-                                          case 'completed': return 'green';
-                                          case 'working': return 'blue';
-                                          case 'verifying': return 'cyan';
-                                          case 'fixing': return 'orange';
-                                          case 'waiting': return 'yellow';
-                                          case 'e2e': return 'violet';
-                                          case 'e2e_failed': return 'red';
-                                          case 'failed': return 'red';
-                                          default: return 'gray';
-                                        }
-                                      };
-
-                                      // Use task.name if available, fallback to truncated task description
-                                      const taskName = task.name || task.task.split('\n')[0].substring(0, 60) + (task.task.length > 60 ? '...' : '');
-
-                                      return (
-                                        <Box
-                                          key={idx}
-                                          p="sm"
-                                          style={{
-                                            backgroundColor: status === 'working'
-                                              ? 'var(--mantine-color-blue-0)'
-                                              : status === 'verifying'
-                                              ? 'var(--mantine-color-cyan-0)'
-                                              : status === 'fixing'
-                                              ? 'var(--mantine-color-orange-0)'
-                                              : status === 'completed'
-                                              ? 'var(--mantine-color-green-0)'
-                                              : status === 'waiting'
-                                              ? 'var(--mantine-color-yellow-0)'
-                                              : status === 'e2e'
-                                              ? 'var(--mantine-color-violet-0)'
-                                              : status === 'e2e_failed' || status === 'failed'
-                                              ? 'var(--mantine-color-red-0)'
-                                              : 'var(--mantine-color-gray-0)',
-                                            borderRadius: 'var(--mantine-radius-md)',
-                                            border: `1px solid var(--mantine-color-${getStatusColor()}-2)`,
-                                            cursor: 'pointer',
-                                          }}
-                                          onClick={() => toggleTaskExpanded(String(idx))}
-                                        >
-                                          {/* Collapsed View: Status + Project + Task Name */}
-                                          <Group gap="xs" wrap="nowrap">
-                                            <ThemeIcon size="sm" variant="light" color={getStatusColor()}>
-                                              {getStatusIcon()}
-                                            </ThemeIcon>
-                                            <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
-                                              {task.project}
-                                            </Badge>
-                                            <Text size="sm" fw={500} style={{ flex: 1 }} lineClamp={1}>
-                                              {taskName}
-                                            </Text>
-                                            <ActionIcon size="sm" variant="subtle" color="gray">
-                                              {isExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                                            </ActionIcon>
-                                          </Group>
-
-                                          {/* Expanded View: Full Description */}
-                                          <Collapse in={isExpanded}>
-                                            <Box mt="sm" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}>
-                                                <MarkdownMessage content={task.task} />
-                                            </Box>
-                                          </Collapse>
-                                        </Box>
-                                      );
-                                    })}
-                                  </Stack>
-                                </Box>
-
-                                {/* Test Plan */}
-                                {session.plan.testPlan && Object.keys(session.plan.testPlan).length > 0 && (
-                                  <Box>
-                                    <Text size="xs" fw={600} c="dimmed" mb="xs">Test Plan</Text>
-                                    <Stack gap="xs">
-                                      {Object.entries(session.plan.testPlan).map(([project, scenarios]) => (
-                                        <Box key={project}>
-                                          <Badge size="xs" variant="light" color="teal" mb="xs">
-                                            {project}
-                                          </Badge>
-                                          <List size="sm" spacing="xs">
-                                            {scenarios.map((scenario, idx) => (
-                                              <List.Item key={idx}>{scenario}</List.Item>
-                                            ))}
-                                          </List>
-                                        </Box>
-                                      ))}
-                                    </Stack>
-                                  </Box>
-                                )}
-                              </Stack>
+                              <TabbedPlanView
+                                plan={session.plan}
+                                taskStates={taskStates}
+                                testStates={testStates}
+                                isApproval={false}
+                              />
                             </Box>
                           </Collapse>
                         )}

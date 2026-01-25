@@ -24,6 +24,7 @@ export interface CreateFromTemplateOptions {
   targetPath: string;
   template: ProjectTemplate;
   dependencyInstall?: boolean;
+  hasE2E?: boolean;  // Whether to enable E2E testing (defaults to true for templates)
 }
 
 // Template configurations
@@ -379,7 +380,7 @@ export class ProjectManager extends EventEmitter {
    * Creates a new project from a template
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<void> {
-    const { name, targetPath, template, dependencyInstall } = options;
+    const { name, targetPath, template, dependencyInstall, hasE2E = true } = options;
 
     // Validate project name doesn't exist
     if (this.config.projects[name]) {
@@ -419,16 +420,18 @@ export class ProjectManager extends EventEmitter {
     console.log(`[ProjectManager] Template copied to ${expandedPath}`);
     this.emit('templateCopyComplete', { name, template, targetPath: expandedPath });
 
-    // Create project config
+    // Create project config with port and url from template
     const projectConfig: ProjectConfig = {
       path: targetPath,
       devServer: {
         command: templateConfig.devServer.command,
         readyPattern: templateConfig.devServer.readyPattern,
-        env: {}
+        env: {},
+        port: templateConfig.defaultPort,
+        url: `http://localhost:${templateConfig.defaultPort}`
       },
       buildCommand: templateConfig.buildCommand,
-      hasE2E: true // Templates include E2E skills
+      hasE2E: hasE2E
     };
 
     // Add to config

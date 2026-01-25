@@ -1003,6 +1003,16 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
   });
 
   
+  // Forward planning status events to UI
+  chatHandler.on('planningStatus', (event) => {
+    (ui.io as any).emitPlanningStatus(event);
+  });
+
+  // Forward analysis result events to UI
+  chatHandler.on('analysisResult', (event) => {
+    (ui.io as any).emitAnalysisResult(event);
+  });
+
   // Forward streaming events to UI for agentic chat
   // Also persist chat messages on message_complete
   chatHandler.on('stream', (event) => {

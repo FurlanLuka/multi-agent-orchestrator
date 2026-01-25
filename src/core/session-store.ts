@@ -293,6 +293,7 @@ export class SessionStore extends EventEmitter {
     project: string
   ): Array<{ name: string; status: TestScenarioStatus; error?: string }> | null {
     const session = this.loadSession(sessionId);
+    
     if (!session) return null;
 
     return session.testStates[project]?.scenarios ?? null;

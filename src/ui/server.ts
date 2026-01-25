@@ -7,7 +7,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState } from '../types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent } from '../types';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -207,6 +207,16 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('taskStates', states);
   };
 
+  // Emit planning status events for UX feedback
+  const emitPlanningStatus = (event: PlanningStatusEvent) => {
+    io.emit('planningStatus', event);
+  };
+
+  // Emit analysis result events for structured results display
+  const emitAnalysisResult = (event: AnalysisResultEvent) => {
+    io.emit('analysisResult', event);
+  };
+
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
   (io as any).emitLog = emitLog;
@@ -219,6 +229,8 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitAllComplete = emitAllComplete;
   (io as any).emitTaskStatus = emitTaskStatus;
   (io as any).emitTaskStates = emitTaskStates;
+  (io as any).emitPlanningStatus = emitPlanningStatus;
+  (io as any).emitAnalysisResult = emitAnalysisResult;
 
   return {
     app,

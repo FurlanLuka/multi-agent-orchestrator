@@ -43,7 +43,7 @@ interface ProjectManagerProps {
   templates: ProjectTemplateConfig[];
   creatingProject: boolean;
   addingProject: boolean;
-  onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean) => void;
+  onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean, hasE2E: boolean) => void;
   onAddProject: (options: AddProjectOptions) => void;
   onRemoveProject: (name: string) => void;
   onUpdateProject: (name: string, updates: Partial<ProjectConfig>) => void;
@@ -63,6 +63,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [targetPath, setTargetPath] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const [templateDependencyInstall, setTemplateDependencyInstall] = useState(true);
+  const [templateHasE2E, setTemplateHasE2E] = useState(true);
 
   // Manual form state
   const [manualName, setManualName] = useState('');
@@ -92,6 +93,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setTargetPath('');
       setSelectedTemplate(null);
       setTemplateDependencyInstall(true);
+      setTemplateHasE2E(true);
       setManualName('');
       setManualPath('');
       setManualCommand('npm run dev');
@@ -108,7 +110,7 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const handleCreateFromTemplate = () => {
     if (name.trim() && targetPath.trim() && selectedTemplate) {
       setCreatingName(name.trim());
-      onCreateProject(name.trim(), targetPath.trim(), selectedTemplate, templateDependencyInstall);
+      onCreateProject(name.trim(), targetPath.trim(), selectedTemplate, templateDependencyInstall, templateHasE2E);
     }
   };
 
@@ -448,6 +450,13 @@ Or for backend:
                     description="Automatically detects npm/yarn/pnpm/bun"
                     checked={templateDependencyInstall}
                     onChange={(e) => setTemplateDependencyInstall(e.currentTarget.checked)}
+                  />
+
+                  <Checkbox
+                    label="Enable E2E testing"
+                    description="Include this project in end-to-end test execution"
+                    checked={templateHasE2E}
+                    onChange={(e) => setTemplateHasE2E(e.currentTarget.checked)}
                   />
 
                   <Button

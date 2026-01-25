@@ -22,6 +22,8 @@ import type {
   FullSessionData,
   TaskState,
   TaskStatusEvent,
+  PlanningStatusEvent,
+  AnalysisResultEvent,
 } from '../types';
 
 const SOCKET_URL = 'http://localhost:3456';
@@ -51,6 +53,12 @@ export function useSocket() {
 
   // Task states for dependency-aware execution tracking
   const [taskStates, setTaskStates] = useState<TaskState[]>([]);
+
+  // Planning status for UX feedback
+  const [planningStatus, setPlanningStatus] = useState<PlanningStatusEvent | null>(null);
+
+  // Analysis results for structured display
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResultEvent[]>([]);
 
   // Session persistence state
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -260,6 +268,17 @@ export function useSocket() {
             }
           : task
       ));
+    });
+
+    // Planning status events for UX feedback
+    socket.on('planningStatus', (event: PlanningStatusEvent) => {
+      // Clear status when phase is 'complete', otherwise update
+      setPlanningStatus(event.phase === 'complete' ? null : event);
+    });
+
+    // Analysis result events for structured display
+    socket.on('analysisResult', (event: AnalysisResultEvent) => {
+      setAnalysisResults(prev => [...prev, event]);
     });
 
     // Test status events for real-time E2E test tracking
@@ -521,10 +540,10 @@ export function useSocket() {
     setStreamingMessages([]);
   }, []);
 
-  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true) => {
+  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true, hasE2E: boolean = true) => {
     if (socketRef.current) {
       setCreatingProject(true);
-      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall });
+      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall, hasE2E });
     }
   }, []);
 
@@ -641,6 +660,11 @@ export function useSocket() {
     }
   }, []);
 
+  // Clear analysis results when starting new session
+  const clearAnalysisResults = useCallback(() => {
+    setAnalysisResults([]);
+  }, []);
+
   return {
     connected,
     session,
@@ -651,6 +675,8 @@ export function useSocket() {
     queueStatus,
     testStates,
     taskStates,
+    planningStatus,
+    analysisResults,
     currentApproval,
     pendingPlan,
     allComplete,
@@ -669,6 +695,7 @@ export function useSocket() {
     respondToApproval,
     clearLogs,
     clearStreamingMessages,
+    clearAnalysisResults,
     createProjectFromTemplate,
     addProject,
     removeProject,

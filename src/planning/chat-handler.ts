@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent, ChatStreamEvent, PlanningAction } from '../types';
+import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -52,6 +52,16 @@ export class ChatHandler extends EventEmitter {
     // Forward streaming events for agentic UI
     this.planningAgent.on('stream', (event: ChatStreamEvent) => {
       this.emit('stream', event);
+    });
+
+    // Forward planning status events for UX feedback
+    this.planningAgent.on('planningStatus', (event: PlanningStatusEvent) => {
+      this.emit('planningStatus', event);
+    });
+
+    // Forward analysis result events for structured results display
+    this.planningAgent.on('analysisResult', (event: AnalysisResultEvent) => {
+      this.emit('analysisResult', event);
     });
   }
 
