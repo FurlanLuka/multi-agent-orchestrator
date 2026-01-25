@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { Config } from '../types';
+import { writeProjectPermissions } from '../utils/permissions-writer';
 
 interface ManagedProcess {
   process: ChildProcess;
@@ -261,8 +262,19 @@ export class ProcessManager extends EventEmitter {
       throw new Error(`Project path does not exist: ${projectPath} (for project "${project}")`);
     }
 
+    // Handle permissions
+    const useDangerousMode = projectConfig.permissions?.dangerouslyAllowAll === true;
+
+    if (!useDangerousMode) {
+      // Always write permissions to project's settings.json
+      // If no permissions configured, writes empty allow list (Claude will prompt for everything)
+      const permissions = projectConfig.permissions || { allow: [] };
+      await writeProjectPermissions(projectPath, permissions);
+    }
+
     console.log(`[ProcessManager] Sending to project "${project}" at path: ${projectPath}`);
     console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
+    console.log(`[ProcessManager] Permissions mode: ${useDangerousMode ? 'DANGEROUS (skip all)' : 'allowlist'}`);
 
     return new Promise((resolve, reject) => {
       let responseBuffer = '';
@@ -272,13 +284,19 @@ export class ProcessManager extends EventEmitter {
       // Use full path to ensure claude is found
       const claudePath = process.env.HOME + '/.local/bin/claude';
 
-      const proc = spawn(claudePath, [
+      // Build args - add dangerous flag only if explicitly enabled
+      const args = [
         '-p', prompt,
         '--output-format', 'stream-json',
         '--verbose',
-        '--dangerously-skip-permissions',
         '--no-session-persistence'
-      ], {
+      ];
+
+      if (useDangerousMode) {
+        args.push('--dangerously-skip-permissions');
+      }
+
+      const proc = spawn(claudePath, args, {
         cwd: projectPath,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe']  // ignore stdin for one-shot

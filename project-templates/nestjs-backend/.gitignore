@@ -34,5 +34,5 @@ Thumbs.db
 # Testing
 coverage/
 
-# Session directory (orchestrator)
-.session/
+# Orchestrator session data
+.orchestrator/

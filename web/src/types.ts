@@ -199,6 +199,12 @@ export interface ProjectTemplateConfig {
   dependencyInstall?: boolean;  // Whether to install dependencies when creating from template
 }
 
+// Project permission configuration
+export interface ProjectPermissions {
+  dangerouslyAllowAll?: boolean;  // If true, uses --dangerously-skip-permissions
+  allow: string[];                 // List of allowed permissions
+}
+
 // Project config (from projects.config.json)
 export interface ProjectConfig {
   path: string;
@@ -214,6 +220,7 @@ export interface ProjectConfig {
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
   gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)
   mainBranch?: string;       // Main branch name (default: 'main')
+  permissions?: ProjectPermissions;  // Agent permissions for this project
 }
 
 // Task status tracking for dependency-aware execution

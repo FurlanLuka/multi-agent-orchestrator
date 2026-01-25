@@ -359,7 +359,6 @@ User: ${newMessage}`;
         '-p', prompt,
         '--output-format', 'stream-json',
         '--verbose',
-        '--dangerously-skip-permissions',
         '--no-session-persistence'
       ], {
         cwd: this.orchestratorDir,

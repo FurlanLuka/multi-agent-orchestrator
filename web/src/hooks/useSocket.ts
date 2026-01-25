@@ -651,10 +651,32 @@ export function useSocket() {
     setStreamingMessages([]);
   }, []);
 
-  const createProjectFromTemplate = useCallback((name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean = true, hasE2E: boolean = true, gitEnabled: boolean = false, mainBranch: string = 'main') => {
+  interface CreateProjectOptions {
+    name: string;
+    targetPath: string;
+    template: ProjectTemplate;
+    dependencyInstall: boolean;
+    hasE2E: boolean;
+    gitEnabled: boolean;
+    mainBranch: string;
+    permissions?: {
+      dangerouslyAllowAll?: boolean;
+      allow: string[];
+    };
+  }
+
+  const createProjectFromTemplate = useCallback((options: CreateProjectOptions) => {
     if (socketRef.current) {
       setCreatingProject(true);
-      socketRef.current.emit('createFromTemplate', { name, targetPath, template, dependencyInstall, hasE2E, gitEnabled, mainBranch });
+      socketRef.current.emit('createFromTemplate', options);
+    }
+  }, []);
+
+  // Quick start: create frontend + backend app with git and e2e enabled
+  const quickStartApp = useCallback((appName: string) => {
+    if (socketRef.current) {
+      setCreatingProject(true);
+      socketRef.current.emit('quickStartApp', { appName });
     }
   }, []);
 
@@ -679,6 +701,10 @@ export function useSocket() {
     dependencyInstall?: boolean;
     gitEnabled?: boolean;
     mainBranch?: string;
+    permissions?: {
+      dangerouslyAllowAll?: boolean;
+      allow: string[];
+    };
   }
 
   const addProject = useCallback((options: AddProjectOptions) => {
@@ -872,6 +898,7 @@ export function useSocket() {
     clearStreamingMessages,
     clearFlows,
     createProjectFromTemplate,
+    quickStartApp,
     addProject,
     removeProject,
     updateProject,

@@ -17,6 +17,7 @@ import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
+import { TEMPLATE_PERMISSIONS } from './config/permissions.config';
 
 // Get orchestrator directory (where this code lives)
 const ORCHESTRATOR_DIR = path.resolve(__dirname, '..');
@@ -1834,6 +1835,57 @@ Output these markers on their own line, not inside code blocks.`;
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         socket.emit('createFromTemplateError', { name: options.name, error });
+      }
+    });
+
+    // Quick start: create frontend + backend app with git and e2e enabled
+    socket.on('quickStartApp', async ({ appName }: { appName: string }) => {
+      try {
+        const targetPath = `~/Documents/aio-${appName}`;
+        const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+        const frontendName = `frontend`;
+        const backendName = `backend`;
+
+        // Create parent directory if it doesn't exist
+        if (!fs.existsSync(expandedTargetPath)) {
+          fs.mkdirSync(expandedTargetPath, { recursive: true });
+        }
+
+        // Create backend first with template permissions
+        await projectManager.createFromTemplate({
+          name: backendName,
+          targetPath: `${targetPath}/${backendName}`,
+          template: 'nestjs-backend',
+          dependencyInstall: true,
+          hasE2E: true,
+          gitEnabled: true,
+          mainBranch: 'main',
+          permissions: {
+            allow: TEMPLATE_PERMISSIONS['nestjs-backend'] || [],
+          },
+        });
+
+        // Create frontend (depends on backend for E2E) with template permissions
+        await projectManager.createFromTemplate({
+          name: frontendName,
+          targetPath: `${targetPath}/${frontendName}`,
+          template: 'vite-frontend',
+          dependencyInstall: true,
+          hasE2E: true,
+          gitEnabled: true,
+          mainBranch: 'main',
+          dependsOn: [backendName],
+          permissions: {
+            allow: TEMPLATE_PERMISSIONS['vite-frontend'] || [],
+          },
+        });
+
+        socket.emit('createFromTemplateSuccess', { name: appName, template: 'quick-start' });
+        // Send updated projects list
+        socket.emit('projects', projectManager.getProjects());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        socket.emit('createFromTemplateError', { name: appName, error });
       }
     });
 

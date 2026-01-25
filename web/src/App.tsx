@@ -16,6 +16,9 @@ import {
   ScrollArea,
   Button,
   Collapse,
+  Tabs,
+  Card,
+  TextInput,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -33,6 +36,8 @@ import {
   IconGitBranch,
   IconUpload,
   IconGitMerge,
+  IconSettings,
+  IconPlayerPlay,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -40,7 +45,8 @@ import { ApprovalPanel } from './components/ApprovalPanel';
 import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
-import { SessionSidebar } from './components/SessionSidebar';
+// SessionSidebar hidden for now - session history navigation is broken
+// import { SessionSidebar } from './components/SessionSidebar';
 import { TabbedPlanView } from './components/TabbedPlanView';
 import { SplashScreen } from './components/SplashScreen';
 
@@ -65,7 +71,7 @@ function App() {
     templates,
     creatingProject,
     addingProject,
-    sessions,
+    sessions: _sessions,
     loadingSession,
     activeSessionId,
     viewingSessionId,
@@ -74,14 +80,15 @@ function App() {
     approvePlan,
     respondToApproval,
     createProjectFromTemplate,
+    quickStartApp,
     addProject,
     removeProject,
     updateProject,
-    deleteSession,
-    viewSession,
+    deleteSession: _deleteSession,
+    viewSession: _viewSession,
     stopSession,
     getSessions,
-    clearSession,
+    clearSession: _clearSession,
     submitUserAction,
     pushingBranch,
     pushResults,
@@ -96,6 +103,7 @@ function App() {
   const availableProjects = Object.keys(projects);
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
   const [showNewSession, setShowNewSession] = useState(false);
+  const [quickStartName, setQuickStartName] = useState('');
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
@@ -119,11 +127,6 @@ function App() {
   }, [logs]);
 
   // Handler for starting a new session
-  const handleNewSession = () => {
-    clearSession(); // Clear viewing state so we don't show read-only indicators
-    setShowNewSession(true);
-  };
-
   // Handler for starting session (wraps startSession to hide form)
   const handleStartSession = (feature: string, projectList: string[], branchName?: string) => {
     startSession(feature, projectList, branchName);
@@ -149,15 +152,14 @@ function App() {
     <MantineProvider defaultColorScheme="light">
       <AppShell
         header={{ height: 64 }}
-        navbar={{
-          width: 300,
-          breakpoint: 'sm',
-        }}
         padding="md"
         styles={{
+          root: {
+            minHeight: '100%',
+          },
           main: {
             backgroundColor: 'var(--mantine-color-gray-0)',
-            minHeight: '100vh',
+            minHeight: 'calc(100vh - 64px)',
           },
         }}
       >
@@ -200,31 +202,11 @@ function App() {
                   Session Active
                 </Badge>
               )}
-              <Badge
-                color={connected ? 'green' : 'red'}
-                variant="dot"
-                size="lg"
-                radius="md"
-              >
-                {connected ? 'Connected' : 'Disconnected'}
-              </Badge>
             </Group>
           </Group>
         </AppShell.Header>
 
-        {/* Session Sidebar */}
-        <AppShell.Navbar p="sm" style={{ backgroundColor: 'white' }}>
-          <SessionSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            viewingSessionId={viewingSessionId}
-            connected={connected}
-            onNewSession={handleNewSession}
-            onViewSession={viewSession}
-            onDeleteSession={deleteSession}
-            onStopSession={stopSession}
-          />
-        </AppShell.Navbar>
+        {/* Session Sidebar - Hidden for now */}
 
         <AppShell.Main>
           <Container size="100%" py="md" h="calc(100vh - 80px)">
@@ -382,45 +364,118 @@ function App() {
               </Alert>
             )}
 
-            {/* No Session or New Session Form - Show Setup + Project Manager */}
+            {/* No Session or New Session Form - Show Quick Start + Tabbed Setup */}
             {(!session || showNewSession) && (
-              <Grid gutter="lg">
-                <Grid.Col span={{ base: 12, md: 7 }}>
-                  <SessionSetup
-                    availableProjects={availableProjects}
-                    projectConfigs={projects}
-                    onStartSession={handleStartSession}
-                    connected={connected}
-                    sessions={[]}
-                    onLoadSession={() => {}}
-                    onDeleteSession={() => {}}
-                    loadingSession={loadingSession}
-                  />
-                  {showNewSession && (
-                    <Button
-                      variant="subtle"
-                      color="gray"
-                      mt="md"
-                      onClick={() => setShowNewSession(false)}
-                    >
-                      Cancel
-                    </Button>
-                  )}
-                </Grid.Col>
-                <Grid.Col span={{ base: 12, md: 5 }}>
-                  <ProjectManager
-                    projects={projects}
-                    templates={templates}
-                    creatingProject={creatingProject}
-                    addingProject={addingProject}
-                    gitAvailable={dependencyCheck?.git.available ?? true}
-                    onCreateProject={createProjectFromTemplate}
-                    onAddProject={addProject}
-                    onRemoveProject={removeProject}
-                    onUpdateProject={updateProject}
-                  />
-                </Grid.Col>
-              </Grid>
+              <Box maw={1200} mx="auto">
+              <Stack gap="xl">
+                {/* Quick Start */}
+                <Card
+                  shadow="sm"
+                  radius="lg"
+                  p="xl"
+                  style={{
+                    background: 'linear-gradient(135deg, var(--mantine-color-violet-0) 0%, var(--mantine-color-blue-0) 100%)',
+                    border: '1px solid var(--mantine-color-violet-2)',
+                  }}
+                >
+                  <Stack gap="md">
+                    <Group gap="md">
+                      <ThemeIcon size={48} radius="md" variant="gradient" gradient={{ from: 'violet', to: 'blue' }}>
+                        <IconRocket size={28} />
+                      </ThemeIcon>
+                      <div>
+                        <Title order={3}>Quick Start</Title>
+                        <Text size="sm" c="dimmed">
+                          Create a full-stack app with frontend + backend, Git, and E2E testing.
+                        </Text>
+                      </div>
+                    </Group>
+
+                    <Stack gap="sm">
+                      <TextInput
+                        placeholder="App name (e.g., blog, shop, dashboard)"
+                        value={quickStartName}
+                        onChange={(e) => setQuickStartName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                        disabled={creatingProject}
+                        size="md"
+                      />
+                      {quickStartName && (
+                        <Text size="xs" c="dimmed">
+                          Creates <Text span fw={500} c="violet">~/Documents/aio-{quickStartName}/{quickStartName}-frontend</Text> and <Text span fw={500} c="blue">~/Documents/aio-{quickStartName}/{quickStartName}-backend</Text>
+                        </Text>
+                      )}
+                      <Button
+                        size="md"
+                        variant="gradient"
+                        gradient={{ from: 'violet', to: 'blue' }}
+                        leftSection={<IconRocket size={18} />}
+                        disabled={!quickStartName.trim() || creatingProject}
+                        loading={creatingProject}
+                        onClick={() => {
+                          if (quickStartName.trim()) {
+                            quickStartApp(quickStartName.trim());
+                            setQuickStartName('');
+                          }
+                        }}
+                      >
+                        Create App
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Card>
+
+                {/* Tabbed Content */}
+                <Paper shadow="sm" radius="lg" p="lg" withBorder>
+                  <Tabs defaultValue="session" variant="default">
+                    <Tabs.List mb="lg">
+                      <Tabs.Tab value="session" leftSection={<IconPlayerPlay size={16} />} fw={500}>
+                        Start Session
+                      </Tabs.Tab>
+                      <Tabs.Tab value="projects" leftSection={<IconSettings size={16} />} fw={500}>
+                        Project Configuration
+                      </Tabs.Tab>
+                    </Tabs.List>
+
+                    <Tabs.Panel value="session">
+                      <SessionSetup
+                        availableProjects={availableProjects}
+                        projectConfigs={projects}
+                        onStartSession={handleStartSession}
+                        connected={connected}
+                        sessions={[]}
+                        onLoadSession={() => {}}
+                        onDeleteSession={() => {}}
+                        loadingSession={loadingSession}
+                      />
+                      {showNewSession && (
+                        <Button
+                          variant="subtle"
+                          color="gray"
+                          mt="md"
+                          onClick={() => setShowNewSession(false)}
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="projects">
+                      <ProjectManager
+                        projects={projects}
+                        templates={templates}
+                        creatingProject={creatingProject}
+                        addingProject={addingProject}
+                        gitAvailable={dependencyCheck?.git.available ?? true}
+                        onCreateProject={createProjectFromTemplate}
+                        onAddProject={addProject}
+                        onRemoveProject={removeProject}
+                        onUpdateProject={updateProject}
+                      />
+                    </Tabs.Panel>
+                  </Tabs>
+                </Paper>
+              </Stack>
+              </Box>
             )}
 
             {/* Active Session - Split Panel Layout */}

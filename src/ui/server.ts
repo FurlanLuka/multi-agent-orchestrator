@@ -8,6 +8,7 @@ import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
 import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '../types';
+import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '../config/permissions.config';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -92,6 +93,26 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     } else {
       res.json({ current: null, queue: [] });
     }
+  });
+
+  // Permissions API - returns available permissions, groups, and templates
+  app.get('/api/permissions', (req: Request, res: Response) => {
+    res.json({
+      categories: AVAILABLE_PERMISSIONS,
+      groups: PERMISSION_GROUPS,
+      templates: TEMPLATE_PERMISSIONS,
+      alwaysDenied: ALWAYS_DENIED,
+    });
+  });
+
+  // Get enabled groups for a list of permissions
+  app.post('/api/permissions/enabled-groups', (req: Request, res: Response) => {
+    const { permissions } = req.body as { permissions: string[] };
+    if (!permissions || !Array.isArray(permissions)) {
+      res.status(400).json({ error: 'permissions array required' });
+      return;
+    }
+    res.json({ enabledGroups: getEnabledGroups(permissions) });
   });
 
   // Fallback to index.html for SPA routing

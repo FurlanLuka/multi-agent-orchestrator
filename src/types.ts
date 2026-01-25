@@ -1,3 +1,9 @@
+// Project permission configuration
+export interface ProjectPermissions {
+  dangerouslyAllowAll?: boolean;  // If true, uses --dangerously-skip-permissions (not recommended)
+  allow: string[];                 // List of allowed permissions (from AVAILABLE_PERMISSIONS)
+}
+
 // Project configuration
 export interface ProjectConfig {
   path: string;
@@ -14,6 +20,7 @@ export interface ProjectConfig {
   dependsOn?: string[];  // Projects that must complete E2E before this one starts (e.g., frontend depends on backend)
   gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
   mainBranch?: string;   // Main branch name (default: 'main')
+  permissions?: ProjectPermissions;  // Claude Code agent permissions for this project
 }
 
 export interface Config {

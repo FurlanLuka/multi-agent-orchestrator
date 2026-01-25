@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Paper,
   TextInput,
   Textarea,
   Button,
@@ -18,9 +17,45 @@ import {
   SegmentedControl,
   ActionIcon,
   Collapse,
+  Switch,
+  Tooltip,
+  SimpleGrid,
+  Accordion,
+  Grid,
+  Title,
+  ScrollArea,
 } from '@mantine/core';
-import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash, IconChevronDown, IconChevronRight, IconDeviceFloppy, IconGitBranch, IconAlertTriangle } from '@tabler/icons-react';
+import { IconPlus, IconFolder, IconServer, IconBrowser, IconCheck, IconFolderPlus, IconTrash, IconChevronDown, IconChevronRight, IconDeviceFloppy, IconGitBranch, IconAlertTriangle, IconShield, IconShieldOff } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectConfig, ProjectTemplate } from '../types';
+
+// Permission types from backend
+interface PermissionOption {
+  id: string;
+  label: string;
+  description: string;
+  category: 'file' | 'bash' | 'mcp';
+}
+
+interface PermissionCategory {
+  id: string;
+  label: string;
+  description: string;
+  permissions: PermissionOption[];
+}
+
+interface PermissionGroup {
+  id: string;
+  label: string;
+  description: string;
+  permissions: string[];
+}
+
+interface PermissionsConfig {
+  categories: PermissionCategory[];
+  groups: PermissionGroup[];
+  templates: Record<string, string[]>;
+  alwaysDenied: string[];
+}
 
 interface AddProjectOptions {
   name: string;
@@ -38,6 +73,24 @@ interface AddProjectOptions {
   dependencyInstall?: boolean;
   gitEnabled?: boolean;
   mainBranch?: string;
+  permissions?: {
+    dangerouslyAllowAll?: boolean;
+    allow: string[];
+  };
+}
+
+interface CreateProjectOptions {
+  name: string;
+  targetPath: string;
+  template: ProjectTemplate;
+  dependencyInstall: boolean;
+  hasE2E: boolean;
+  gitEnabled: boolean;
+  mainBranch: string;
+  permissions?: {
+    dangerouslyAllowAll?: boolean;
+    allow: string[];
+  };
 }
 
 interface ProjectManagerProps {
@@ -46,14 +99,13 @@ interface ProjectManagerProps {
   creatingProject: boolean;
   addingProject: boolean;
   gitAvailable?: boolean;
-  onCreateProject: (name: string, targetPath: string, template: ProjectTemplate, dependencyInstall: boolean, hasE2E: boolean, gitEnabled: boolean, mainBranch: string) => void;
+  onCreateProject: (options: CreateProjectOptions) => void;
   onAddProject: (options: AddProjectOptions) => void;
   onRemoveProject: (name: string) => void;
   onUpdateProject: (name: string, updates: Partial<ProjectConfig>) => void;
 }
 
 export function ProjectManager({ projects, templates, creatingProject, addingProject, gitAvailable = true, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
-  const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
 
   // Expanded project for editing E2E instructions, dev server URL, and git settings
@@ -63,6 +115,19 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [editingGitEnabled, setEditingGitEnabled] = useState<boolean>(false);
   const [editingMainBranch, setEditingMainBranch] = useState<string>('');
 
+  // Permissions state
+  const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
+  const [editingPermissions, setEditingPermissions] = useState<string[]>([]);
+  const [editingDangerouslyAllowAll, setEditingDangerouslyAllowAll] = useState<boolean>(false);
+
+  // Fetch permissions config on mount
+  useEffect(() => {
+    fetch('http://localhost:3456/api/permissions')
+      .then(res => res.json())
+      .then(data => setPermissionsConfig(data))
+      .catch(err => console.error('Failed to fetch permissions config:', err));
+  }, []);
+
   // Template form state
   const [name, setName] = useState('');
   const [targetPath, setTargetPath] = useState('');
@@ -71,6 +136,10 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [templateHasE2E, setTemplateHasE2E] = useState(true);
   const [templateGitEnabled, setTemplateGitEnabled] = useState(false);
   const [templateMainBranch, setTemplateMainBranch] = useState('main');
+
+  // Template form permissions
+  const [templatePermissions, setTemplatePermissions] = useState<string[]>([]);
+  const [templateDangerouslyAllowAll, setTemplateDangerouslyAllowAll] = useState(false);
 
   // Manual form state
   const [manualName, setManualName] = useState('');
@@ -84,6 +153,16 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [manualDependencyInstall, setManualDependencyInstall] = useState(false);
   const [manualGitEnabled, setManualGitEnabled] = useState(false);
   const [manualMainBranch, setManualMainBranch] = useState('main');
+  const [manualPermissions, setManualPermissions] = useState<string[]>([]);
+  const [manualDangerouslyAllowAll, setManualDangerouslyAllowAll] = useState(false);
+
+  // Pre-populate permissions when template is selected
+  useEffect(() => {
+    if (selectedTemplate && permissionsConfig?.templates) {
+      const templateDefaults = permissionsConfig.templates[selectedTemplate] || [];
+      setTemplatePermissions(templateDefaults);
+    }
+  }, [selectedTemplate, permissionsConfig]);
 
   const [creatingName, setCreatingName] = useState<string | null>(null);
   const [justCreated, setJustCreated] = useState<string | null>(null);
@@ -96,7 +175,6 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       // Creation finished
       setJustCreated(creatingName);
       setCreatingName(null);
-      setShowForm(false); // Close form on success
       // Reset form fields
       setName('');
       setTargetPath('');
@@ -116,6 +194,10 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
       setManualDependencyInstall(false);
       setManualGitEnabled(false);
       setManualMainBranch('main');
+      setManualPermissions([]);
+      setManualDangerouslyAllowAll(false);
+      setTemplatePermissions([]);
+      setTemplateDangerouslyAllowAll(false);
       setTimeout(() => setJustCreated(null), 3000); // Clear success after 3s
     }
   }, [isLoading, creatingName]);
@@ -123,7 +205,18 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const handleCreateFromTemplate = () => {
     if (name.trim() && targetPath.trim() && selectedTemplate) {
       setCreatingName(name.trim());
-      onCreateProject(name.trim(), targetPath.trim(), selectedTemplate, templateDependencyInstall, templateHasE2E, templateGitEnabled, templateMainBranch.trim() || 'main');
+      onCreateProject({
+        name: name.trim(),
+        targetPath: targetPath.trim(),
+        template: selectedTemplate,
+        dependencyInstall: templateDependencyInstall,
+        hasE2E: templateHasE2E,
+        gitEnabled: templateGitEnabled,
+        mainBranch: templateMainBranch.trim() || 'main',
+        permissions: templateDangerouslyAllowAll
+          ? { dangerouslyAllowAll: true, allow: [] }
+          : { allow: templatePermissions },
+      });
     }
   };
 
@@ -144,6 +237,9 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
         dependencyInstall: manualDependencyInstall,
         gitEnabled: manualGitEnabled,
         mainBranch: manualMainBranch.trim() || 'main',
+        permissions: manualDangerouslyAllowAll
+          ? { dangerouslyAllowAll: true, allow: [] }
+          : { allow: manualPermissions },
       });
     }
   };
@@ -158,51 +254,44 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const projectList = Object.entries(projects);
 
   return (
-    <Paper shadow="sm" p="md" withBorder>
-      <Stack gap="md">
-        <Group justify="space-between">
-          <Text fw={600} size="lg">Projects</Text>
-          <Button
-            variant="light"
-            size="xs"
-            leftSection={<IconPlus size={14} />}
-            onClick={() => setShowForm(!showForm)}
-          >
-            {showForm ? 'Cancel' : 'Add Project'}
-          </Button>
-        </Group>
+    <Grid gutter="lg">
+      {/* LEFT: Existing Projects */}
+      <Grid.Col span={{ base: 12, md: 6 }}>
+        <Stack gap="md">
+          <Title order={5}>Your Projects</Title>
 
-        {/* Success message */}
-        {justCreated && (
-          <Alert icon={<IconCheck size={16} />} color="green" variant="light">
-            Project "{justCreated}" created successfully!
-          </Alert>
-        )}
+          {/* Success message */}
+          {justCreated && (
+            <Alert icon={<IconCheck size={16} />} color="green" variant="light">
+              Project "{justCreated}" created successfully!
+            </Alert>
+          )}
 
-        {/* Creating/Adding progress */}
-        {isLoading && creatingName && (
-          <Card padding="sm" withBorder bg="blue.0">
-            <Stack gap="xs">
-              <Group gap="xs">
-                <Loader size={14} />
-                <Text size="sm" fw={500}>
-                  {creatingProject ? `Creating "${creatingName}"...` : `Adding "${creatingName}"...`}
+          {/* Creating/Adding progress */}
+          {isLoading && creatingName && (
+            <Card padding="sm" withBorder bg="blue.0">
+              <Stack gap="xs">
+                <Group gap="xs">
+                  <Loader size={14} />
+                  <Text size="sm" fw={500}>
+                    {creatingProject ? `Creating "${creatingName}"...` : `Adding "${creatingName}"...`}
+                  </Text>
+                </Group>
+                <Progress value={100} animated size="xs" />
+                <Text size="xs" c="dimmed">
+                  {creatingProject
+                    ? (templateDependencyInstall ? 'Copying template and installing dependencies...' : 'Copying template files...')
+                    : (manualDependencyInstall ? 'Validating path and installing dependencies...' : 'Validating path and updating configuration...')}
                 </Text>
-              </Group>
-              <Progress value={100} animated size="xs" />
-              <Text size="xs" c="dimmed">
-                {creatingProject
-                  ? (templateDependencyInstall ? 'Copying template and installing dependencies...' : 'Copying template files...')
-                  : (manualDependencyInstall ? 'Validating path and installing dependencies...' : 'Validating path and updating configuration...')}
-              </Text>
-            </Stack>
-          </Card>
-        )}
+              </Stack>
+            </Card>
+          )}
 
-        {/* Existing Projects */}
-        {projectList.length > 0 ? (
-          <Stack gap="xs">
-            {projectList.map(([projectName, config]) => {
+          {/* Existing Projects */}
+          {projectList.length > 0 ? (
+            <ScrollArea.Autosize mah={500}>
+            <Stack gap="xs">
+              {projectList.map(([projectName, config]) => {
               const isExpanded = expandedProject === projectName;
               return (
                 <Card key={projectName} padding="xs" withBorder>
@@ -218,12 +307,16 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                             setEditingDevServerUrl('');
                             setEditingGitEnabled(false);
                             setEditingMainBranch('');
+                            setEditingPermissions([]);
+                            setEditingDangerouslyAllowAll(false);
                           } else {
                             setExpandedProject(projectName);
                             setEditingE2EInstructions(config.e2eInstructions || '');
                             setEditingDevServerUrl(config.devServer?.url || '');
                             setEditingGitEnabled(config.gitEnabled || false);
                             setEditingMainBranch(config.mainBranch || 'main');
+                            setEditingPermissions(config.permissions?.allow || []);
+                            setEditingDangerouslyAllowAll(config.permissions?.dangerouslyAllowAll || false);
                           }
                         }}
                       >
@@ -245,6 +338,15 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
                           Git
                         </Badge>
                       )}
+                      {config.permissions?.dangerouslyAllowAll ? (
+                        <Badge size="xs" color="red" variant="light" leftSection={<IconShieldOff size={10} />}>
+                          No Limits
+                        </Badge>
+                      ) : config.permissions?.allow && config.permissions.allow.length > 0 ? (
+                        <Badge size="xs" color="blue" variant="light" leftSection={<IconShield size={10} />}>
+                          {config.permissions.allow.length} perms
+                        </Badge>
+                      ) : null}
                       <ActionIcon
                         size="xs"
                         variant="subtle"
@@ -312,6 +414,96 @@ Or for backend:
                           onChange={(e) => setEditingMainBranch(e.target.value)}
                         />
                       </Collapse>
+
+                      {/* Permissions Section */}
+                      <Divider label="Agent Permissions" labelPosition="left" />
+
+                      <Switch
+                        label="Dangerously Allow All"
+                        description="Skip all permission checks (not recommended)"
+                        checked={editingDangerouslyAllowAll}
+                        onChange={(e) => setEditingDangerouslyAllowAll(e.currentTarget.checked)}
+                        color="red"
+                        thumbIcon={editingDangerouslyAllowAll ? <IconShieldOff size={12} /> : <IconShield size={12} />}
+                      />
+
+                      {!editingDangerouslyAllowAll && permissionsConfig && (
+                        <Accordion variant="contained" radius="sm">
+                          {/* Permission Groups */}
+                          <Accordion.Item value="groups">
+                            <Accordion.Control icon={<IconShield size={16} />}>
+                              <Text size="sm" fw={500}>Quick Toggle Groups</Text>
+                            </Accordion.Control>
+                            <Accordion.Panel>
+                              <Stack gap="xs">
+                                {permissionsConfig.groups.map(group => {
+                                  const allEnabled = group.permissions.every(p => editingPermissions.includes(p));
+                                  const someEnabled = group.permissions.some(p => editingPermissions.includes(p));
+                                  return (
+                                    <Checkbox
+                                      key={group.id}
+                                      label={group.label}
+                                      description={group.description}
+                                      checked={allEnabled}
+                                      indeterminate={someEnabled && !allEnabled}
+                                      onChange={(e) => {
+                                        if (e.currentTarget.checked) {
+                                          // Add all group permissions
+                                          setEditingPermissions(prev => [...new Set([...prev, ...group.permissions])]);
+                                        } else {
+                                          // Remove all group permissions
+                                          setEditingPermissions(prev => prev.filter(p => !group.permissions.includes(p)));
+                                        }
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </Stack>
+                            </Accordion.Panel>
+                          </Accordion.Item>
+
+                          {/* Individual Permissions by Category */}
+                          {permissionsConfig.categories.map(category => (
+                            <Accordion.Item key={category.id} value={category.id}>
+                              <Accordion.Control>
+                                <Group gap="xs">
+                                  <Text size="sm" fw={500}>{category.label}</Text>
+                                  <Badge size="xs" variant="light">
+                                    {category.permissions.filter(p => editingPermissions.includes(p.id)).length}/{category.permissions.length}
+                                  </Badge>
+                                </Group>
+                              </Accordion.Control>
+                              <Accordion.Panel>
+                                <SimpleGrid cols={2} spacing="xs">
+                                  {category.permissions.map(perm => (
+                                    <Tooltip key={perm.id} label={perm.description} position="top-start" multiline w={250}>
+                                      <Checkbox
+                                        label={perm.label}
+                                        checked={editingPermissions.includes(perm.id)}
+                                        onChange={(e) => {
+                                          if (e.currentTarget.checked) {
+                                            setEditingPermissions(prev => [...prev, perm.id]);
+                                          } else {
+                                            setEditingPermissions(prev => prev.filter(p => p !== perm.id));
+                                          }
+                                        }}
+                                        size="xs"
+                                      />
+                                    </Tooltip>
+                                  ))}
+                                </SimpleGrid>
+                              </Accordion.Panel>
+                            </Accordion.Item>
+                          ))}
+                        </Accordion>
+                      )}
+
+                      {editingDangerouslyAllowAll && (
+                        <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light">
+                          All permission checks will be skipped. The agent can execute any command without restrictions.
+                        </Alert>
+                      )}
+
                       <Group justify="flex-end">
                         <Button
                           size="xs"
@@ -326,6 +518,10 @@ Or for backend:
                               },
                               gitEnabled: editingGitEnabled,
                               mainBranch: editingMainBranch.trim() || 'main',
+                              permissions: {
+                                dangerouslyAllowAll: editingDangerouslyAllowAll,
+                                allow: editingPermissions,
+                              },
                             });
                             setExpandedProject(null);
                           }}
@@ -337,20 +533,24 @@ Or for backend:
                   </Collapse>
                 </Card>
               );
-            })}
-          </Stack>
-        ) : !isLoading && (
-          <Text size="sm" c="dimmed" ta="center" py="md">
-            No projects configured. Add one to get started!
-          </Text>
-        )}
+              })}
+            </Stack>
+            </ScrollArea.Autosize>
+          ) : !isLoading && (
+            <Card padding="lg" withBorder bg="gray.0">
+              <Text size="sm" c="dimmed" ta="center">
+                No projects configured yet. Add one using the form on the right.
+              </Text>
+            </Card>
+          )}
+        </Stack>
+      </Grid.Col>
 
-        {/* Add Project Form */}
-        {showForm && !isLoading && (
-          <>
-            <Divider />
-            <Stack gap="sm">
-              <SegmentedControl
+      {/* RIGHT: Add Project Form */}
+      <Grid.Col span={{ base: 12, md: 6 }}>
+        <Stack gap="md">
+          <Title order={5}>Add Project</Title>
+          <SegmentedControl
                 value={formMode}
                 onChange={(v) => setFormMode(v as 'template' | 'existing')}
                 data={[
@@ -474,6 +674,92 @@ Or for backend:
                     />
                   </Collapse>
 
+                  <Divider label="Agent Permissions" labelPosition="left" />
+
+                  <Switch
+                    label="Dangerously Allow All"
+                    description="Skip all permission checks (not recommended)"
+                    checked={manualDangerouslyAllowAll}
+                    onChange={(e) => setManualDangerouslyAllowAll(e.currentTarget.checked)}
+                    color="red"
+                    thumbIcon={manualDangerouslyAllowAll ? <IconShieldOff size={12} /> : <IconShield size={12} />}
+                  />
+
+                  {!manualDangerouslyAllowAll && permissionsConfig && (
+                    <Accordion variant="contained" radius="sm">
+                      {/* Permission Groups */}
+                      <Accordion.Item value="groups">
+                        <Accordion.Control icon={<IconShield size={16} />}>
+                          <Text size="sm" fw={500}>Quick Toggle Groups</Text>
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                          <Stack gap="xs">
+                            {permissionsConfig.groups.map(group => {
+                              const allEnabled = group.permissions.every(p => manualPermissions.includes(p));
+                              const someEnabled = group.permissions.some(p => manualPermissions.includes(p));
+                              return (
+                                <Checkbox
+                                  key={group.id}
+                                  label={group.label}
+                                  description={group.description}
+                                  checked={allEnabled}
+                                  indeterminate={someEnabled && !allEnabled}
+                                  onChange={(e) => {
+                                    if (e.currentTarget.checked) {
+                                      setManualPermissions(prev => [...new Set([...prev, ...group.permissions])]);
+                                    } else {
+                                      setManualPermissions(prev => prev.filter(p => !group.permissions.includes(p)));
+                                    }
+                                  }}
+                                />
+                              );
+                            })}
+                          </Stack>
+                        </Accordion.Panel>
+                      </Accordion.Item>
+
+                      {/* Individual Permissions by Category */}
+                      {permissionsConfig.categories.map(category => (
+                        <Accordion.Item key={category.id} value={category.id}>
+                          <Accordion.Control>
+                            <Group gap="xs">
+                              <Text size="sm" fw={500}>{category.label}</Text>
+                              <Badge size="xs" variant="light">
+                                {category.permissions.filter(p => manualPermissions.includes(p.id)).length}/{category.permissions.length}
+                              </Badge>
+                            </Group>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <SimpleGrid cols={2} spacing="xs">
+                              {category.permissions.map(perm => (
+                                <Tooltip key={perm.id} label={perm.description} position="top-start" multiline w={250}>
+                                  <Checkbox
+                                    label={perm.label}
+                                    checked={manualPermissions.includes(perm.id)}
+                                    onChange={(e) => {
+                                      if (e.currentTarget.checked) {
+                                        setManualPermissions(prev => [...prev, perm.id]);
+                                      } else {
+                                        setManualPermissions(prev => prev.filter(p => p !== perm.id));
+                                      }
+                                    }}
+                                    size="xs"
+                                  />
+                                </Tooltip>
+                              ))}
+                            </SimpleGrid>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      ))}
+                    </Accordion>
+                  )}
+
+                  {manualDangerouslyAllowAll && (
+                    <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light">
+                      All permission checks will be skipped. The agent can execute any command without restrictions.
+                    </Alert>
+                  )}
+
                   <Button
                     onClick={handleAddExisting}
                     disabled={!manualName.trim() || !manualPath.trim()}
@@ -568,19 +854,104 @@ Or for backend:
                     />
                   </Collapse>
 
+                  <Divider label="Agent Permissions" labelPosition="left" />
+
+                  <Switch
+                    label="Dangerously Allow All"
+                    description="Skip all permission checks (not recommended)"
+                    checked={templateDangerouslyAllowAll}
+                    onChange={(e) => setTemplateDangerouslyAllowAll(e.currentTarget.checked)}
+                    color="red"
+                    thumbIcon={templateDangerouslyAllowAll ? <IconShieldOff size={12} /> : <IconShield size={12} />}
+                  />
+
+                  {!templateDangerouslyAllowAll && permissionsConfig && (
+                    <Accordion variant="contained" radius="sm">
+                      {/* Permission Groups */}
+                      <Accordion.Item value="groups">
+                        <Accordion.Control icon={<IconShield size={16} />}>
+                          <Text size="sm" fw={500}>Quick Toggle Groups</Text>
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                          <Stack gap="xs">
+                            {permissionsConfig.groups.map(group => {
+                              const allEnabled = group.permissions.every(p => templatePermissions.includes(p));
+                              const someEnabled = group.permissions.some(p => templatePermissions.includes(p));
+                              return (
+                                <Checkbox
+                                  key={group.id}
+                                  label={group.label}
+                                  description={group.description}
+                                  checked={allEnabled}
+                                  indeterminate={someEnabled && !allEnabled}
+                                  onChange={(e) => {
+                                    if (e.currentTarget.checked) {
+                                      setTemplatePermissions(prev => [...new Set([...prev, ...group.permissions])]);
+                                    } else {
+                                      setTemplatePermissions(prev => prev.filter(p => !group.permissions.includes(p)));
+                                    }
+                                  }}
+                                />
+                              );
+                            })}
+                          </Stack>
+                        </Accordion.Panel>
+                      </Accordion.Item>
+
+                      {/* Individual Permissions by Category */}
+                      {permissionsConfig.categories.map(category => (
+                        <Accordion.Item key={category.id} value={category.id}>
+                          <Accordion.Control>
+                            <Group gap="xs">
+                              <Text size="sm" fw={500}>{category.label}</Text>
+                              <Badge size="xs" variant="light">
+                                {category.permissions.filter(p => templatePermissions.includes(p.id)).length}/{category.permissions.length}
+                              </Badge>
+                            </Group>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <SimpleGrid cols={2} spacing="xs">
+                              {category.permissions.map(perm => (
+                                <Tooltip key={perm.id} label={perm.description} position="top-start" multiline w={250}>
+                                  <Checkbox
+                                    label={perm.label}
+                                    checked={templatePermissions.includes(perm.id)}
+                                    onChange={(e) => {
+                                      if (e.currentTarget.checked) {
+                                        setTemplatePermissions(prev => [...prev, perm.id]);
+                                      } else {
+                                        setTemplatePermissions(prev => prev.filter(p => p !== perm.id));
+                                      }
+                                    }}
+                                    size="xs"
+                                  />
+                                </Tooltip>
+                              ))}
+                            </SimpleGrid>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      ))}
+                    </Accordion>
+                  )}
+
+                  {templateDangerouslyAllowAll && (
+                    <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light">
+                      All permission checks will be skipped. The agent can execute any command without restrictions.
+                    </Alert>
+                  )}
+
                   <Button
                     onClick={handleCreateFromTemplate}
-                    disabled={!name.trim() || !targetPath.trim() || !selectedTemplate}
+                    disabled={!name.trim() || !targetPath.trim() || !selectedTemplate || isLoading}
+                    loading={isLoading && formMode === 'template'}
                     leftSection={<IconPlus size={14} />}
                   >
                     Create Project
                   </Button>
                 </>
               )}
-            </Stack>
-          </>
-        )}
-      </Stack>
-    </Paper>
+        </Stack>
+      </Grid.Col>
+    </Grid>
   );
 }

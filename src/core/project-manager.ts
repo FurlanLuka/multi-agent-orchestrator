@@ -20,6 +20,10 @@ export interface AddProjectOptions {
   dependencyInstall?: boolean;
   gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)
   mainBranch?: string;       // Main branch name (default: 'main')
+  permissions?: {
+    dangerouslyAllowAll?: boolean;
+    allow: string[];
+  };
 }
 
 export interface CreateFromTemplateOptions {
@@ -30,6 +34,11 @@ export interface CreateFromTemplateOptions {
   hasE2E?: boolean;  // Whether to enable E2E testing (defaults to true for templates)
   gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
   mainBranch?: string;   // Main branch name (default: 'main')
+  dependsOn?: string[];  // Projects that must complete E2E before this one starts
+  permissions?: {
+    dangerouslyAllowAll?: boolean;
+    allow: string[];
+  };
 }
 
 // Template configurations
@@ -126,7 +135,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch } = options;
+    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch, permissions } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -156,7 +165,8 @@ export class ProjectManager extends EventEmitter {
       hasE2E: hasE2E ?? false,
       e2eInstructions: e2eInstructions,
       gitEnabled: gitEnabled ?? false,
-      mainBranch: mainBranch || 'main'
+      mainBranch: mainBranch || 'main',
+      permissions: permissions
     };
 
     // Add to config
@@ -387,7 +397,7 @@ export class ProjectManager extends EventEmitter {
    * Creates a new project from a template
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<void> {
-    const { name, targetPath, template, dependencyInstall, hasE2E = true, gitEnabled = false, mainBranch = 'main' } = options;
+    const { name, targetPath, template, dependencyInstall, hasE2E = true, gitEnabled = false, mainBranch = 'main', dependsOn, permissions } = options;
 
     // Validate project name doesn't exist
     if (this.config.projects[name]) {
@@ -439,8 +449,10 @@ export class ProjectManager extends EventEmitter {
       },
       buildCommand: templateConfig.buildCommand,
       hasE2E: hasE2E,
+      dependsOn: dependsOn,
       gitEnabled: gitEnabled,
-      mainBranch: mainBranch
+      mainBranch: mainBranch,
+      permissions: permissions
     };
 
     // Add to config

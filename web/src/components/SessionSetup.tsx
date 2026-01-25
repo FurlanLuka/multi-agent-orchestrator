@@ -166,16 +166,9 @@ export function SessionSetup({
       )}
 
       {/* New Session Form */}
-      <Paper shadow="sm" p="xl" withBorder>
+      {/* <Paper shadow="sm" p="xl" withBorder> */}
         <Stack gap="lg">
-          <Group justify="space-between">
-            <Text fw={600} size="xl">Start New Session</Text>
-            {sessions.length === 0 && (
-              <Badge color={connected ? 'green' : 'red'}>
-                {connected ? 'Connected' : 'Disconnected'}
-              </Badge>
-            )}
-          </Group>
+          <Text fw={600} size="xl">Start New Session</Text>
 
           <Text c="dimmed">
             Describe the feature you want to build, and select which projects are involved.
@@ -221,7 +214,7 @@ export function SessionSetup({
             Start Planning
           </Button>
         </Stack>
-      </Paper>
+      {/* </Paper> */}
     </Stack>
   );
 }
