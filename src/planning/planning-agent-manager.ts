@@ -359,7 +359,8 @@ User: ${newMessage}`;
         '-p', prompt,
         '--output-format', 'stream-json',
         '--verbose',
-        '--no-session-persistence'
+        '--no-session-persistence',
+        '--dangerously-skip-permissions'  // Planner needs to read files across all projects
       ], {
         cwd: this.orchestratorDir,
         env: { ...process.env },
@@ -859,6 +860,11 @@ CRITICAL RULES:
 - Exclude hasE2E: false projects from testPlan
 - Tests MUST be automatable: HTTP requests (curl) or browser interactions (Playwright) ONLY
 - DO NOT include WebSocket, Socket.IO, or real-time event tests - these require client libraries and cannot be automated
+
+DATABASE DEFAULTS:
+- If the project already has a database configured, use that existing database
+- When adding a NEW database to a project, default to SQLite unless the user explicitly requests a different one (PostgreSQL, MySQL, MongoDB, etc.)
+- SQLite is simpler to set up, requires no external services, and is perfect for development
 
 ## OUTPUT FORMAT
 

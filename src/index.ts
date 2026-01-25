@@ -1853,7 +1853,7 @@ Output these markers on their own line, not inside code blocks.`;
 
         // Create backend first with template permissions
         await projectManager.createFromTemplate({
-          name: backendName,
+          name: `${appName}-${backendName}`,
           targetPath: `${targetPath}/${backendName}`,
           template: 'nestjs-backend',
           dependencyInstall: true,
@@ -1867,7 +1867,7 @@ Output these markers on their own line, not inside code blocks.`;
 
         // Create frontend (depends on backend for E2E) with template permissions
         await projectManager.createFromTemplate({
-          name: frontendName,
+          name: `${appName}-${frontendName}`,
           targetPath: `${targetPath}/${frontendName}`,
           template: 'vite-frontend',
           dependencyInstall: true,
