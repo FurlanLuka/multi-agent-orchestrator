@@ -647,52 +647,147 @@ CRITICAL RULES:
 - Exclude hasE2E: false projects from testPlan
 
 ## OUTPUT FORMAT
+
 \`\`\`json
 {
-  "feature": "Feature name",
-  "description": "Brief description",
-  "overview": "A 2-3 sentence high-level summary of the implementation approach, key technologies/patterns used, and how components interact.",
-  "architecture": "ASCII diagram showing component relationships (optional, for multi-component features). Example:\n┌─────────┐    ┌─────────┐    ┌─────────┐\n│ Frontend│───▶│   API   │───▶│   DB    │\n└─────────┘    └─────────┘    └─────────┘",
+  "feature": "User Authentication System",
+  "description": "Allow users to register, login, and access protected resources with JWT tokens",
+  "overview": "We will implement JWT-based authentication with bcrypt password hashing. The backend will expose /auth endpoints for login/register, with a JwtAuthGuard middleware protecting routes. The frontend will have login/register forms that store the JWT token in localStorage and include it in API requests via an axios interceptor. User state will be managed through React Context.",
+  "architecture": "ASCII diagram showing components, endpoints, and data flow (see guidelines below)",
   "tasks": [
     {
       "project": "backend",
-      "name": "Auth API",
-      "task": "Create /auth/register and /auth/login endpoints..."
+      "name": "Create Auth Module",
+      "task": "## Auth Module Setup\\n\\n**Files to create:**\\n- \`src/auth/auth.module.ts\`\\n- \`src/auth/auth.controller.ts\`\\n- \`src/auth/auth.service.ts\`\\n- \`src/auth/dto/login.dto.ts\`\\n- \`src/auth/dto/register.dto.ts\`\\n\\n**Endpoints:**\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success 201: \`{ token: string, user: { id, email, name } }\`\\n- Email exists 409: \`{ message: 'Email already exists' }\`\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success 200: \`{ token: string, user: { id, email, name } }\`\\n- Invalid 401: \`{ message: 'Invalid credentials' }\`\\n\\n**Implementation:**\\n- Use bcrypt (cost 10) for password hashing\\n- JWT expires in 7 days\\n- Validate: email format, password min 8 chars"
     },
     {
       "project": "backend",
-      "name": "User API",
-      "task": "Add /users/profile endpoint with auth middleware..."
+      "name": "Add JWT Guard",
+      "task": "## JWT Authentication Guard\\n\\n**Files to create:**\\n- \`src/auth/guards/jwt-auth.guard.ts\`\\n- \`src/auth/strategies/jwt.strategy.ts\`\\n\\n**Implementation:**\\n- Extract token from Authorization: Bearer header\\n- Verify token signature and expiration\\n- Attach user object to request\\n- Return 401 if token invalid/missing\\n\\n**Usage:** Apply @UseGuards(JwtAuthGuard) to protected routes"
     },
     {
       "project": "frontend",
-      "name": "Auth components",
-      "task": "Create LoginForm and RegisterForm components..."
+      "name": "Create Auth Context",
+      "task": "## Auth Context Provider\\n\\n**Files to create:**\\n- \`src/contexts/AuthContext.tsx\`\\n- \`src/hooks/useAuth.ts\`\\n\\n**Context State:**\\n- user: { id, email, name } | null\\n- token: string | null\\n- isLoading: boolean\\n\\n**Context Methods:**\\n- login(email, password): Promise<void>\\n- register(email, password, name): Promise<void>\\n- logout(): void\\n\\n**Implementation:**\\n- Store token in localStorage\\n- On mount, check localStorage for existing token\\n- Configure axios interceptor to add Authorization header"
     },
     {
       "project": "frontend",
-      "name": "API integration",
-      "task": "Connect auth forms to backend API..."
+      "name": "Create Auth Pages",
+      "task": "## Login and Register Pages\\n\\n**Files to create:**\\n- \`src/pages/LoginPage.tsx\`\\n- \`src/pages/RegisterPage.tsx\`\\n- \`src/components/AuthForm.tsx\` (shared form component)\\n\\n**LoginPage:**\\n- Fields: email, password\\n- Submit calls auth.login()\\n- On success, redirect to /dashboard\\n- Show error message on failure\\n\\n**RegisterPage:**\\n- Fields: name, email, password, confirm password\\n- Validate passwords match\\n- Submit calls auth.register()\\n- On success, redirect to /dashboard\\n\\n**Styling:** Use existing UI component library"
     }
   ],
   "testPlan": {
-    "backend": ["Register new user returns 201", "Login returns JWT token"],
-    "frontend": ["User can register and login", "Profile page shows user data"]
+    "backend": [
+      "Register with valid data returns 201 and JWT token",
+      "Register with existing email returns 409",
+      "Login with valid credentials returns 200 and JWT token",
+      "Login with wrong password returns 401",
+      "Protected route without token returns 401",
+      "Protected route with valid token returns 200"
+    ],
+    "frontend": [
+      "User can register with valid form data",
+      "User sees error when registering with existing email",
+      "User can login with valid credentials",
+      "User sees error with invalid login",
+      "User is redirected to dashboard after login",
+      "User can logout and is redirected to login page"
+    ]
   }
 }
 \`\`\`
 
-TASK FORMAT RULES:
-- "name": Short, action-oriented title (3-6 words) shown in collapsed view
-- "task": Full detailed description with markdown formatting, file paths, and implementation details
-- Tasks for different projects run IN PARALLEL
-- Tasks for the SAME project run SEQUENTIALLY (in the order listed)
-- Group related tasks by project for clarity
+## ARCHITECTURE DIAGRAM - REQUIRED
 
-E2E TESTING:
-- E2E tests run automatically AFTER all tasks for a project complete
-- E2E tests for dependent projects (e.g., frontend) wait for dependency projects (e.g., backend) to complete E2E first
-- testPlan defines what scenarios to test for each project
+For multi-project features, you MUST create a detailed ASCII architecture diagram showing:
+- All components/services being created or modified
+- API endpoints with HTTP methods (GET, POST, PUT, DELETE)
+- Data flow with arrows: ───▶ (request), ◀─── (response), ◀──▶ (bidirectional)
+- Database tables/storage if applicable
+- Frontend pages/components and their connections
+
+DETAILED EXAMPLE (show this level of detail):
+\`\`\`
+┌─────────────────────────────────────────────────────────────────┐
+│                         FRONTEND                                 │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │  LoginPage   │    │ RegisterPage │    │  AuthContext │       │
+│  │  - email     │    │  - email     │    │  - user      │       │
+│  │  - password  │    │  - password  │    │  - token     │       │
+│  │  - submit()  │    │  - name      │    │  - login()   │       │
+│  └──────┬───────┘    └──────┬───────┘    │  - logout()  │       │
+│         │                   │            └──────────────┘       │
+└─────────┼───────────────────┼───────────────────────────────────┘
+          │                   │
+          ▼                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                          BACKEND                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    AuthController                        │    │
+│  │  POST /auth/login    → {email, password} → {token, user} │    │
+│  │  POST /auth/register → {email, pass, name} → {token}     │    │
+│  │  GET  /auth/me       → (token header) → {user}           │    │
+│  └─────────────────────────┬───────────────────────────────┘    │
+│                            ▼                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  AuthService: validateUser(), hashPassword(), genToken() │    │
+│  └─────────────────────────┬───────────────────────────────┘    │
+│                            ▼                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  DB: users(id, email, password_hash, name, created_at)   │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+\`\`\`
+
+COMPACT EXAMPLE (minimum acceptable):
+\`\`\`
+┌──────────┐  POST /auth/login   ┌─────────────┐  query  ┌───────┐
+│ Frontend │ ──────────────────▶ │ AuthService │ ──────▶ │  DB   │
+│ LoginForm│ ◀────────────────── │ genToken()  │ ◀────── │ users │
+└──────────┘    {token, user}    └─────────────┘  user   └───────┘
+\`\`\`
+
+## TASK REQUIREMENTS
+
+Each task MUST be detailed enough for an AI agent to implement without asking questions:
+
+**Required in each task description:**
+1. **Files to create/modify** - exact paths like \`src/auth/auth.service.ts\`
+2. **Implementation details** - what functions, classes, or components to create
+3. **For APIs:** endpoints, request body, response format, status codes
+4. **For Frontend:** component props, state, UI behavior
+5. **Dependencies:** what to import or install
+
+GOOD task example:
+\`\`\`json
+{
+  "project": "backend",
+  "name": "Create Auth Controller",
+  "task": "## Auth Controller\\n\\n**Files to create:**\\n- \`src/auth/auth.controller.ts\`\\n- \`src/auth/auth.service.ts\`\\n- \`src/auth/dto/login.dto.ts\`\\n\\n**Endpoints:**\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success (200): \`{ token: string, user: { id, email, name } }\`\\n- Invalid credentials (401): \`{ message: 'Invalid credentials' }\`\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success (201): \`{ token: string, user: { id, email, name } }\`\\n- Email exists (409): \`{ message: 'Email already registered' }\`\\n\\n**Implementation notes:**\\n- Use bcrypt for password hashing (cost factor 10)\\n- JWT token expires in 7 days\\n- Validate email format and password min 8 chars"
+}
+\`\`\`
+
+BAD task (too vague - DO NOT do this):
+\`\`\`json
+{
+  "project": "backend",
+  "name": "Add auth",
+  "task": "Create authentication endpoints"
+}
+\`\`\`
+
+## EXECUTION RULES
+- Tasks for DIFFERENT projects run IN PARALLEL
+- Tasks for the SAME project run SEQUENTIALLY (order matters!)
+- Group related tasks by project
+- NO unit tests - only implementation code
+- NO starting dev servers - orchestrator handles this
+
+## TEST PLAN
+- testPlan contains E2E scenarios only (Playwright/curl tests)
+- Each scenario = user-facing behavior to verify
+- Only include projects with hasE2E: true
+- E2E runs AFTER all tasks complete
 
 ## BEGIN
 
