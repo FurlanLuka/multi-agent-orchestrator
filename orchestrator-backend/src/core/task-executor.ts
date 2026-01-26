@@ -193,13 +193,36 @@ export class TaskExecutor extends EventEmitter {
         }
 
         // Planning Agent determined task needs fixes
-        fixAttempts++;
         console.log(`[TaskExecutor] Task #${taskIndex} FAILED: ${analysis.analysis}`);
         console.log(`[TaskExecutor] Suggested action: ${analysis.suggestedAction}`);
 
-        if (fixAttempts >= this.MAX_FIX_ATTEMPTS || analysis.suggestedAction === 'escalate') {
-          console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} attempts - requires user intervention`);
-          // Complete the verification flow as failed
+        // Handle escalation (pre-existing issues the agent can't fix)
+        if (analysis.suggestedAction === 'escalate') {
+          console.error(`[TaskExecutor] Task #${taskIndex} escalated - pre-existing issues require user intervention`);
+          const taskFlowId = this.activeTaskFlows.get(taskIndex);
+          if (this.io && taskFlowId) {
+            (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
+              passed: false,
+              summary: 'Escalated - pre-existing issues',
+              details: analysis.analysis
+            });
+            this.activeTaskFlows.delete(taskIndex);
+          }
+          this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
+          this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
+          this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis, requiresUserAction: true });
+          return {
+            success: false,
+            taskIndex,
+            project: task.project,
+            message: analysis.analysis
+          };
+        }
+
+        // Handle retry (agent introduced fixable errors)
+        fixAttempts++;
+        if (fixAttempts >= this.MAX_FIX_ATTEMPTS) {
+          console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} fix attempts - requires user intervention`);
           const taskFlowId = this.activeTaskFlows.get(taskIndex);
           if (this.io && taskFlowId) {
             (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
@@ -210,7 +233,6 @@ export class TaskExecutor extends EventEmitter {
             this.activeTaskFlows.delete(taskIndex);
           }
           this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
-          // Use FAILED status to indicate user intervention required
           this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
           this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis, requiresUserAction: true });
           return {

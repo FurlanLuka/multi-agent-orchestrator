@@ -66,6 +66,14 @@ function emitReadySignal(port: number): void {
   console.log(`[ORCHESTRATOR_READY]:${port}`);
 }
 
+/**
+ * Emit error signal for Tauri sidecar communication
+ * Format: [ORCHESTRATOR_ERROR]:{message}
+ */
+function emitErrorSignal(message: string): void {
+  console.error(`[ORCHESTRATOR_ERROR]:${message}`);
+}
+
 async function main() {
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('  Multi-Agent Orchestrator');
@@ -79,7 +87,17 @@ async function main() {
   const requestedPort = process.env.ORCHESTRATOR_PORT
     ? parseInt(process.env.ORCHESTRATOR_PORT, 10)
     : DEFAULT_ORCHESTRATOR_PORT;
-  const orchestratorPort = await findAvailablePort(requestedPort);
+
+  let orchestratorPort: number;
+  try {
+    orchestratorPort = await findAvailablePort(requestedPort);
+  } catch (err) {
+    const errorMessage = `Cannot find available port. Port ${requestedPort} and fallback ports are in use.`;
+    emitErrorSignal(errorMessage);
+    console.error(`\n  ERROR: ${errorMessage}`);
+    console.error('  Please close other instances or restart your computer.\n');
+    process.exit(1);
+  }
 
   if (orchestratorPort !== requestedPort) {
     console.log(`  Note: Port ${requestedPort} in use, using ${orchestratorPort}`);

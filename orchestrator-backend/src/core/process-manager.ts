@@ -6,7 +6,7 @@ import * as os from 'os';
 import { Config } from '@aio/types';
 import { writeProjectPermissions } from '../utils/permissions-writer';
 import { getShellEnv } from '../startup/dependency-check';
-import { getSetupDir, getCacheDir } from '../config/paths';
+import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
 
 interface ManagedProcess {
   process: ChildProcess;
@@ -53,11 +53,12 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Gets the path to the MCP permission server
-   * Located in setup/mcp/ which is bundled with the app
+   * Gets the path to the MCP permission server.
+   * Extracts from bundled assets to ~/.aio-config/mcp/ if needed,
+   * since pkg bundles can't be accessed by external node processes.
    */
   private getPermissionServerPath(): string {
-    return path.join(getSetupDir(), 'mcp', 'permission-server.js');
+    return ensureMcpServerExtracted();
   }
 
   /**

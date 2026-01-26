@@ -185,12 +185,16 @@ export class PathResolver {
     return this.environment === 'development';
   }
 
-  // Setup directories (bundled with pkg binary)
+  // Setup directories
 
   /** Directory containing bundled setup files */
   get setupDir(): string {
-    // Both dev and production: __dirname is dist/config, setup is at orchestrator-backend/setup
-    // In pkg, assets are bundled relative to package.json, so same relative path works
+    if (this.environment === 'tauri') {
+      // In Tauri: process.execPath = .../Contents/MacOS/aio-orchestrator-backend
+      // Resources are at .../Contents/Resources/setup (mapped via tauri.conf.json)
+      return path.join(path.dirname(process.execPath), '..', 'Resources', 'setup');
+    }
+    // Development: __dirname is dist/config, setup is at orchestrator-backend/setup
     return path.join(__dirname, '..', '..', 'setup');
   }
 
@@ -305,6 +309,71 @@ export function getHookTemplatesDir(): string {
 
 export function getProjectTemplatesDir(): string {
   return getPaths().projectTemplatesDir;
+}
+
+export function getMcpDir(): string {
+  return path.join(getPaths().cacheDir, 'mcp');
+}
+
+/**
+ * Get the path to the MCP permission server in setup directory
+ */
+export function getBundledMcpServerPath(): string {
+  return path.join(getSetupDir(), 'mcp', 'permission-server.js');
+}
+
+/**
+ * Get the path where the MCP permission server should be copied to
+ */
+export function getExtractedMcpServerPath(): string {
+  return path.join(getMcpDir(), 'permission-server.js');
+}
+
+/**
+ * Ensure the MCP permission server is copied to the cache directory.
+ * We copy it so that node can execute it (Tauri resources are read-only).
+ */
+export function ensureMcpServerExtracted(): string {
+  const bundledPath = getBundledMcpServerPath();
+  const extractedPath = getExtractedMcpServerPath();
+  const mcpDir = getMcpDir();
+
+  // Ensure MCP directory exists
+  if (!fs.existsSync(mcpDir)) {
+    fs.mkdirSync(mcpDir, { recursive: true });
+  }
+
+  // Check if source file exists
+  if (!fs.existsSync(bundledPath)) {
+    throw new Error(`MCP permission server not found at: ${bundledPath}. Check that Tauri resources are properly bundled.`);
+  }
+
+  // Check if we need to copy/update the file
+  let needsCopy = !fs.existsSync(extractedPath);
+
+  if (!needsCopy) {
+    // Compare file contents to see if update is needed
+    try {
+      const bundledContent = fs.readFileSync(bundledPath, 'utf-8');
+      const extractedContent = fs.readFileSync(extractedPath, 'utf-8');
+      needsCopy = bundledContent !== extractedContent;
+    } catch {
+      needsCopy = true;
+    }
+  }
+
+  if (needsCopy) {
+    try {
+      const content = fs.readFileSync(bundledPath, 'utf-8');
+      fs.writeFileSync(extractedPath, content, { mode: 0o755 });
+      console.log(`[PathResolver] Copied MCP permission server to: ${extractedPath}`);
+    } catch (err) {
+      console.error(`[PathResolver] Failed to copy MCP server:`, err);
+      throw new Error(`Failed to copy MCP permission server: ${err}`);
+    }
+  }
+
+  return extractedPath;
 }
 
 export function isTauriEnvironment(): boolean {

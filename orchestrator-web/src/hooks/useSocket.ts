@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { onBackendError, isTauri } from '../lib/tauri';
 import type {
   Session,
   Plan,
@@ -62,6 +63,7 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
   const [checkingDependencies, setCheckingDependencies] = useState(true);
   const [dependencyCheck, setDependencyCheck] = useState<DependencyCheckResult | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [statuses, setStatuses] = useState<Record<string, ProjectState>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -653,6 +655,25 @@ export function useSocket() {
     };
   }, []);
 
+  // Listen for Tauri backend errors (port unavailable, etc.)
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cleanup: (() => void) | undefined;
+
+    onBackendError((error: string) => {
+      console.error('Backend error from Tauri:', error);
+      setBackendError(error);
+      setCheckingDependencies(false);
+    }).then((unsubscribe) => {
+      cleanup = unsubscribe;
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, []);
+
   // Actions
   const sendChat = useCallback((message: string) => {
     if (socketRef.current) {
@@ -945,6 +966,7 @@ export function useSocket() {
     connected,
     checkingDependencies,
     dependencyCheck,
+    backendError,
     session,
     statuses,
     logs,

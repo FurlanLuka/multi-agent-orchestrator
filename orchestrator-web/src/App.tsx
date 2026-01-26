@@ -55,6 +55,7 @@ function App() {
     connected,
     checkingDependencies,
     dependencyCheck,
+    backendError,
     session,
     statuses,
     logs,
@@ -137,13 +138,14 @@ function App() {
     getSessions();
   };
 
-  // Show splash screen while checking dependencies or if Claude is not available
-  if (checkingDependencies || (dependencyCheck && !dependencyCheck.claude.available)) {
+  // Show splash screen while checking dependencies, if Claude is not available, or if there's a backend error
+  if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
     return (
       <MantineProvider defaultColorScheme="light">
         <SplashScreen
           checking={checkingDependencies}
           dependencyCheck={dependencyCheck}
+          backendError={backendError}
           onRetry={recheckDependencies}
         />
       </MantineProvider>

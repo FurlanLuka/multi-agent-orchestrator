@@ -31,6 +31,16 @@ fn parse_ready_signal(line: &str) -> Option<u16> {
     }
 }
 
+/// Parse error message from the backend's error signal
+/// Format: [ORCHESTRATOR_ERROR]:{message}
+fn parse_error_signal(line: &str) -> Option<String> {
+    if line.starts_with("[ORCHESTRATOR_ERROR]:") {
+        Some(line.trim_start_matches("[ORCHESTRATOR_ERROR]:").trim().to_string())
+    } else {
+        None
+    }
+}
+
 /// Spawn the Node.js backend sidecar and wait for it to be ready
 async fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
     info!("Spawning backend sidecar...");
@@ -71,6 +81,12 @@ async fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
                         let line_str = String::from_utf8_lossy(&line);
                         info!("[Backend] {}", line_str.trim());
 
+                        // Check for error signal first
+                        if let Some(error_msg) = parse_error_signal(&line_str) {
+                            error!("Backend error: {}", error_msg);
+                            return Err(error_msg);
+                        }
+
                         // Check for ready signal
                         if let Some(port) = parse_ready_signal(&line_str) {
                             info!("Backend ready on port {}", port);
@@ -79,12 +95,40 @@ async fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
                             let mut state = state.lock().unwrap();
                             state.port = Some(port);
 
+                            // Spawn background task to continue logging
+                            tauri::async_runtime::spawn(async move {
+                                let mut rx = rx;
+                                while let Some(event) = rx.recv().await {
+                                    match event {
+                                        CommandEvent::Stdout(line) => {
+                                            let line_str = String::from_utf8_lossy(&line);
+                                            info!("[Backend] {}", line_str.trim());
+                                        }
+                                        CommandEvent::Stderr(line) => {
+                                            let line_str = String::from_utf8_lossy(&line);
+                                            warn!("[Backend Error] {}", line_str.trim());
+                                        }
+                                        CommandEvent::Terminated(payload) => {
+                                            info!("[Backend] Process terminated with code: {:?}", payload.code);
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            });
+
                             return Ok(port);
                         }
                     }
                     CommandEvent::Stderr(line) => {
                         let line_str = String::from_utf8_lossy(&line);
                         warn!("[Backend Error] {}", line_str.trim());
+
+                        // Check for error signal in stderr as well
+                        if let Some(error_msg) = parse_error_signal(&line_str) {
+                            error!("Backend error: {}", error_msg);
+                            return Err(error_msg);
+                        }
                     }
                     CommandEvent::Error(err) => {
                         error!("[Backend] Process error: {}", err);

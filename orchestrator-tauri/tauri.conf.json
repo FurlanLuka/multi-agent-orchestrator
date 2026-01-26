@@ -49,7 +49,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns"
     ],
-    "resources": [],
+    "resources": {
+        "../orchestrator-backend/setup": "setup"
+      },
     "externalBin": [
       "binaries/aio-orchestrator-backend"
     ],

@@ -9,16 +9,94 @@ import {
   ThemeIcon,
   Group,
 } from '@mantine/core';
-import { IconAlertCircle, IconRefresh, IconTerminal2 } from '@tabler/icons-react';
+import { IconAlertCircle, IconRefresh, IconTerminal2, IconPlugConnectedX } from '@tabler/icons-react';
 import type { DependencyCheckResult } from '@aio/types';
 
 interface SplashScreenProps {
   checking: boolean;
   dependencyCheck: DependencyCheckResult | null;
+  backendError?: string | null;
   onRetry: () => void;
 }
 
-export function SplashScreen({ checking, dependencyCheck, onRetry }: SplashScreenProps) {
+export function SplashScreen({ checking, dependencyCheck, backendError, onRetry }: SplashScreenProps) {
+  // Backend error state (port unavailable, etc.)
+  if (backendError) {
+    return (
+      <Box
+        style={{
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--mantine-color-gray-0)',
+        }}
+      >
+        <Paper
+          shadow="md"
+          p="xl"
+          radius="lg"
+          style={{
+            maxWidth: 500,
+            border: '1px solid var(--mantine-color-orange-3)',
+          }}
+        >
+          <Stack gap="lg">
+            <Group>
+              <ThemeIcon size="xl" radius="md" color="orange" variant="light">
+                <IconPlugConnectedX size={28} />
+              </ThemeIcon>
+              <Text size="xl" fw={700}>
+                Backend Unavailable
+              </Text>
+            </Group>
+
+            <Text c="dimmed">
+              The orchestrator backend could not start. This usually happens when another instance is already running.
+            </Text>
+
+            <Paper p="md" radius="md" bg="orange.0">
+              <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                  Error Details:
+                </Text>
+                <Code block style={{ whiteSpace: 'pre-wrap' }}>
+                  {backendError}
+                </Code>
+              </Stack>
+            </Paper>
+
+            <Paper p="md" radius="md" bg="gray.1">
+              <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                  Try the following:
+                </Text>
+                <Text size="sm" c="dimmed">
+                  1. Close other AIO Orchestrator instances
+                </Text>
+                <Text size="sm" c="dimmed">
+                  2. Check if port 3456 is in use by another application
+                </Text>
+                <Text size="sm" c="dimmed">
+                  3. Restart the application
+                </Text>
+              </Stack>
+            </Paper>
+
+            <Button
+              leftSection={<IconRefresh size={16} />}
+              onClick={() => window.location.reload()}
+              variant="light"
+              color="orange"
+            >
+              Restart Application
+            </Button>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
+
   // Loading state
   if (checking || !dependencyCheck) {
     return (

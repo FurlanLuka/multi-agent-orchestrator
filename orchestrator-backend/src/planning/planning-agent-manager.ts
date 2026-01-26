@@ -1295,11 +1295,27 @@ Consider carefully:
 
 Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
 
+## SUGGESTED ACTIONS (choose one)
+
+- **retry**: Use when there are fixable errors - whether introduced by this task OR pre-existing but easy to fix. Examples:
+  - Wrong imports, missing exports, type errors in code
+  - Missing dependencies that can be installed (npm install @types/react, etc.)
+  - Simple config fixes (tsconfig adjustments, etc.)
+  The agent should fix whatever it can to make the build pass.
+
+- **escalate**: Use ONLY for truly unfixable issues requiring human decisions:
+  - Architectural problems or major refactoring needed
+  - Conflicting requirements or unclear specifications
+  - Issues requiring access/permissions the agent doesn't have
+  - Complex problems beyond simple code/dependency fixes
+
+- **skip**: Use when the task actually succeeded despite some noise (e.g., build command failed but dev server logs show successful compilation).
+
 ## RESPONSE FORMAT (REQUIRED)
 
 You may add brief explanation text before the marker, but you MUST end with:
 
-[TASK_RESULT] {"passed": true/false, "analysis": "1-2 sentence explanation", "fixPrompt": "If failed: fix instructions", "suggestedAction": "retry/escalate/skip"}
+[TASK_RESULT] {"passed": true/false, "analysis": "1-2 sentence explanation", "fixPrompt": "If failed: specific fix instructions for the agent", "suggestedAction": "retry/escalate/skip"}
 
 The [TASK_RESULT] marker followed by JSON is REQUIRED. This is how the orchestrator parses your response.`;
 
