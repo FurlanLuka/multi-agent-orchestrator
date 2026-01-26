@@ -4,7 +4,7 @@
   "description": "AIO Orchestrator - Multi-agent orchestrator for Claude Code",
   "private": true,
   "bin": {
-    "aio": "./bin/aio"
+    "aio": "./scripts/aio"
   },
   "workspaces": [
     "orchestrator-types",
@@ -16,20 +16,16 @@
     "build:backend": "npm run build:types && npm run build -w orchestrator-backend",
     "build:web": "npm run build:types && npm run build -w orchestrator-web",
     "build": "npm run build:types && npm run build -w orchestrator-backend && npm run build -w orchestrator-web",
-    "build:pkg": "npm run build:backend && npm run build:pkg -w orchestrator-backend",
     "build:pkg-macos-arm64": "npm run build:backend && npm run build:pkg-macos-arm64 -w orchestrator-backend",
     "build:pkg-macos-x64": "npm run build:backend && npm run build:pkg-macos-x64 -w orchestrator-backend",
     "build:pkg-linux-x64": "npm run build:backend && npm run build:pkg-linux-x64 -w orchestrator-backend",
     "build:pkg-windows-x64": "npm run build:backend && npm run build:pkg-windows-x64 -w orchestrator-backend",
     "build:all-backends": "npm run build:backend && npm run build:pkg-macos-arm64 -w orchestrator-backend && npm run build:pkg-macos-x64 -w orchestrator-backend && npm run build:pkg-linux-x64 -w orchestrator-backend && npm run build:pkg-windows-x64 -w orchestrator-backend",
-    "build:tauri": "npm run build && npm run build:pkg && cd orchestrator-tauri && cargo tauri build",
-    "build:tauri-universal": "npm run build && npm run build:pkg-macos-arm64 -w orchestrator-backend && npm run build:pkg-macos-x64 -w orchestrator-backend && cd orchestrator-tauri && cargo tauri build --target universal-apple-darwin",
-    "tauri-run": "RUST_LOG=info \"./orchestrator-tauri/target/release/bundle/macos/AIO Orchestrator.app/Contents/MacOS/orchestrator\"",
+    "build:release": "./scripts/build-release.sh",
     "dev": "npm run build:types && npm run build -w orchestrator-web && npm run dev -w orchestrator-backend",
-    "start": "./bin/aio",
+    "start": "./scripts/aio",
     "dev:web": "npm run dev -w orchestrator-web",
-    "tauri:dev": "cd orchestrator-tauri && cargo tauri dev",
-    "clean": "rm -rf orchestrator-backend/dist orchestrator-web/dist orchestrator-types/dist orchestrator-tauri/binaries/*"
+    "clean": "rm -rf orchestrator-backend/dist orchestrator-web/dist orchestrator-types/dist dist/"
   },
   "keywords": ["claude", "agent", "orchestrator", "aio"],
   "license": "MIT",

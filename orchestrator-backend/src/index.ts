@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
 import * as os from 'os';
+import { exec } from 'child_process';
 
 // Setup file logging for GUI app debugging
 const LOG_DIR = path.join(os.homedir(), '.aio-config', 'logs');
@@ -83,41 +84,123 @@ import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
 import { TEMPLATE_PERMISSIONS } from '@aio/types';
-import { getPaths, getProjectsConfigPath, isTauriEnvironment, initializeConfigIfNeeded } from './config/paths';
+import { getPaths, getProjectsConfigPath, initializeConfigIfNeeded, ensureSetupExtracted } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
 
 // Get orchestrator directory using centralized path resolver
 const paths = getPaths();
 const ORCHESTRATOR_DIR = paths.orchestratorDir;
 
-// Default port (can be overridden via env var)
+// Default port (can be overridden via env var or CLI)
 const DEFAULT_ORCHESTRATOR_PORT = 3456;
+const MAX_PORT_ATTEMPTS = 100;
 
 /**
- * Find an available port, starting from the preferred port
+ * CLI options
+ */
+interface CLIOptions {
+  port?: number;
+  noBrowser: boolean;
+  help: boolean;
+}
+
+/**
+ * Parse command line arguments
+ */
+function parseArgs(): CLIOptions {
+  const args = process.argv.slice(2);
+  const options: CLIOptions = {
+    noBrowser: false,
+    help: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--help' || arg === '-h') {
+      options.help = true;
+    } else if (arg === '--no-browser') {
+      options.noBrowser = true;
+    } else if (arg === '--port' || arg === '-p') {
+      const portStr = args[++i];
+      if (portStr) {
+        options.port = parseInt(portStr, 10);
+      }
+    }
+  }
+
+  return options;
+}
+
+/**
+ * Print help message
+ */
+function printHelp(): void {
+  console.log(`
+AIO Orchestrator - Multi-agent orchestrator for Claude Code
+
+Usage: aio [options]
+
+Options:
+  --port, -p PORT    Specify port to run on (default: 3456)
+  --no-browser       Don't open browser automatically
+  --help, -h         Show this help message
+
+Environment variables:
+  ORCHESTRATOR_PORT  Default port (default: 3456)
+
+Examples:
+  aio                    Start server, open browser
+  aio --port 8080        Use specific port
+  aio --no-browser       Don't open browser
+`);
+}
+
+/**
+ * Check if a port is available
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    // Use 0.0.0.0 to check all interfaces (same as Express default)
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+/**
+ * Find an available port, starting from the preferred port and incrementing
  */
 async function findAvailablePort(preferredPort: number): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
+  for (let port = preferredPort; port < preferredPort + MAX_PORT_ATTEMPTS; port++) {
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`Could not find available port after ${MAX_PORT_ATTEMPTS} attempts starting from ${preferredPort}`);
+}
 
-    server.listen(preferredPort, '127.0.0.1', () => {
-      const { port } = server.address() as net.AddressInfo;
-      server.close(() => resolve(port));
-    });
+/**
+ * Open URL in default browser
+ */
+function openBrowser(url: string): void {
+  const platform = process.platform;
+  let command: string;
 
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // Port in use, try random port
-        const randomServer = net.createServer();
-        randomServer.listen(0, '127.0.0.1', () => {
-          const { port } = randomServer.address() as net.AddressInfo;
-          randomServer.close(() => resolve(port));
-        });
-        randomServer.on('error', reject);
-      } else {
-        reject(err);
-      }
-    });
+  if (platform === 'darwin') {
+    command = `open "${url}"`;
+  } else if (platform === 'win32') {
+    command = `start "" "${url}"`;
+  } else {
+    command = `xdg-open "${url}"`;
+  }
+
+  exec(command, (err) => {
+    if (err) {
+      console.log(`Could not open browser automatically. Please open ${url} manually.`);
+    }
   });
 }
 
@@ -139,6 +222,15 @@ function emitErrorSignal(message: string): void {
 }
 
 async function main() {
+  // Parse CLI arguments
+  const cliOptions = parseArgs();
+
+  // Handle --help
+  if (cliOptions.help) {
+    printHelp();
+    process.exit(0);
+  }
+
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('  Multi-Agent Orchestrator');
   console.log('═══════════════════════════════════════════════════════════════');
@@ -147,19 +239,19 @@ async function main() {
   console.log(`  Mode:      ${paths.env}`);
   console.log('');
 
-  // Determine port - allow override via environment variable
-  const requestedPort = process.env.ORCHESTRATOR_PORT
-    ? parseInt(process.env.ORCHESTRATOR_PORT, 10)
-    : DEFAULT_ORCHESTRATOR_PORT;
+  // Determine port - CLI > env var > default
+  const requestedPort = cliOptions.port
+    ?? (process.env.ORCHESTRATOR_PORT ? parseInt(process.env.ORCHESTRATOR_PORT, 10) : null)
+    ?? DEFAULT_ORCHESTRATOR_PORT;
 
   let orchestratorPort: number;
   try {
     orchestratorPort = await findAvailablePort(requestedPort);
   } catch (err) {
-    const errorMessage = `Cannot find available port. Port ${requestedPort} and fallback ports are in use.`;
+    const errorMessage = `Cannot find available port after ${MAX_PORT_ATTEMPTS} attempts starting from ${requestedPort}.`;
     emitErrorSignal(errorMessage);
     console.error(`\n  ERROR: ${errorMessage}`);
-    console.error('  Please close other instances or restart your computer.\n');
+    console.error('  Please close other instances or specify a different port with --port.\n');
     process.exit(1);
   }
 
@@ -170,6 +262,9 @@ async function main() {
 
   // Initialize config file if needed (copies bundled or creates default)
   initializeConfigIfNeeded();
+
+  // Extract setup files from binary to filesystem (production only)
+  ensureSetupExtracted();
 
   // Load configuration using centralized path resolver
   const configPath = getProjectsConfigPath();
@@ -2389,6 +2484,13 @@ Output these markers on their own line, not inside code blocks.`;
   console.log(`  Open http://localhost:${orchestratorPort} to get started`);
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('');
+
+  // Open browser automatically unless --no-browser flag is set
+  if (!cliOptions.noBrowser) {
+    setTimeout(() => {
+      openBrowser(`http://localhost:${orchestratorPort}`);
+    }, 500);
+  }
   console.log('Status summary:');
   console.log(statusMonitor.getSummary());
 

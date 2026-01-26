@@ -5,6 +5,7 @@ node_modules/
 dist/
 orchestrator-types/dist/
 orchestrator-backend/dist/
+orchestrator-backend/web-dist/
 orchestrator-web/dist/
 
 # Environment files
@@ -39,16 +40,10 @@ logs/
 # TypeScript cache
 *.tsbuildinfo
 
-# Tauri
-orchestrator-tauri/target/
-orchestrator-tauri/binaries/aio-orchestrator-backend-*
-orchestrator-tauri/gen/
+# Release artifacts
 *.dmg
 *.app
 *.deb
 *.AppImage
 *.msi
-
-# Rust
-Cargo.lock
-**/*.rs.bk
+*.exe

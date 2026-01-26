@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# AIO Orchestrator - Development wrapper
+# For production, run the binary directly: ./dist/aio-macos-arm64
+
+set -e
+
+# Find script directory
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Detect platform
+ARCH=$(uname -m)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+if [ "$ARCH" = "arm64" ]; then
+  ARCH_NAME="arm64"
+else
+  ARCH_NAME="x64"
+fi
+
+if [ "$OS" = "darwin" ]; then
+  PLATFORM="macos-${ARCH_NAME}"
+else
+  PLATFORM="linux-${ARCH_NAME}"
+fi
+
+# Check for production binary
+BINARY="$ROOT_DIR/dist/aio-${PLATFORM}"
+
+if [ -x "$BINARY" ]; then
+  exec "$BINARY" "$@"
+else
+  # Development mode - run with Node.js
+  cd "$ROOT_DIR"
+
+  if [ ! -f "orchestrator-backend/dist/index.js" ]; then
+    echo "Building backend..."
+    npm run build:backend
+  fi
+
+  if [ ! -d "orchestrator-web/dist" ]; then
+    echo "Building frontend..."
+    npm run build:web
+  fi
+
+  NODE_ENV=development exec node orchestrator-backend/dist/index.js "$@"
+fi

@@ -17,9 +17,30 @@ permissions:
   contents: write
 
 jobs:
-  build-binaries:
-    name: Build Node.js Backend Binaries
-    runs-on: ubuntu-latest
+  build-release:
+    name: Build Release Artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: macos-arm64
+            pkg-target: node18-macos-arm64
+            binary-name: aio-macos-arm64
+          - platform: macos-latest
+            target: macos-x64
+            pkg-target: node18-macos-x64
+            binary-name: aio-macos-x64
+          - platform: ubuntu-latest
+            target: linux-x64
+            pkg-target: node18-linux-x64
+            binary-name: aio-linux-x64
+          - platform: windows-latest
+            target: windows-x64
+            pkg-target: node18-win-x64
+            binary-name: aio-windows-x64.exe
+
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
@@ -37,119 +58,125 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
-      - name: Build backend binaries for all platforms
-        run: |
-          # Install pkg globally
-          npm install -g pkg
+      - name: Build web frontend
+        run: npm run build:web
 
-          # Build for all platforms
-          pkg orchestrator-backend/dist/index.js --targets node18-macos-arm64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-aarch64-apple-darwin
-          pkg orchestrator-backend/dist/index.js --targets node18-macos-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-apple-darwin
-          pkg orchestrator-backend/dist/index.js --targets node18-linux-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-unknown-linux-gnu
-          pkg orchestrator-backend/dist/index.js --targets node18-win-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-pc-windows-msvc.exe
+      - name: Copy web assets into backend for embedding
+        run: cp -r orchestrator-web/dist orchestrator-backend/web-dist
+        shell: bash
 
-      - name: Upload backend binaries
+      - name: Install pkg
+        run: npm install -g pkg
+
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      - name: Build backend binary with embedded assets
+        run: cd orchestrator-backend && pkg . --targets ${{ matrix.pkg-target }} --output ../dist/${{ matrix.binary-name }}
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: backend-binaries
-          path: orchestrator-tauri/binaries/
+          name: ${{ matrix.binary-name }}
+          path: dist/${{ matrix.binary-name }}
           retention-days: 1
 
-  build-tauri:
-    name: Build Tauri App
-    needs: build-binaries
+  create-release:
+    name: Create GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macOS builds
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            binary-suffix: aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            binary-suffix: x86_64-apple-darwin
-          # Linux build
-          - platform: ubuntu-22.04
-            args: ''
-            binary-suffix: x86_64-unknown-linux-gnu
-          # Windows build
-          - platform: windows-latest
-            args: ''
-            binary-suffix: x86_64-pc-windows-msvc.exe
-
-    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download backend binaries
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: backend-binaries
-          path: orchestrator-tauri/binaries/
+          path: artifacts
 
-      - name: Make backend binary executable (Unix)
-        if: matrix.platform != 'windows-latest'
-        run: chmod +x orchestrator-tauri/binaries/*
+      - name: List artifacts
+        run: find artifacts -type f
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build:web
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './orchestrator-tauri -> target'
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Prepare release files
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          mkdir -p release
+          # Copy binaries to release folder
+          cp artifacts/aio-macos-arm64/aio-macos-arm64 release/
+          cp artifacts/aio-macos-x64/aio-macos-x64 release/
+          cp artifacts/aio-linux-x64/aio-linux-x64 release/
+          cp artifacts/aio-windows-x64.exe/aio-windows-x64.exe release/
+          # Make Unix binaries executable
+          chmod +x release/aio-macos-arm64 release/aio-macos-x64 release/aio-linux-x64
+          ls -la release/
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get version
+        id: version
+        run: echo "version=${{ github.event.inputs.version || github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          projectPath: orchestrator-tauri
-          tagName: ${{ github.event.inputs.version || github.ref_name }}
-          releaseName: 'AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
-          releaseBody: |
-            ## AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: AIO Orchestrator ${{ steps.version.outputs.version }}
+          draft: true
+          prerelease: false
+          files: |
+            release/aio-macos-arm64
+            release/aio-macos-x64
+            release/aio-linux-x64
+            release/aio-windows-x64.exe
+          body: |
+            ## AIO Orchestrator ${{ steps.version.outputs.version }}
 
             Multi-agent orchestrator for Claude Code.
 
             ### Installation
 
             **macOS (Apple Silicon):**
-            Download `AIO Orchestrator_*_aarch64.dmg`
+            ```bash
+            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-macos-arm64
+            chmod +x aio
+            ./aio
+            ```
 
             **macOS (Intel):**
-            Download `AIO Orchestrator_*_x64.dmg`
+            ```bash
+            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-macos-x64
+            chmod +x aio
+            ./aio
+            ```
 
-            **Windows:**
-            Download `AIO Orchestrator_*_x64-setup.exe`
+            **Linux (x64):**
+            ```bash
+            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-linux-x64
+            chmod +x aio
+            ./aio
+            ```
 
-            **Linux:**
-            Download `AIO Orchestrator_*.AppImage` or `AIO Orchestrator_*.deb`
+            **Windows (x64):**
+            Download `aio-windows-x64.exe` and run it.
+
+            **Homebrew (coming soon):**
+            ```bash
+            brew install FurlanLuka/tap/aio
+            ```
+
+            ### Usage
+
+            ```bash
+            aio                    # Start server, open browser
+            aio --port 8080        # Use specific port
+            aio --no-browser       # Don't open browser
+            ```
+
+            ### Features
+
+            - **Single binary** - Web UI and setup files are embedded
+            - **Auto port** - Finds free port starting from 3456
+            - **Auto browser** - Opens browser automatically (use --no-browser to disable)
 
             ### Requirements
 
@@ -158,62 +185,120 @@ jobs:
 
             ### Changes
 
-            See the [full changelog](https://github.com/${{ github.repository }}/commits/${{ github.event.inputs.version || github.ref_name }}) for details.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
-  # Build universal macOS binary (combines arm64 and x64)
-  build-macos-universal:
-    name: Build macOS Universal Binary
-    needs: build-binaries
-    runs-on: macos-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download backend binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-binaries
-          path: orchestrator-tauri/binaries/
-
-      - name: Make backend binaries executable
-        run: chmod +x orchestrator-tauri/binaries/*
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build:web
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './orchestrator-tauri -> target'
-
-      - name: Build Tauri app (Universal)
-        uses: tauri-apps/tauri-action@v0
+            See the [full changelog](https://github.com/${{ github.repository }}/commits/${{ steps.version.outputs.version }}) for details.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.inputs.version || github.ref_name, '-')"  # Skip for pre-releases
+
+    steps:
+      - name: Download release binaries for SHA calculation
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          mkdir -p /tmp/release
+
+          # Wait a bit for release assets to be available
+          sleep 10
+
+          # Download binaries
+          curl -L -o /tmp/release/aio-macos-arm64 \
+            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-arm64"
+          curl -L -o /tmp/release/aio-macos-x64 \
+            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-x64"
+          curl -L -o /tmp/release/aio-linux-x64 \
+            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-linux-x64"
+
+      - name: Calculate SHA256 checksums
+        id: sha
+        run: |
+          echo "macos_arm64=$(sha256sum /tmp/release/aio-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "macos_x64=$(sha256sum /tmp/release/aio-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_x64=$(sha256sum /tmp/release/aio-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
         with:
-          projectPath: orchestrator-tauri
-          tagName: ${{ github.event.inputs.version || github.ref_name }}
-          releaseName: 'AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
-          releaseDraft: true
-          prerelease: false
-          args: --target universal-apple-darwin
+          repository: FurlanLuka/homebrew-aio
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula in tap
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"  # Remove 'v' prefix
+
+          mkdir -p homebrew-tap/Formula
+
+          cat > homebrew-tap/Formula/aio.rb << EOF
+          class Aio < Formula
+            desc "Multi-agent orchestrator for Claude Code"
+            homepage "https://github.com/${{ github.repository }}"
+            version "${VERSION_NUM}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-arm64"
+                sha256 "${{ steps.sha.outputs.macos_arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-x64"
+                sha256 "${{ steps.sha.outputs.macos_x64 }}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-linux-x64"
+                sha256 "${{ steps.sha.outputs.linux_x64 }}"
+              end
+            end
+
+            def install
+              if OS.mac?
+                if Hardware::CPU.arm?
+                  bin.install "aio-macos-arm64" => "aio"
+                else
+                  bin.install "aio-macos-x64" => "aio"
+                end
+              elsif OS.linux?
+                bin.install "aio-linux-x64" => "aio"
+              end
+            end
+
+            def caveats
+              <<~EOS
+                To get started, run:
+                  aio
+
+                This starts the orchestrator and opens http://localhost:3456 in your browser.
+
+                Options:
+                  aio --port 8080     # Use specific port
+                  aio --no-browser    # Don't open browser automatically
+                  aio --help          # Show all options
+
+                Requirements:
+                  Claude Code CLI must be installed:
+                  npm install -g @anthropic-ai/claude-code
+              EOS
+            end
+
+            test do
+              assert_match "AIO Orchestrator", shell_output("#{bin}/aio --help")
+            end
+          end
+          EOF
+
+      - name: Commit and push to tap
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/aio.rb
+          git diff --staged --quiet || git commit -m "Update aio to ${{ github.event.inputs.version || github.ref_name }}"
+          git push

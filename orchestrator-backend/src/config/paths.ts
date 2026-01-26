@@ -3,9 +3,9 @@ import * as os from 'os';
 import * as fs from 'fs';
 
 /**
- * Environment detection for Tauri vs standalone modes
+ * Environment detection for development vs production modes
  */
-export type RuntimeEnvironment = 'tauri' | 'development' | 'production';
+export type RuntimeEnvironment = 'development' | 'production';
 
 /**
  * App configuration constants
@@ -14,7 +14,7 @@ const APP_NAME = 'aio-config';
 
 /**
  * Centralized path resolver for cross-platform support
- * Handles both Tauri desktop app and standalone server modes
+ * Handles both development and production (compiled binary) modes
  *
  * All platforms use ~/.aio-config/ for consistency
  */
@@ -62,11 +62,6 @@ export class PathResolver {
    * Detect runtime environment
    */
   private detectEnvironment(): RuntimeEnvironment {
-    // Check for Tauri-specific environment variable
-    if (process.env.TAURI_ENV || process.env.ORCHESTRATOR_TAURI === 'true') {
-      return 'tauri';
-    }
-
     // Check for development mode
     if (process.env.NODE_ENV === 'development' || process.env.ORCHESTRATOR_DEV === 'true') {
       return 'development';
@@ -94,7 +89,7 @@ export class PathResolver {
       return cwd;
     }
 
-    // In production/Tauri, use the directory containing the binary
+    // In production, use the directory containing the binary
     return path.dirname(process.execPath);
   }
 
@@ -175,27 +170,36 @@ export class PathResolver {
     return this.environment;
   }
 
-  /** Is running in Tauri desktop app */
-  get isTauri(): boolean {
-    return this.environment === 'tauri';
-  }
-
   /** Is running in development mode */
   get isDevelopment(): boolean {
     return this.environment === 'development';
   }
 
-  // Setup directories
-
-  /** Directory containing bundled setup files */
-  get setupDir(): string {
-    if (this.environment === 'tauri') {
-      // In Tauri: process.execPath = .../Contents/MacOS/aio-orchestrator-backend
-      // Resources are at .../Contents/Resources/setup (mapped via tauri.conf.json)
-      return path.join(path.dirname(process.execPath), '..', 'Resources', 'setup');
+  /**
+   * Get the bundled setup directory path (inside pkg virtual filesystem or dev)
+   * This is where setup files are bundled, not where they're extracted to
+   */
+  private get bundledSetupDir(): string {
+    if (this.isDevelopment) {
+      // Development: __dirname is dist/config, setup is at orchestrator-backend/setup
+      return path.join(__dirname, '..', '..', 'setup');
     }
-    // Development: __dirname is dist/config, setup is at orchestrator-backend/setup
+    // Production (pkg): setup is bundled at /snapshot/orchestrator-backend/setup
+    // pkg uses __dirname to reference bundled assets
     return path.join(__dirname, '..', '..', 'setup');
+  }
+
+  /**
+   * Directory where setup files are extracted for use
+   * Setup files need to be on real filesystem for Claude to execute hooks/scripts
+   */
+  get setupDir(): string {
+    if (this.isDevelopment) {
+      // Development: use setup directly from source
+      return path.join(__dirname, '..', '..', 'setup');
+    }
+    // Production: extract to ~/.aio-config/setup/
+    return path.join(this._configDir, 'setup');
   }
 
   /** Directory containing hooks scripts */
@@ -246,31 +250,25 @@ export class PathResolver {
     console.log(`[PathResolver] Created default config at: ${userConfigPath}`);
   }
 
-  /** Path to web dist directory (static frontend files) */
+  /**
+   * Path to web dist directory (static frontend files)
+   * In production, this is inside pkg's virtual filesystem
+   */
   getWebDistPath(): string {
-    // Check multiple possible locations
-    const possiblePaths = [
+    if (this.isDevelopment) {
       // Dev mode: relative to backend dist
-      path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist'),
-      // Pkg mode: relative to executable location
-      path.join(path.dirname(process.execPath), '..', 'orchestrator-web', 'dist'),
-      // Pkg mode: same directory as executable
-      path.join(path.dirname(process.execPath), 'web-dist'),
-      // Fallback: check if WEB_DIST_PATH env var is set
-      process.env.WEB_DIST_PATH || '',
-    ];
-
-    for (const p of possiblePaths) {
-      if (p && fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html'))) {
-        console.log(`[PathResolver] Found web dist at: ${p}`);
-        return p;
+      const devPath = path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist');
+      if (fs.existsSync(devPath)) {
+        console.log(`[PathResolver] Found web dist at: ${devPath}`);
+        return devPath;
       }
     }
 
-    // Default fallback (might not exist in pkg mode)
-    const defaultPath = path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist');
-    console.log(`[PathResolver] Using default web dist path: ${defaultPath}`);
-    return defaultPath;
+    // Production (pkg): web-dist is bundled at /snapshot/orchestrator-backend/web-dist
+    // pkg intercepts fs operations for paths starting with /snapshot/
+    const pkgPath = path.join(__dirname, '..', '..', 'web-dist');
+    console.log(`[PathResolver] Using embedded web dist at: ${pkgPath}`);
+    return pkgPath;
   }
 
   /** Get session directory for a specific session */
@@ -281,6 +279,98 @@ export class PathResolver {
   /** Get log file path for a specific project and type */
   getLogPath(sessionId: string, project: string, type: string): string {
     return path.join(this.getSessionDir(sessionId), 'logs', `${project}_${type}.jsonl`);
+  }
+
+  /**
+   * Ensure setup files are extracted to the real filesystem
+   * Called on startup in production mode
+   */
+  ensureSetupExtracted(): void {
+    if (this.isDevelopment) {
+      return; // No extraction needed in development
+    }
+
+    const extractedSetupDir = this.setupDir;
+    const bundledSetupDir = this.bundledSetupDir;
+
+    // Check if extraction is needed
+    const versionFile = path.join(extractedSetupDir, '.version');
+    const currentVersion = process.env.npm_package_version || '1.0.0';
+
+    let needsExtraction = !fs.existsSync(extractedSetupDir);
+    if (!needsExtraction && fs.existsSync(versionFile)) {
+      const extractedVersion = fs.readFileSync(versionFile, 'utf-8').trim();
+      needsExtraction = extractedVersion !== currentVersion;
+    } else if (!needsExtraction) {
+      // No version file, re-extract to be safe
+      needsExtraction = true;
+    }
+
+    if (!needsExtraction) {
+      console.log(`[PathResolver] Setup files already extracted at: ${extractedSetupDir}`);
+      return;
+    }
+
+    console.log(`[PathResolver] Extracting setup files to: ${extractedSetupDir}`);
+
+    // Remove old extracted setup
+    if (fs.existsSync(extractedSetupDir)) {
+      fs.rmSync(extractedSetupDir, { recursive: true });
+    }
+
+    // Create setup directory
+    fs.mkdirSync(extractedSetupDir, { recursive: true });
+
+    // Copy all files from bundled setup to extracted location
+    this.copyDirRecursive(bundledSetupDir, extractedSetupDir);
+
+    // Write version file
+    fs.writeFileSync(versionFile, currentVersion);
+
+    // Make scripts executable
+    this.makeScriptsExecutable(extractedSetupDir);
+
+    console.log(`[PathResolver] Setup files extracted successfully`);
+  }
+
+  /**
+   * Recursively copy directory contents
+   */
+  private copyDirRecursive(src: string, dest: string): void {
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true });
+        this.copyDirRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  /**
+   * Make shell scripts executable
+   */
+  private makeScriptsExecutable(dir: string): void {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        this.makeScriptsExecutable(fullPath);
+      } else if (entry.name.endsWith('.sh') || entry.name.endsWith('.js')) {
+        try {
+          fs.chmodSync(fullPath, 0o755);
+        } catch (err) {
+          // Ignore chmod errors on Windows
+        }
+      }
+    }
   }
 }
 
@@ -350,7 +440,7 @@ export function getExtractedMcpServerPath(): string {
 
 /**
  * Ensure the MCP permission server is copied to the cache directory.
- * We copy it so that node can execute it (Tauri resources are read-only).
+ * We copy it so that node can execute it (bundled resources may be read-only).
  */
 export function ensureMcpServerExtracted(): string {
   const bundledPath = getBundledMcpServerPath();
@@ -364,7 +454,7 @@ export function ensureMcpServerExtracted(): string {
 
   // Check if source file exists
   if (!fs.existsSync(bundledPath)) {
-    throw new Error(`MCP permission server not found at: ${bundledPath}. Check that Tauri resources are properly bundled.`);
+    throw new Error(`MCP permission server not found at: ${bundledPath}. Check that resources are properly bundled.`);
   }
 
   // Check if we need to copy/update the file
@@ -395,14 +485,17 @@ export function ensureMcpServerExtracted(): string {
   return extractedPath;
 }
 
-export function isTauriEnvironment(): boolean {
-  return getPaths().isTauri;
-}
-
 export function isDevelopmentEnvironment(): boolean {
   return getPaths().isDevelopment;
 }
 
 export function initializeConfigIfNeeded(): void {
   return getPaths().initializeConfigIfNeeded();
+}
+
+/**
+ * Ensure setup files are extracted (call on startup)
+ */
+export function ensureSetupExtracted(): void {
+  return getPaths().ensureSetupExtracted();
 }
