@@ -1,0 +1,17 @@
+{
+  "compact": true,
+  "controlFlowFlattening": false,
+  "deadCodeInjection": false,
+  "debugProtection": false,
+  "disableConsoleOutput": true,
+  "identifierNamesGenerator": "hexadecimal",
+  "log": false,
+  "numbersToExpressions": false,
+  "renameGlobals": false,
+  "selfDefending": false,
+  "simplify": true,
+  "stringArray": false,
+  "target": "node",
+  "transformObjectKeys": false,
+  "unicodeEscapeSequence": false
+}

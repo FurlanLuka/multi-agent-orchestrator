@@ -57,6 +57,30 @@ process.on('unhandledRejection', (reason, promise) => {
   logStream.write(formatLog('FATAL', [`Unhandled Rejection: ${reason}`]));
 });
 
+// Display startup banner (using stdout.write to bypass obfuscator's console stripping)
+const VERSION = '1.0.0';
+const banner = `
+\x1b[36m╔════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                    ║
+║    █████╗ ██╗    ██████╗ ██╗   ██╗███████╗██████╗ ██╗      ██████╗ ██████╗ ██████╗  ║
+║   ██╔══██╗██║   ██╔═══██╗██║   ██║██╔════╝██╔══██╗██║     ██╔═══██╗██╔══██╗██╔══██╗ ║
+║   ███████║██║   ██║   ██║██║   ██║█████╗  ██████╔╝██║     ██║   ██║██████╔╝██║  ██║ ║
+║   ██╔══██║██║   ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██║     ██║   ██║██╔══██╗██║  ██║ ║
+║   ██║  ██║██║   ╚██████╔╝ ╚████╔╝ ███████╗██║  ██║███████╗╚██████╔╝██║  ██║██████╔╝ ║
+║   ╚═╝  ╚═╝╚═╝    ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝  ║
+║                                                                                    ║
+║\x1b[0m\x1b[35m                        Claude Agent Orchestrator                                   \x1b[36m║
+║                                                                                    ║
+╚════════════════════════════════════════════════════════════════════════════════════╝\x1b[0m
+
+  \x1b[33mVersion:\x1b[0m     ${VERSION}
+  \x1b[33mAuthor:\x1b[0m      Luka Furlan
+  \x1b[33mTo stop:\x1b[0m     Press Ctrl+C
+  \x1b[33mLogs:\x1b[0m        ~/.aio-config/logs/orchestrator.log
+
+`;
+process.stdout.write(banner);
+
 // Log startup
 console.log('=== Orchestrator Starting ===');
 console.log(`Log file: ${LOG_FILE}`);

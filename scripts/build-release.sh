@@ -30,6 +30,10 @@ mkdir -p dist/
 echo -e "${YELLOW}Building TypeScript...${NC}"
 npm run build
 
+# Obfuscate backend code
+echo -e "${YELLOW}Obfuscating backend code...${NC}"
+npm run obfuscate -w orchestrator-backend
+
 # Build web frontend
 echo -e "${YELLOW}Building web frontend...${NC}"
 npm run build:web
