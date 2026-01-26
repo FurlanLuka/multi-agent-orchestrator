@@ -1148,7 +1148,7 @@ Start with PHASE 1: Use Glob and Read tools to explore each project NOW. Then pr
 
 Task completed: ${request.taskSummary}
 
-Dev server URL: ${request.devServerUrl || 'http://localhost:5173'}
+${request.devServerUrl ? `Dev server URL: ${request.devServerUrl}` : ''}
 
 Test scenarios to verify:
 ${request.testScenarios.map((s, i) => `${i + 1}. ${s}`).join('\n')}${passedNote}
@@ -1186,7 +1186,7 @@ Generate an E2E test prompt that instructs the agent to:
 5. If the server is NOT RESPONDING:
    - DO NOT try to start or fix the server
    - Immediately fail all tests with error explaining the server is not available
-   - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Dev server not responding at ${request.devServerUrl || 'http://localhost:5173'}"}
+   - Output: [TEST_STATUS] {"scenario": "ALL", "status": "failed", "error": "Dev server not responding${request.devServerUrl ? ` at ${request.devServerUrl}` : ''}"}
 
 6. If ANY tests fail, ANALYZE the codebase to understand WHY:
    - Trace the failing scenario to the relevant code

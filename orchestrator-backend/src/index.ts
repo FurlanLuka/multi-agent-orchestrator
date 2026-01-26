@@ -812,8 +812,8 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Track projects with E2E requests already in the queue (prevents duplicates)
   const e2eQueuedProjects: Set<string> = new Set();
 
-  // Helper to get dev server URL for a project
-  const getDevServerUrl = (project: string): string => {
+  // Helper to get dev server URL for a project (from config only, no hardcoded defaults)
+  const getDevServerUrl = (project: string): string | null => {
     const projectConfig = config.projects[project];
     // Use explicit URL if configured (takes precedence)
     if (projectConfig?.devServer?.url) {
@@ -823,9 +823,8 @@ After fixing, the E2E tests will be re-run automatically.`;
     if (projectConfig?.devServer?.port) {
       return `http://localhost:${projectConfig.devServer.port}`;
     }
-    // Default: frontend projects use 5173, backend uses 3000
-    const isFrontend = project.toLowerCase().includes('frontend');
-    return isFrontend ? 'http://localhost:5173' : 'http://localhost:3000';
+    // No hardcoded defaults - return null if not configured
+    return null;
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -885,25 +884,9 @@ After fixing, the E2E tests will be re-run automatically.`;
       console.log(`[Orchestrator] Using project config dependsOn for ${project}: ${dependencies.join(', ')}`);
     }
 
-    // 3. Fallback to name-based detection (backwards compatibility)
-    if (!dependencies) {
-      const frontendPatterns = ['frontend', '-fe', 'fe-', '_fe', 'fe_', 'web', 'client', 'ui'];
-      const backendPatterns = ['backend', '-be', 'be-', '_be', 'be_', 'api', 'server'];
-      const projectLower = project.toLowerCase();
-
-      const isFrontend = frontendPatterns.some(p => projectLower.includes(p)) ||
-                         projectLower.endsWith('fe');
-
-      if (isFrontend) {
-        dependencies = session.projects.filter(p => {
-          const pLower = p.toLowerCase();
-          const pIsFE = frontendPatterns.some(pat => pLower.includes(pat)) || pLower.endsWith('fe');
-          const pIsBE = backendPatterns.some(pat => pLower.includes(pat)) || pLower.endsWith('be');
-          return (pIsBE || !pIsFE) && p !== project;
-        });
-        console.log(`[Orchestrator] Detected ${project} as frontend (name-based), dependencies: ${dependencies.join(', ') || 'none'}`);
-      }
-    }
+    // No name-based detection - dependencies must be explicitly configured via:
+    // - plan.e2eDependencies (set by planner)
+    // - projectConfig.dependsOn (set in config)
 
     if (dependencies && dependencies.length > 0) {
       const waitingOn: string[] = [];
@@ -1012,8 +995,7 @@ After fixing, the E2E tests will be re-run automatically.`;
 
       // Build E2E prompt from custom instructions
       const e2ePrompt = `# E2E Testing for ${project}
-
-Dev Server URL: ${devServerUrl}
+${devServerUrl ? `\nDev Server URL: ${devServerUrl}` : ''}
 
 ## CRITICAL RULES - YOU MUST FOLLOW THESE
 1. DO NOT start, build, or restart any servers - the orchestrator manages all servers
@@ -1081,7 +1063,7 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
     }
 
     try {
-      let e2ePrompt = await chatHandler.requestE2EPrompt(project, message, scenariosToTest, devServerUrl, passedTests.length);
+      let e2ePrompt = await chatHandler.requestE2EPrompt(project, message, scenariosToTest, devServerUrl ?? undefined, passedTests.length);
       // Clear tracking now that we've processed this E2E request
       e2eQueuedProjects.delete(project);
 

@@ -31,18 +31,19 @@ import type {
   PermissionPrompt,
 } from '@aio/types';
 
-// Default port for standalone mode
+// Default port for standalone mode (fallback only)
 const DEFAULT_PORT = 3456;
 
 /**
- * Get the initial socket URL, supporting dynamic port detection for Tauri
+ * Get the initial socket URL, supporting dynamic port detection
  * Note: This is only used for initial value. The actual port may be updated
  * dynamically when running in Tauri via the backend-ready event.
  *
  * Port priority:
  * 1. window.__ORCHESTRATOR_PORT__ (set by Tauri at runtime)
  * 2. Import meta env variable (Vite build-time)
- * 3. Default port (3456) - only used in non-Tauri mode
+ * 3. Current window location port (for standalone mode - use same port as the web UI)
+ * 4. Default port (3456) - fallback
  */
 function getInitialPort(): number | null {
   // Check for Tauri-injected port
@@ -60,7 +61,12 @@ function getInitialPort(): number | null {
     return null;
   }
 
-  // Default for non-Tauri mode (dev mode)
+  // Use current window location port (standalone mode - web UI served from same port as backend)
+  if (typeof window !== 'undefined' && window.location.port) {
+    return parseInt(window.location.port, 10);
+  }
+
+  // Default fallback
   return DEFAULT_PORT;
 }
 

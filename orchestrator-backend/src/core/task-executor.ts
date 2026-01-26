@@ -20,7 +20,7 @@ export interface TaskExecutorConfig {
   planningAgent: PlanningAgentManager;
   config: Config;
   getSessionDir: (project: string) => string | null;
-  getDevServerUrl: (project: string) => string;
+  getDevServerUrl: (project: string) => string | null;
   gitManager?: GitManager;
   getGitBranch?: (project: string) => string | undefined;
   io?: any;  // Socket.io instance for flow events
@@ -48,7 +48,7 @@ export class TaskExecutor extends EventEmitter {
   private planningAgent: PlanningAgentManager;
   private config: Config;
   private getSessionDir: (project: string) => string | null;
-  private getDevServerUrl: (project: string) => string;
+  private getDevServerUrl: (project: string) => string | null;
   private gitManager?: GitManager;
   private getGitBranch?: (project: string) => string | undefined;
   private io?: any;  // Socket.io instance for flow events
@@ -345,11 +345,13 @@ export class TaskExecutor extends EventEmitter {
   /**
    * Builds the initial task prompt with critical instructions.
    */
-  private buildTaskPrompt(taskDescription: string, devServerUrl: string): string {
+  private buildTaskPrompt(taskDescription: string, devServerUrl: string | null): string {
     let prompt = taskDescription;
 
-    // Add dev server URL info
-    prompt += `\n\n**DEV SERVER**: The dev server for this project is running at: ${devServerUrl}`;
+    // Add dev server URL info (only if configured)
+    if (devServerUrl) {
+      prompt += `\n\n**DEV SERVER**: The dev server for this project is running at: ${devServerUrl}`;
+    }
 
     // Add critical rules that agents must follow
     prompt += `\n\n**CRITICAL RULES - YOU MUST FOLLOW THESE**:

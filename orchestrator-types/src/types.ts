@@ -11,7 +11,7 @@ export interface ProjectConfig {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
-    port?: number;  // Dev server port (default: 5173 for frontend, 3000 for backend)
+    port?: number;  // Dev server port (used to construct URL as http://localhost:{port})
     url?: string;   // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
