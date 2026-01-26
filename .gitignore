@@ -35,3 +35,17 @@ logs/
 # TypeScript cache
 *.tsbuildinfo
 .sessions/*
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/orchestrator-backend-*
+src-tauri/gen/
+*.dmg
+*.app
+*.deb
+*.AppImage
+*.msi
+
+# Rust
+Cargo.lock
+**/*.rs.bk

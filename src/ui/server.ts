@@ -9,6 +9,7 @@ import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
 import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '../types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '../config/permissions.config';
+import { getWebDistPath } from '../config/paths';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -48,7 +49,7 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   app.use(express.json());
 
   // Serve static React build
-  const webDistPath = path.join(__dirname, '../../web/dist');
+  const webDistPath = getWebDistPath();
   app.use(express.static(webDistPath));
 
   // REST API endpoints

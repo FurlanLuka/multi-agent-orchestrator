@@ -20,7 +20,15 @@ import {
 
 /**
  * Central persistence layer for session data
- * Stores sessions in .sessions/{sessionId}/ directory
+ * Stores sessions in the provided sessions directory
+ *
+ * Directory structure:
+ * {sessionsDir}/
+ *   └── {sessionId}/
+ *       ├── session.json     # Main session data
+ *       ├── chat.jsonl       # Chat history (JSONL format)
+ *       └── logs/
+ *           └── {project}_{type}.jsonl
  */
 export class SessionStore extends EventEmitter {
   private sessionsDir: string;
@@ -31,9 +39,13 @@ export class SessionStore extends EventEmitter {
   private pendingWrites: Map<string, NodeJS.Timeout> = new Map();
   private readonly WRITE_DEBOUNCE_MS = 100;
 
-  constructor(orchestratorDir: string) {
+  /**
+   * Create a new SessionStore
+   * @param sessionsDir - Directory where sessions are stored (e.g., ~/Library/Application Support/Orchestrator/sessions)
+   */
+  constructor(sessionsDir: string) {
     super();
-    this.sessionsDir = path.join(orchestratorDir, '.sessions');
+    this.sessionsDir = sessionsDir;
     fs.mkdirSync(this.sessionsDir, { recursive: true });
   }
 

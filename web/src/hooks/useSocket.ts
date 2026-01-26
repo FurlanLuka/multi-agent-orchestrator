@@ -30,7 +30,33 @@ import type {
   PermissionPrompt,
 } from '../types';
 
-const SOCKET_URL = 'http://localhost:3456';
+// Default port for standalone mode
+const DEFAULT_PORT = 3456;
+
+/**
+ * Get the socket URL, supporting dynamic port detection for Tauri
+ *
+ * Port priority:
+ * 1. window.__ORCHESTRATOR_PORT__ (set by Tauri at runtime)
+ * 2. Import meta env variable (Vite build-time)
+ * 3. Default port (3456)
+ */
+function getSocketUrl(): string {
+  // Check for Tauri-injected port
+  if (typeof window !== 'undefined' && window.__ORCHESTRATOR_PORT__) {
+    return `http://localhost:${window.__ORCHESTRATOR_PORT__}`;
+  }
+
+  // Check for Vite environment variable
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ORCHESTRATOR_PORT) {
+    return `http://localhost:${import.meta.env.VITE_ORCHESTRATOR_PORT}`;
+  }
+
+  // Default
+  return `http://localhost:${DEFAULT_PORT}`;
+}
+
+const SOCKET_URL = getSocketUrl();
 
 export function useSocket() {
   const [connected, setConnected] = useState(false);

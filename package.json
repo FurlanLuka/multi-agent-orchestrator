@@ -7,7 +7,17 @@
     "dev": "npm run build:web && ts-node src/index.ts",
     "build": "tsc",
     "build:web": "cd web && npm run build",
-    "start": "npm run build && npm run build:web && node dist/index.js"
+    "start": "npm run build && npm run build:web && node dist/index.js",
+    "build:backend-macos-arm64": "npm run build && npx pkg dist/index.js --targets node18-macos-arm64 --output src-tauri/binaries/orchestrator-backend-aarch64-apple-darwin",
+    "build:backend-macos-x64": "npm run build && npx pkg dist/index.js --targets node18-macos-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-apple-darwin",
+    "build:backend-linux-x64": "npm run build && npx pkg dist/index.js --targets node18-linux-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-unknown-linux-gnu",
+    "build:backend-windows-x64": "npm run build && npx pkg dist/index.js --targets node18-win-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-pc-windows-msvc.exe",
+    "build:backend": "npm run build:backend-macos-arm64 && npm run build:backend-macos-x64",
+    "build:all-backends": "npm run build:backend-macos-arm64 && npm run build:backend-macos-x64 && npm run build:backend-linux-x64 && npm run build:backend-windows-x64",
+    "tauri:dev": "cd src-tauri && cargo tauri dev",
+    "tauri:build": "npm run build:web && npm run build:backend && cd src-tauri && cargo tauri build",
+    "tauri:build-universal": "npm run build:web && npm run build:backend && cd src-tauri && cargo tauri build --target universal-apple-darwin",
+    "clean": "rm -rf dist web/dist src-tauri/binaries/*"
   },
   "keywords": ["claude", "agent", "orchestrator"],
   "license": "MIT",
@@ -21,7 +31,22 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "pkg": "^5.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.2"
+  },
+  "pkg": {
+    "scripts": "dist/**/*.js",
+    "assets": [
+      "web/dist/**/*",
+      "projects.config.json"
+    ],
+    "targets": [
+      "node18-macos-arm64",
+      "node18-macos-x64",
+      "node18-linux-x64",
+      "node18-win-x64"
+    ],
+    "outputPath": "src-tauri/binaries"
   }
 }

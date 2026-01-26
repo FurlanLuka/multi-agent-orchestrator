@@ -1,0 +1,221 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build Node.js Backend Binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Build backend binaries for all platforms
+        run: |
+          # Install pkg globally
+          npm install -g pkg
+
+          # Build for all platforms
+          pkg dist/index.js --targets node18-macos-arm64 --output src-tauri/binaries/orchestrator-backend-aarch64-apple-darwin
+          pkg dist/index.js --targets node18-macos-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-apple-darwin
+          pkg dist/index.js --targets node18-linux-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-unknown-linux-gnu
+          pkg dist/index.js --targets node18-win-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-pc-windows-msvc.exe
+
+      - name: Upload backend binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-binaries
+          path: src-tauri/binaries/
+          retention-days: 1
+
+  build-tauri:
+    name: Build Tauri App
+    needs: build-binaries
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS builds
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+            binary-suffix: aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+            binary-suffix: x86_64-apple-darwin
+          # Linux build
+          - platform: ubuntu-22.04
+            args: ''
+            binary-suffix: x86_64-unknown-linux-gnu
+          # Windows build
+          - platform: windows-latest
+            args: ''
+            binary-suffix: x86_64-pc-windows-msvc.exe
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download backend binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-binaries
+          path: src-tauri/binaries/
+
+      - name: Make backend binary executable (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: chmod +x src-tauri/binaries/*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: |
+          npm ci
+          cd web && npm ci
+
+      - name: Build frontend
+        run: npm run build:web
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.version || github.ref_name }}
+          releaseName: 'Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
+          releaseBody: |
+            ## Orchestrator ${{ github.event.inputs.version || github.ref_name }}
+
+            Multi-agent orchestrator for Claude Code.
+
+            ### Installation
+
+            **macOS (Apple Silicon):**
+            Download `Orchestrator_*_aarch64.dmg`
+
+            **macOS (Intel):**
+            Download `Orchestrator_*_x64.dmg`
+
+            **Windows:**
+            Download `Orchestrator_*_x64-setup.exe`
+
+            **Linux:**
+            Download `Orchestrator_*.AppImage` or `Orchestrator_*.deb`
+
+            ### Requirements
+
+            - Claude Code CLI must be installed: `npm install -g @anthropic-ai/claude-code`
+            - Run `claude auth` to authenticate before using Orchestrator
+
+            ### Changes
+
+            See the [full changelog](https://github.com/${{ github.repository }}/commits/${{ github.event.inputs.version || github.ref_name }}) for details.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # Build universal macOS binary (combines arm64 and x64)
+  build-macos-universal:
+    name: Build macOS Universal Binary
+    needs: build-binaries
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download backend binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-binaries
+          path: src-tauri/binaries/
+
+      - name: Make backend binaries executable
+        run: chmod +x src-tauri/binaries/*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: |
+          npm ci
+          cd web && npm ci
+
+      - name: Build frontend
+        run: npm run build:web
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Build Tauri app (Universal)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.version || github.ref_name }}
+          releaseName: 'Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin

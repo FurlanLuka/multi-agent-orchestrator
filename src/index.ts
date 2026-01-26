@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as net from 'net';
 import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep } from './types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
@@ -18,19 +19,80 @@ import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
 import { TEMPLATE_PERMISSIONS } from './config/permissions.config';
+import { getPaths, getProjectsConfigPath, isTauriEnvironment, initializeConfigIfNeeded } from './config/paths';
+import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
 
-// Get orchestrator directory (where this code lives)
-const ORCHESTRATOR_DIR = path.resolve(__dirname, '..');
+// Get orchestrator directory using centralized path resolver
+const paths = getPaths();
+const ORCHESTRATOR_DIR = paths.orchestratorDir;
+
+// Default port (can be overridden via env var)
+const DEFAULT_ORCHESTRATOR_PORT = 3456;
+
+/**
+ * Find an available port, starting from the preferred port
+ */
+async function findAvailablePort(preferredPort: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.listen(preferredPort, '127.0.0.1', () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        // Port in use, try random port
+        const randomServer = net.createServer();
+        randomServer.listen(0, '127.0.0.1', () => {
+          const { port } = randomServer.address() as net.AddressInfo;
+          randomServer.close(() => resolve(port));
+        });
+        randomServer.on('error', reject);
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
+
+/**
+ * Emit ready signal for Tauri sidecar communication
+ * Format: [ORCHESTRATOR_READY]:{port}
+ */
+function emitReadySignal(port: number): void {
+  // Machine-readable format for Tauri to parse
+  console.log(`[ORCHESTRATOR_READY]:${port}`);
+}
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('  Multi-Agent Orchestrator');
   console.log('═══════════════════════════════════════════════════════════════');
   console.log(`  Directory: ${ORCHESTRATOR_DIR}`);
+  console.log(`  Sessions:  ${paths.sessionsDir}`);
+  console.log(`  Mode:      ${paths.env}`);
   console.log('');
 
-  // Load configuration
-  const configPath = path.join(ORCHESTRATOR_DIR, 'projects.config.json');
+  // Determine port - allow override via environment variable
+  const requestedPort = process.env.ORCHESTRATOR_PORT
+    ? parseInt(process.env.ORCHESTRATOR_PORT, 10)
+    : DEFAULT_ORCHESTRATOR_PORT;
+  const orchestratorPort = await findAvailablePort(requestedPort);
+
+  if (orchestratorPort !== requestedPort) {
+    console.log(`  Note: Port ${requestedPort} in use, using ${orchestratorPort}`);
+    console.log('');
+  }
+
+  // Initialize config file if needed (copies bundled or creates default)
+  initializeConfigIfNeeded();
+
+  // Load configuration using centralized path resolver
+  const configPath = getProjectsConfigPath();
+  console.log(`  Config:    ${configPath}`);
+
   if (!fs.existsSync(configPath)) {
     console.error(`Config not found: ${configPath}`);
     process.exit(1);
@@ -41,7 +103,8 @@ async function main() {
   console.log('');
 
   // Initialize core components
-  const sessionStore = new SessionStore(ORCHESTRATOR_DIR);
+  // SessionStore uses the sessions directory from path resolver
+  const sessionStore = new SessionStore(paths.sessionsDir);
   const sessionManager = new SessionManager(config, ORCHESTRATOR_DIR, sessionStore);
   const processManager = new ProcessManager(config, ORCHESTRATOR_DIR);
   const projectManager = new ProjectManager(configPath, config, ORCHESTRATOR_DIR);
@@ -69,8 +132,7 @@ async function main() {
   let sessionLogger: SessionLogger | null = null;
 
   // Create UI server with dependencies
-  const ORCHESTRATOR_PORT = 3456;
-  const ui = createUIServer(ORCHESTRATOR_PORT, {
+  const ui = createUIServer(orchestratorPort, {
     sessionManager,
     statusMonitor,
     approvalQueue,
@@ -79,7 +141,7 @@ async function main() {
   });
 
   // Set orchestrator port for MCP permission server communication
-  processManager.setOrchestratorPort(ORCHESTRATOR_PORT);
+  processManager.setOrchestratorPort(orchestratorPort);
 
   // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
@@ -1333,46 +1395,42 @@ Output these markers on their own line, not inside code blocks.`;
   ui.io.on('connection', (socket) => {
     // Handle dependency check (runs on connect from UI)
     socket.on('checkDependencies', async () => {
-      const checkCommand = async (cmd: string, args: string[]): Promise<{ available: boolean; version: string | null; error: string | null }> => {
-        return new Promise((resolve) => {
-          const { spawn } = require('child_process');
-          const proc = spawn(cmd, args, { shell: true, env: process.env });
-          let stdout = '';
-          let stderr = '';
+      try {
+        const result = await checkDependencies();
 
-          proc.stdout?.on('data', (data: Buffer) => {
-            stdout += data.toString();
-          });
+        // Transform to the expected format for backward compatibility
+        const claudeDep = result.dependencies.find((d) => d.name === 'Claude Code');
+        const gitDep = result.dependencies.find((d) => d.name === 'Git');
 
-          proc.stderr?.on('data', (data: Buffer) => {
-            stderr += data.toString();
-          });
-
-          proc.on('close', (code: number | null) => {
-            if (code === 0) {
-              // Extract version from output (usually first line)
-              const version = stdout.trim().split('\n')[0] || null;
-              resolve({ available: true, version, error: null });
-            } else {
-              resolve({ available: false, version: null, error: stderr.trim() || 'Command not found' });
-            }
-          });
-
-          proc.on('error', (err: Error) => {
-            resolve({ available: false, version: null, error: err.message });
-          });
+        socket.emit('dependencyCheck', {
+          claude: {
+            available: claudeDep?.available ?? false,
+            version: claudeDep?.version ?? null,
+            error: claudeDep?.error ?? null,
+            installGuide: claudeDep?.installGuide,
+          },
+          git: {
+            available: gitDep?.available ?? false,
+            version: gitDep?.version ?? null,
+            error: gitDep?.error ?? null,
+            installGuide: gitDep?.installGuide,
+          },
+          // Include full result for enhanced UI
+          fullResult: result,
         });
-      };
 
-      const [claudeResult, gitResult] = await Promise.all([
-        checkCommand('claude', ['--version']),
-        checkCommand('git', ['--version']),
-      ]);
-
-      socket.emit('dependencyCheck', {
-        claude: claudeResult,
-        git: gitResult,
-      });
+        // Log dependency status on server
+        if (!result.allAvailable) {
+          console.log('[Orchestrator] Missing dependencies detected:');
+          console.log(formatDependencyResults(result));
+        }
+      } catch (err) {
+        console.error('[Orchestrator] Dependency check failed:', err);
+        socket.emit('dependencyCheck', {
+          claude: { available: false, version: null, error: 'Check failed' },
+          git: { available: false, version: null, error: 'Check failed' },
+        });
+      }
     });
 
     // Handle user chat with optional target
@@ -2250,11 +2308,15 @@ Output these markers on their own line, not inside code blocks.`;
   console.log('');
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('  Orchestrator ready!');
-  console.log('  Open http://localhost:3456 to get started');
+  console.log(`  Open http://localhost:${orchestratorPort} to get started`);
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('');
   console.log('Status summary:');
   console.log(statusMonitor.getSummary());
+
+  // Emit ready signal for Tauri sidecar communication
+  // This MUST be the last output so Tauri can parse the port
+  emitReadySignal(orchestratorPort);
 }
 
 // Run

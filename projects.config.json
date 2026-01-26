@@ -1,63 +1,41 @@
 {
   "projects": {
-    "backend": {
-      "path": "~/Documents/aio-blog/backend",
+    "speak-admin": {
+      "path": "~/Documents/speak-api",
       "devServer": {
-        "command": "npm run start:dev",
-        "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "env": {},
-        "port": 3000,
-        "url": "http://localhost:3000"
+        "command": "npm run start",
+        "readyPattern": "ready|listening|started|compiled",
+        "env": {}
       },
       "buildCommand": "npm run build",
-      "hasE2E": true,
+      "hasE2E": false,
       "gitEnabled": true,
-      "mainBranch": "main",
+      "mainBranch": "developer/voiceos-admin",
       "permissions": {
         "allow": [
           "Read",
-          "Write",
           "Edit",
-          "Glob",
           "Grep",
+          "Glob",
+          "Write",
           "Bash(npm run *)",
           "Bash(npm install *)",
+          "Bash(npm ci *)",
           "Bash(npx *)",
-          "Bash(curl *)",
+          "Bash(node *)",
           "Bash(ls *)",
           "Bash(cat *)",
-          "Bash(mkdir *)",
+          "Bash(head *)",
+          "Bash(tail *)",
           "Bash(find *)",
-          "Bash(curl -s http://localhost:3000/posts)"
-        ]
-      }
-    },
-    "frontend": {
-      "path": "~/Documents/aio-blog/frontend",
-      "devServer": {
-        "command": "npm run dev",
-        "readyPattern": "Local:.*http|ready in",
-        "env": {},
-        "port": 5173,
-        "url": "http://localhost:5173"
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true,
-      "dependsOn": [
-        "backend"
-      ],
-      "gitEnabled": true,
-      "mainBranch": "main",
-      "permissions": {
-        "dangerouslyAllowAll": false,
-        "allow": [
-          "Bash(npm run *)",
-          "Bash(npm install *)",
-          "Bash(npx *)",
-          "Bash(ls *)",
-          "Bash(cat *)",
+          "Bash(wc *)",
           "Bash(mkdir *)",
-          "Bash(find *)",
+          "Bash(cp *)",
+          "Bash(mv *)",
+          "Bash(echo *)",
+          "Bash(git status*)",
+          "Bash(git diff*)",
+          "Bash(git log*)",
           "mcp__playwright__browser_navigate",
           "mcp__playwright__browser_snapshot",
           "mcp__playwright__browser_click",
@@ -70,58 +48,23 @@
           "mcp__playwright__browser_press_key",
           "mcp__playwright__browser_console_messages",
           "mcp__playwright__browser_network_requests",
-          "Bash(npm *)"
-        ]
-      }
-    },
-    "simpleblog-backend": {
-      "path": "~/Documents/aio-simpleblog/backend",
-      "devServer": {
-        "command": "npm run start:dev",
-        "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "env": {},
-        "port": 3000,
-        "url": "http://localhost:3000"
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true,
-      "gitEnabled": true,
-      "mainBranch": "main",
-      "permissions": {
-        "allow": [
-          "Read",
-          "Write",
-          "Edit",
-          "Glob",
-          "Grep",
-          "Bash(npm run *)",
-          "Bash(npm install *)",
-          "Bash(npx *)",
           "Bash(curl *)",
-          "Bash(ls *)",
-          "Bash(cat *)",
-          "Bash(mkdir *)",
-          "Bash(find *)"
+          "Bash(git add *)",
+          "Bash(git commit *)"
         ]
       }
     },
-    "simpleblog-frontend": {
-      "path": "~/Documents/aio-simpleblog/frontend",
+    "speak-api": {
+      "path": "~/Documents/speak-api",
       "devServer": {
-        "command": "npm run dev",
-        "readyPattern": "Local:.*http|ready in",
-        "env": {},
-        "port": 5173,
-        "url": "http://localhost:5173"
+        "command": "npm run start",
+        "readyPattern": "ready|listening|started|compiled",
+        "env": {}
       },
       "buildCommand": "npm run build",
-      "setupCommand": "claude mcp add playwright -- npx @playwright/mcp@latest",
-      "hasE2E": true,
-      "dependsOn": [
-        "backend"
-      ],
+      "hasE2E": false,
       "gitEnabled": true,
-      "mainBranch": "main",
+      "mainBranch": "developer/voiceos",
       "permissions": {
         "allow": [
           "Read",
@@ -131,11 +74,24 @@
           "Grep",
           "Bash(npm run *)",
           "Bash(npm install *)",
+          "Bash(npm ci *)",
           "Bash(npx *)",
+          "Bash(node *)",
           "Bash(ls *)",
           "Bash(cat *)",
-          "Bash(mkdir *)",
+          "Bash(head *)",
+          "Bash(tail *)",
           "Bash(find *)",
+          "Bash(wc *)",
+          "Bash(mkdir *)",
+          "Bash(cp *)",
+          "Bash(mv *)",
+          "Bash(echo *)",
+          "Bash(git status*)",
+          "Bash(git diff*)",
+          "Bash(git log*)",
+          "Bash(git add *)",
+          "Bash(git commit *)",
           "mcp__playwright__browser_navigate",
           "mcp__playwright__browser_snapshot",
           "mcp__playwright__browser_click",
@@ -147,97 +103,8 @@
           "mcp__playwright__browser_hover",
           "mcp__playwright__browser_press_key",
           "mcp__playwright__browser_console_messages",
-          "mcp__playwright__browser_network_requests"
-        ]
-      }
-    },
-    "bloggy-backend": {
-      "path": "~/Documents/aio-bloggy/backend",
-      "devServer": {
-        "command": "npm run start:dev",
-        "readyPattern": "Nest application successfully started|listening on|Application is running",
-        "env": {},
-        "port": 3000,
-        "url": "http://localhost:3000"
-      },
-      "buildCommand": "npm run build",
-      "hasE2E": true,
-      "gitEnabled": true,
-      "mainBranch": "main",
-      "permissions": {
-        "allow": [
-          "Read",
-          "Write",
-          "Edit",
-          "Glob",
-          "Grep",
-          "Bash(npm run *)",
-          "Bash(npm install *)",
-          "Bash(npx *)",
-          "Bash(curl *)",
-          "Bash(ls *)",
-          "Bash(cat *)",
-          "Bash(mkdir *)",
-          "Bash(find *)",
-          "Bash(npm uninstall @prisma/adapter-better-sqlite)",
-          "Bash(rm /Users/lukafurlan/Documents/aio-bloggy/backend/prisma/prisma.config.ts && npm uninstall @prisma/client prisma && npm install @prisma/client@5 && npm install -D prisma@5)",
-          "Bash(# First register a user with a known email\ncurl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"duplicate@example.com\",\"password\":\"password123\",\"name\":\"Duplicate User\"}' > /dev/null 2>&1\n\n# Now try to register again with the same email\ncurl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"duplicate@example.com\",\"password\":\"password123\",\"name\":\"Duplicate User 2\"}' \\\n  -w \"\\n%{http_code}\")",
-          "Bash(# First register a user for login testing\ncurl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\",\"name\":\"Login Test User\"}' > /dev/null 2>&1\n\n# Now login with those credentials\ncurl -s -X POST http://localhost:3000/auth/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\"}' \\\n  -w \"\\n%{http_code}\")",
-          "Bash(# Get a fresh token\nTOKEN=$(curl -s -X POST http://localhost:3000/auth/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\"}' | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\n\n# Use the token to get user data\ncurl -s http://localhost:3000/auth/me \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -w \"\\n%{http_code}\")",
-          "Bash(# First create a post to retrieve\nTOKEN=$(curl -s -X POST http://localhost:3000/auth/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\"}' | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\n\n# Create a post\nPOST_RESPONSE=$(curl -s -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -d '{\"title\":\"Test Post for GET\",\"content\":\"This is a test post content for retrieval testing\"}')\n\nPOST_ID=$(echo $POST_RESPONSE | grep -o '\"id\":[0-9]*' | head -1 | cut -d':' -f2)\n\n# Now get the post\ncurl -s \"http://localhost:3000/posts/$POST_ID\" -w \"\\n%{http_code}\")",
-          "Bash(# Get a fresh token\nTOKEN=$(curl -s -X POST http://localhost:3000/auth/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\"}' | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\n\necho \"Token: $TOKEN\"\n\n# Create a post and capture response\necho \"Creating post...\"\nPOST_RESPONSE=$(curl -s -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -d '{\"title\":\"Test Post for GET\",\"content\":\"This is a test post content for retrieval testing\"}')\n\necho \"Post response: $POST_RESPONSE\"\n\n# Extract ID\nPOST_ID=$(echo $POST_RESPONSE | python3 -c \"import sys,json; print(json.load(sys.stdin)['id'])\" 2>/dev/null)\necho \"Post ID: $POST_ID\"\n\n# Now get the post\necho \"Getting post...\"\ncurl -s \"http://localhost:3000/posts/$POST_ID\" -w \"\\nHTTP_STATUS: %{http_code}\")",
-          "Bash(# Test the post creation with verbose output\nTOKEN=$(curl -s -X POST http://localhost:3000/auth/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"logintest@example.com\",\"password\":\"password123\"}' | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\n\ncurl -v -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -d '{\"title\":\"Test Post\",\"content\":\"Test content\"}' 2>&1)",
-          "Bash(TIMESTAMP=$(date +%s)\n\n# Register first test user\nUSER1_RESPONSE=$(curl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{\\\"email\\\":\\\"testuser_${TIMESTAMP}@example.com\\\",\\\"password\\\":\\\"password123\\\",\\\"name\\\":\\\"Test User\\\"}\")\n\necho \"User 1 Response: $USER1_RESPONSE\"\n\n# Extract token from user 1\nUSER1_TOKEN=$(echo \"$USER1_RESPONSE\" | grep -o '\"access_token\":\"[^\"]*\"' | cut -d'\"' -f4)\necho \"User 1 Token: $USER1_TOKEN\"\n\n# Register second test user\nUSER2_RESPONSE=$(curl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{\\\"email\\\":\\\"otheruser_${TIMESTAMP}@example.com\\\",\\\"password\\\":\\\"password123\\\",\\\"name\\\":\\\"Other User\\\"}\")\n\necho \"User 2 Response: $USER2_RESPONSE\"\n\n# Extract token from user 2\nUSER2_TOKEN=$(echo \"$USER2_RESPONSE\" | grep -o '\"access_token\":\"[^\"]*\"' | cut -d'\"' -f4)\necho \"User 2 Token: $USER2_TOKEN\"\n\n# Create initial post with user 1\nPOST_RESPONSE=$(curl -s -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $USER1_TOKEN\" \\\n  -d '{\"title\":\"Setup Post\",\"content\":\"This is a setup post for testing\"}')\n\necho \"Post Response: $POST_RESPONSE\"\n\n# Extract post ID\nPOST_ID=$(echo \"$POST_RESPONSE\" | grep -o '\"id\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4)\necho \"Post ID: $POST_ID\"\n\n# Save for later use\necho \"USER1_TOKEN=$USER1_TOKEN\" > /tmp/e2e_test_vars.sh\necho \"USER2_TOKEN=$USER2_TOKEN\" >> /tmp/e2e_test_vars.sh\necho \"POST_ID=$POST_ID\" >> /tmp/e2e_test_vars.sh)",
-          "Bash(TIMESTAMP=$(date +%s)\n\n# Register first test user\nUSER1_RESPONSE=$(curl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{\\\"email\\\":\\\"testuser_${TIMESTAMP}@example.com\\\",\\\"password\\\":\\\"password123\\\",\\\"name\\\":\\\"Test User\\\"}\")\n\necho \"User 1 Response: $USER1_RESPONSE\"\n\n# Extract token from user 1 (field is \"token\" not \"access_token\")\nUSER1_TOKEN=$(echo \"$USER1_RESPONSE\" | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\necho \"User 1 Token: $USER1_TOKEN\"\n\n# Register second test user\nUSER2_RESPONSE=$(curl -s -X POST http://localhost:3000/auth/register \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{\\\"email\\\":\\\"otheruser_${TIMESTAMP}@example.com\\\",\\\"password\\\":\\\"password123\\\",\\\"name\\\":\\\"Other User\\\"}\")\n\necho \"User 2 Response: $USER2_RESPONSE\"\n\n# Extract token from user 2\nUSER2_TOKEN=$(echo \"$USER2_RESPONSE\" | grep -o '\"token\":\"[^\"]*\"' | cut -d'\"' -f4)\necho \"User 2 Token: $USER2_TOKEN\"\n\n# Create initial post with user 1\nPOST_RESPONSE=$(curl -s -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $USER1_TOKEN\" \\\n  -d '{\"title\":\"Setup Post\",\"content\":\"This is a setup post for testing\"}')\n\necho \"Post Response: $POST_RESPONSE\"\n\n# Extract post ID\nPOST_ID=$(echo \"$POST_RESPONSE\" | grep -o '\"id\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4)\necho \"Post ID: $POST_ID\"\n\n# Save for later use\necho \"USER1_TOKEN=$USER1_TOKEN\" > /tmp/e2e_test_vars.sh\necho \"USER2_TOKEN=$USER2_TOKEN\" >> /tmp/e2e_test_vars.sh\necho \"POST_ID=$POST_ID\" >> /tmp/e2e_test_vars.sh\n\ncat /tmp/e2e_test_vars.sh)",
-          "Bash(# The post response has numeric ID, let me extract it correctly\nPOST_RESPONSE='{\"id\":1,\"title\":\"Setup Post\",\"content\":\"This is a setup post for testing\",\"published\":true,\"createdAt\":\"2026-01-26T08:41:19.087Z\",\"updatedAt\":\"2026-01-26T08:41:19.087Z\",\"authorId\":6,\"author\":{\"id\":6,\"name\":\"Test User\"}}'\n\n# Extract numeric ID\nPOST_ID=$(echo \"$POST_RESPONSE\" | grep -o '\"id\":[0-9]*' | head -1 | cut -d':' -f2)\necho \"Post ID: $POST_ID\"\n\n# Update the file\nsource /tmp/e2e_test_vars.sh\necho \"USER1_TOKEN=$USER1_TOKEN\" > /tmp/e2e_test_vars.sh\necho \"USER2_TOKEN=$USER2_TOKEN\" >> /tmp/e2e_test_vars.sh\necho \"POST_ID=1\" >> /tmp/e2e_test_vars.sh\n\ncat /tmp/e2e_test_vars.sh)",
-          "Bash(source *)",
-          "Bash(HTTP_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:3000/posts \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"title\":\"Test\",\"content\":\"Test content here\"}')\n\necho \"HTTP Code: $HTTP_CODE\"\n\nif [ \"$HTTP_CODE\" = \"401\" ]; then\n  echo \"PASS: Returns 401 without auth\"\nelse\n  echo \"FAIL: Expected 401, got $HTTP_CODE\"\nfi)"
-        ]
-      }
-    },
-    "bloggy-frontend": {
-      "path": "~/Documents/aio-bloggy/frontend",
-      "devServer": {
-        "command": "npm run dev",
-        "readyPattern": "Local:.*http|ready in",
-        "env": {},
-        "port": 5173,
-        "url": "http://localhost:5173"
-      },
-      "buildCommand": "npm run build",
-      "setupCommand": "claude mcp add playwright -- npx @playwright/mcp@latest",
-      "hasE2E": true,
-      "dependsOn": [
-        "backend"
-      ],
-      "gitEnabled": true,
-      "mainBranch": "main",
-      "permissions": {
-        "allow": [
-          "Read",
-          "Write",
-          "Edit",
-          "Glob",
-          "Grep",
-          "Bash(npm run *)",
-          "Bash(npm install *)",
-          "Bash(npx *)",
-          "Bash(ls *)",
-          "Bash(cat *)",
-          "Bash(mkdir *)",
-          "Bash(find *)",
-          "mcp__playwright__browser_navigate",
-          "mcp__playwright__browser_snapshot",
-          "mcp__playwright__browser_click",
-          "mcp__playwright__browser_type",
-          "mcp__playwright__browser_fill_form",
-          "mcp__playwright__browser_take_screenshot",
-          "mcp__playwright__browser_wait_for",
-          "mcp__playwright__browser_select_option",
-          "mcp__playwright__browser_hover",
-          "mcp__playwright__browser_press_key",
-          "mcp__playwright__browser_console_messages",
-          "mcp__playwright__browser_network_requests"
+          "mcp__playwright__browser_network_requests",
+          "Bash(curl *)"
         ]
       }
     }
