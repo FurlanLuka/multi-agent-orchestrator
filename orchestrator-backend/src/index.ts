@@ -2509,6 +2509,9 @@ Output these markers on their own line, not inside code blocks.`;
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('');
 
+  // Output URL using stdout.write (bypasses obfuscator's console stripping)
+  process.stdout.write(`\x1b[32m  Server running at:\x1b[0m \x1b[36mhttp://localhost:${orchestratorPort}\x1b[0m\n\n`);
+
   // Open browser automatically unless --no-browser flag is set
   if (!cliOptions.noBrowser) {
     setTimeout(() => {

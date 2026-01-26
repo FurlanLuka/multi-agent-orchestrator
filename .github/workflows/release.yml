@@ -25,19 +25,19 @@ jobs:
         include:
           - platform: macos-latest
             target: macos-arm64
-            pkg-target: node18-macos-arm64
+            pkg-target: node20-macos-arm64
             binary-name: aio-macos-arm64
           - platform: macos-latest
             target: macos-x64
-            pkg-target: node18-macos-x64
+            pkg-target: node20-macos-x64
             binary-name: aio-macos-x64
           - platform: ubuntu-latest
             target: linux-x64
-            pkg-target: node18-linux-x64
+            pkg-target: node20-linux-x64
             binary-name: aio-linux-x64
           - platform: windows-latest
             target: windows-x64
-            pkg-target: node18-win-x64
+            pkg-target: node20-win-x64
             binary-name: aio-windows-x64.exe
 
     runs-on: ${{ matrix.platform }}
@@ -49,7 +49,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -194,33 +194,31 @@ jobs:
 
   update-homebrew:
     name: Update Homebrew Tap
-    needs: create-release
+    needs: build-release
     runs-on: ubuntu-latest
     if: "!contains(github.event.inputs.version || github.ref_name, '-')"  # Skip for pre-releases
 
     steps:
-      - name: Download release binaries for SHA calculation
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          mkdir -p /tmp/release
-
-          # Wait a bit for release assets to be available
-          sleep 10
-
-          # Download binaries
-          curl -L -o /tmp/release/aio-macos-arm64 \
-            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-arm64"
-          curl -L -o /tmp/release/aio-macos-x64 \
-            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-x64"
-          curl -L -o /tmp/release/aio-linux-x64 \
-            "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-linux-x64"
+          mkdir -p release
+          cp artifacts/aio-macos-arm64/aio-macos-arm64 release/
+          cp artifacts/aio-macos-x64/aio-macos-x64 release/
+          cp artifacts/aio-linux-x64/aio-linux-x64 release/
+          chmod +x release/*
+          ls -la release/
 
       - name: Calculate SHA256 checksums
         id: sha
         run: |
-          echo "macos_arm64=$(sha256sum /tmp/release/aio-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "macos_x64=$(sha256sum /tmp/release/aio-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "linux_x64=$(sha256sum /tmp/release/aio-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "macos_arm64=$(sha256sum release/aio-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "macos_x64=$(sha256sum release/aio-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_x64=$(sha256sum release/aio-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -229,34 +227,54 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
+      - name: Get version
+        id: version
+        run: echo "version=${{ github.event.inputs.version || github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Create release in homebrew-aio repo
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: FurlanLuka/homebrew-aio
+          tag_name: ${{ steps.version.outputs.version }}
+          name: AIO ${{ steps.version.outputs.version }}
+          files: |
+            release/aio-macos-arm64
+            release/aio-macos-x64
+            release/aio-linux-x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
       - name: Update formula in tap
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${{ steps.version.outputs.version }}"
           VERSION_NUM="${VERSION#v}"  # Remove 'v' prefix
 
           mkdir -p homebrew-tap/Formula
 
-          cat > homebrew-tap/Formula/aio.rb << EOF
+          cat > homebrew-tap/Formula/aio.rb << 'FORMULA'
           class Aio < Formula
             desc "Multi-agent orchestrator for Claude Code"
-            homepage "https://github.com/${{ github.repository }}"
+            homepage "https://github.com/FurlanLuka/homebrew-aio"
+          FORMULA
+
+          cat >> homebrew-tap/Formula/aio.rb << EOF
             version "${VERSION_NUM}"
             license "MIT"
 
             on_macos do
               on_arm do
-                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-arm64"
+                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-macos-arm64"
                 sha256 "${{ steps.sha.outputs.macos_arm64 }}"
               end
               on_intel do
-                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-macos-x64"
+                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-macos-x64"
                 sha256 "${{ steps.sha.outputs.macos_x64 }}"
               end
             end
 
             on_linux do
               on_intel do
-                url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/aio-linux-x64"
+                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-linux-x64"
                 sha256 "${{ steps.sha.outputs.linux_x64 }}"
               end
             end
@@ -292,7 +310,7 @@ jobs:
             end
 
             test do
-              assert_match "AIO Orchestrator", shell_output("#{bin}/aio --help")
+              assert_match "version", shell_output("\#{bin}/aio --help")
             end
           end
           EOF
