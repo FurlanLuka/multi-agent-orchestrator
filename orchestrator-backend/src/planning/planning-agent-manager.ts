@@ -351,12 +351,18 @@ User: ${newMessage}`;
     console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
     console.log('[PlanningAgent] CWD:', this.orchestratorDir);
 
-    // Escape prompt for shell (handle quotes and special chars)
-    const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    const fullCommand = `claude -p '${escapedPrompt}' --output-format stream-json --verbose --no-session-persistence --dangerously-skip-permissions`;
+    // Spawn claude directly with args array (no shell escaping needed)
+    const args = [
+      '-p', prompt,
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--no-session-persistence',
+      '--dangerously-skip-permissions'
+    ];
 
-    const proc = await spawnWithShellEnv(fullCommand, {
+    const proc = await spawnWithShellEnv('claude', {
       cwd: this.orchestratorDir,
+      args: args,
     });
 
     this.currentProcess = proc;

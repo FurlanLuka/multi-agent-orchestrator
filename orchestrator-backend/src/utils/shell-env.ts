@@ -166,11 +166,15 @@ export function clearShellEnvCache(): void {
 /**
  * Spawn a command using the user's shell with full environment.
  * Uses cached shell env for speed - only sources config once at startup.
+ *
+ * @param command - Either a command string (passed to shell -c) or command name (when args provided)
+ * @param options - Spawn options including optional args array for direct spawn (no shell parsing)
  */
 export async function spawnWithShellEnv(
   command: string,
   options: {
     cwd: string;
+    args?: string[];  // If provided, spawn command directly without shell (safer for complex args)
     stdio?: SpawnOptions['stdio'];
     detached?: boolean;
     extraEnv?: Record<string, string>;
@@ -185,12 +189,25 @@ export async function spawnWithShellEnv(
     ...options.extraEnv,
   };
 
-  const proc = spawn(shell, ['-c', command], {
-    cwd: options.cwd,
-    stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
-    detached: options.detached || false,
-    env,
-  });
+  let proc: ChildProcess;
+
+  if (options.args) {
+    // Direct spawn without shell - safer for complex arguments (prompts, etc.)
+    proc = spawn(command, options.args, {
+      cwd: options.cwd,
+      stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
+      detached: options.detached || false,
+      env,
+    });
+  } else {
+    // Shell spawn - for simple commands that need shell features
+    proc = spawn(shell, ['-c', command], {
+      cwd: options.cwd,
+      stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
+      detached: options.detached || false,
+      env,
+    });
+  }
 
   return proc;
 }

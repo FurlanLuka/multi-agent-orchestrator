@@ -31,7 +31,6 @@
   "pkg": {
     "scripts": "dist/**/*.js",
     "assets": [
-      "../orchestrator-web/dist/**/*",
       "setup/**/*"
     ],
     "targets": [

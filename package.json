@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "AIO Orchestrator - Multi-agent orchestrator for Claude Code",
   "private": true,
+  "bin": {
+    "aio": "./bin/aio"
+  },
   "workspaces": [
     "orchestrator-types",
     "orchestrator-backend",
@@ -23,6 +26,7 @@
     "build:tauri-universal": "npm run build && npm run build:pkg-macos-arm64 -w orchestrator-backend && npm run build:pkg-macos-x64 -w orchestrator-backend && cd orchestrator-tauri && cargo tauri build --target universal-apple-darwin",
     "tauri-run": "RUST_LOG=info \"./orchestrator-tauri/target/release/bundle/macos/AIO Orchestrator.app/Contents/MacOS/orchestrator\"",
     "dev": "npm run build:types && npm run build -w orchestrator-web && npm run dev -w orchestrator-backend",
+    "start": "./bin/aio",
     "dev:web": "npm run dev -w orchestrator-web",
     "tauri:dev": "cd orchestrator-tauri && cargo tauri dev",
     "clean": "rm -rf orchestrator-backend/dist orchestrator-web/dist orchestrator-types/dist orchestrator-tauri/binaries/*"

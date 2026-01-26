@@ -248,10 +248,29 @@ export class PathResolver {
 
   /** Path to web dist directory (static frontend files) */
   getWebDistPath(): string {
-    // Both dev and production: __dirname is dist/config
-    // Web dist is at orchestrator-web/dist (sibling to orchestrator-backend)
-    // In pkg, bundled from ../orchestrator-web/dist/**/* so same relative path works
-    return path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist');
+    // Check multiple possible locations
+    const possiblePaths = [
+      // Dev mode: relative to backend dist
+      path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist'),
+      // Pkg mode: relative to executable location
+      path.join(path.dirname(process.execPath), '..', 'orchestrator-web', 'dist'),
+      // Pkg mode: same directory as executable
+      path.join(path.dirname(process.execPath), 'web-dist'),
+      // Fallback: check if WEB_DIST_PATH env var is set
+      process.env.WEB_DIST_PATH || '',
+    ];
+
+    for (const p of possiblePaths) {
+      if (p && fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html'))) {
+        console.log(`[PathResolver] Found web dist at: ${p}`);
+        return p;
+      }
+    }
+
+    // Default fallback (might not exist in pkg mode)
+    const defaultPath = path.join(__dirname, '..', '..', '..', 'orchestrator-web', 'dist');
+    console.log(`[PathResolver] Using default web dist path: ${defaultPath}`);
+    return defaultPath;
   }
 
   /** Get session directory for a specific session */

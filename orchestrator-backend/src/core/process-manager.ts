@@ -350,12 +350,10 @@ export class ProcessManager extends EventEmitter {
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
     }
 
-    // Build command string with escaped args
-    const escapedArgs = args.map(arg => arg.includes(' ') || arg.includes("'") ? `"${arg.replace(/"/g, '\\"')}"` : arg);
-    const fullCommand = `claude ${escapedArgs.join(' ')}`;
-
-    const proc = await spawnWithShellEnv(fullCommand, {
+    // Spawn claude directly with args array (no shell parsing - avoids escaping issues with prompts)
+    const proc = await spawnWithShellEnv('claude', {
       cwd: projectPath,
+      args: args,  // Pass args directly, no shell escaping needed
       extraEnv: {
         ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
         ORCHESTRATOR_PROJECT: project,
