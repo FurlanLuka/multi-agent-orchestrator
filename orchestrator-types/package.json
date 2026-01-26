@@ -1,0 +1,13 @@
+{
+  "name": "@aio/types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for AIO Orchestrator",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["aio", "orchestrator", "types"],
+  "license": "MIT"
+}

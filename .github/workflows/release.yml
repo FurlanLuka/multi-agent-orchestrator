@@ -43,16 +43,16 @@ jobs:
           npm install -g pkg
 
           # Build for all platforms
-          pkg dist/index.js --targets node18-macos-arm64 --output src-tauri/binaries/orchestrator-backend-aarch64-apple-darwin
-          pkg dist/index.js --targets node18-macos-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-apple-darwin
-          pkg dist/index.js --targets node18-linux-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-unknown-linux-gnu
-          pkg dist/index.js --targets node18-win-x64 --output src-tauri/binaries/orchestrator-backend-x86_64-pc-windows-msvc.exe
+          pkg orchestrator-backend/dist/index.js --targets node18-macos-arm64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-aarch64-apple-darwin
+          pkg orchestrator-backend/dist/index.js --targets node18-macos-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-apple-darwin
+          pkg orchestrator-backend/dist/index.js --targets node18-linux-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-unknown-linux-gnu
+          pkg orchestrator-backend/dist/index.js --targets node18-win-x64 --output orchestrator-tauri/binaries/aio-orchestrator-backend-x86_64-pc-windows-msvc.exe
 
       - name: Upload backend binaries
         uses: actions/upload-artifact@v4
         with:
           name: backend-binaries
-          path: src-tauri/binaries/
+          path: orchestrator-tauri/binaries/
           retention-days: 1
 
   build-tauri:
@@ -90,11 +90,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: backend-binaries
-          path: src-tauri/binaries/
+          path: orchestrator-tauri/binaries/
 
       - name: Make backend binary executable (Unix)
         if: matrix.platform != 'windows-latest'
-        run: chmod +x src-tauri/binaries/*
+        run: chmod +x orchestrator-tauri/binaries/*
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -102,10 +102,8 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-          cd web && npm ci
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build frontend
         run: npm run build:web
@@ -118,7 +116,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: './orchestrator-tauri -> target'
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -131,31 +129,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: orchestrator-tauri
           tagName: ${{ github.event.inputs.version || github.ref_name }}
-          releaseName: 'Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
+          releaseName: 'AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
           releaseBody: |
-            ## Orchestrator ${{ github.event.inputs.version || github.ref_name }}
+            ## AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}
 
             Multi-agent orchestrator for Claude Code.
 
             ### Installation
 
             **macOS (Apple Silicon):**
-            Download `Orchestrator_*_aarch64.dmg`
+            Download `AIO Orchestrator_*_aarch64.dmg`
 
             **macOS (Intel):**
-            Download `Orchestrator_*_x64.dmg`
+            Download `AIO Orchestrator_*_x64.dmg`
 
             **Windows:**
-            Download `Orchestrator_*_x64-setup.exe`
+            Download `AIO Orchestrator_*_x64-setup.exe`
 
             **Linux:**
-            Download `Orchestrator_*.AppImage` or `Orchestrator_*.deb`
+            Download `AIO Orchestrator_*.AppImage` or `AIO Orchestrator_*.deb`
 
             ### Requirements
 
             - Claude Code CLI must be installed: `npm install -g @anthropic-ai/claude-code`
-            - Run `claude auth` to authenticate before using Orchestrator
+            - Run `claude auth` to authenticate before using AIO Orchestrator
 
             ### Changes
 
@@ -180,10 +179,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: backend-binaries
-          path: src-tauri/binaries/
+          path: orchestrator-tauri/binaries/
 
       - name: Make backend binaries executable
-        run: chmod +x src-tauri/binaries/*
+        run: chmod +x orchestrator-tauri/binaries/*
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -191,10 +190,8 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install frontend dependencies
-        run: |
-          npm ci
-          cd web && npm ci
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build frontend
         run: npm run build:web
@@ -207,15 +204,16 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: './orchestrator-tauri -> target'
 
       - name: Build Tauri app (Universal)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: orchestrator-tauri
           tagName: ${{ github.event.inputs.version || github.ref_name }}
-          releaseName: 'Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
+          releaseName: 'AIO Orchestrator ${{ github.event.inputs.version || github.ref_name }}'
           releaseDraft: true
           prerelease: false
           args: --target universal-apple-darwin

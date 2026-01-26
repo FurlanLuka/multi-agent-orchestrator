@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "orchestrator-permission": {
-      "command": "node",
-      "args": ["__PERMISSION_SERVER_PATH__"]
-    }
-  }
-}

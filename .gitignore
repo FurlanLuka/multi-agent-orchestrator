@@ -1,10 +1,11 @@
 # Dependencies
 node_modules/
-web/node_modules/
 
 # Build output
 dist/
-web/dist/
+orchestrator-types/dist/
+orchestrator-backend/dist/
+orchestrator-web/dist/
 
 # Environment files
 .env
@@ -25,21 +26,23 @@ Thumbs.db
 # Logs
 *.log
 logs/
+.logs/
 
 # Runtime directories
 /tmp/
 
 # Session data (runtime only)
 .orchestrator/
+.sessions/
+.cache/
 
 # TypeScript cache
 *.tsbuildinfo
-.sessions/*
 
 # Tauri
-src-tauri/target/
-src-tauri/binaries/orchestrator-backend-*
-src-tauri/gen/
+orchestrator-tauri/target/
+orchestrator-tauri/binaries/aio-orchestrator-backend-*
+orchestrator-tauri/gen/
 *.dmg
 *.app
 *.deb
