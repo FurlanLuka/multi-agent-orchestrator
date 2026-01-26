@@ -73,6 +73,83 @@
           "Bash(npm *)"
         ]
       }
+    },
+    "simpleblog-backend": {
+      "path": "~/Documents/aio-simpleblog/backend",
+      "devServer": {
+        "command": "npm run start:dev",
+        "readyPattern": "Nest application successfully started|listening on|Application is running",
+        "env": {},
+        "port": 3000,
+        "url": "http://localhost:3000"
+      },
+      "buildCommand": "npm run build",
+      "hasE2E": true,
+      "gitEnabled": true,
+      "mainBranch": "main",
+      "permissions": {
+        "allow": [
+          "Read",
+          "Write",
+          "Edit",
+          "Glob",
+          "Grep",
+          "Bash(npm run *)",
+          "Bash(npm install *)",
+          "Bash(npx *)",
+          "Bash(curl *)",
+          "Bash(ls *)",
+          "Bash(cat *)",
+          "Bash(mkdir *)",
+          "Bash(find *)"
+        ]
+      }
+    },
+    "simpleblog-frontend": {
+      "path": "~/Documents/aio-simpleblog/frontend",
+      "devServer": {
+        "command": "npm run dev",
+        "readyPattern": "Local:.*http|ready in",
+        "env": {},
+        "port": 5173,
+        "url": "http://localhost:5173"
+      },
+      "buildCommand": "npm run build",
+      "setupCommand": "claude mcp add playwright -- npx @playwright/mcp@latest",
+      "hasE2E": true,
+      "dependsOn": [
+        "backend"
+      ],
+      "gitEnabled": true,
+      "mainBranch": "main",
+      "permissions": {
+        "allow": [
+          "Read",
+          "Write",
+          "Edit",
+          "Glob",
+          "Grep",
+          "Bash(npm run *)",
+          "Bash(npm install *)",
+          "Bash(npx *)",
+          "Bash(ls *)",
+          "Bash(cat *)",
+          "Bash(mkdir *)",
+          "Bash(find *)",
+          "mcp__playwright__browser_navigate",
+          "mcp__playwright__browser_snapshot",
+          "mcp__playwright__browser_click",
+          "mcp__playwright__browser_type",
+          "mcp__playwright__browser_fill_form",
+          "mcp__playwright__browser_take_screenshot",
+          "mcp__playwright__browser_wait_for",
+          "mcp__playwright__browser_select_option",
+          "mcp__playwright__browser_hover",
+          "mcp__playwright__browser_press_key",
+          "mcp__playwright__browser_console_messages",
+          "mcp__playwright__browser_network_requests"
+        ]
+      }
     }
   },
   "defaults": {

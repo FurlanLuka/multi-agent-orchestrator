@@ -15,6 +15,7 @@ export interface AddProjectOptions {
     port?: number;
   };
   buildCommand?: string;
+  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   hasE2E?: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
   dependencyInstall?: boolean;
@@ -52,6 +53,7 @@ const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
       readyPattern: 'Local:.*http|ready in'
     },
     buildCommand: 'npm run build',
+    setupCommand: 'claude mcp add playwright -- npx @playwright/mcp@latest',
     defaultPort: 5173
   },
   'nestjs-backend': {
@@ -135,7 +137,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, buildCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch, permissions } = options;
+    const { name, path: projectPath, devServer, buildCommand, setupCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch, permissions } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -162,6 +164,7 @@ export class ProjectManager extends EventEmitter {
         env: {}
       },
       buildCommand: buildCommand || 'npm run build',
+      setupCommand: setupCommand,
       hasE2E: hasE2E ?? false,
       e2eInstructions: e2eInstructions,
       gitEnabled: gitEnabled ?? false,
@@ -185,6 +188,11 @@ export class ProjectManager extends EventEmitter {
 
     // Set up Claude hooks for the project
     await this.setupProjectHooks(name);
+
+    // Run setup command if configured (e.g., adding MCP servers)
+    if (setupCommand) {
+      await this.runSetupCommand(name);
+    }
   }
 
   /**
@@ -309,6 +317,72 @@ export class ProjectManager extends EventEmitter {
           console.error(`[ProjectManager] ${error}`);
           this.emit('dependencyInstallError', { project: projectName, error });
           reject(new Error(error));
+        }
+      });
+    });
+  }
+
+  /**
+   * Runs the setup command for a project (e.g., adding MCP servers)
+   */
+  async runSetupCommand(projectName: string): Promise<void> {
+    const projectConfig = this.config.projects[projectName];
+    if (!projectConfig) {
+      throw new Error(`Project "${projectName}" does not exist`);
+    }
+
+    if (!projectConfig.setupCommand) {
+      console.log(`[ProjectManager] No setup command configured for ${projectName}`);
+      return;
+    }
+
+    const projectPath = this.expandPath(projectConfig.path);
+    const setupCommand = projectConfig.setupCommand;
+
+    console.log(`[ProjectManager] Running setup command for ${projectName}: ${setupCommand}`);
+    this.emit('setupCommandStart', { project: projectName, command: setupCommand });
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn(setupCommand, [], {
+        cwd: projectPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        env: process.env
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout?.on('data', (data) => {
+        const text = data.toString();
+        stdout += text;
+        this.emit('setupCommandLog', { project: projectName, text, stream: 'stdout' });
+      });
+
+      proc.stderr?.on('data', (data) => {
+        const text = data.toString();
+        stderr += text;
+        this.emit('setupCommandLog', { project: projectName, text, stream: 'stderr' });
+      });
+
+      proc.on('error', (err) => {
+        console.error(`[ProjectManager] Setup command error for ${projectName}:`, err);
+        this.emit('setupCommandError', { project: projectName, error: err.message });
+        reject(err);
+      });
+
+      proc.on('exit', (code) => {
+        if (code === 0) {
+          console.log(`[ProjectManager] Setup command completed for ${projectName}`);
+          this.emit('setupCommandComplete', { project: projectName });
+          resolve();
+        } else {
+          const error = `Setup command failed with code ${code}: ${stderr}`;
+          console.error(`[ProjectManager] ${error}`);
+          this.emit('setupCommandError', { project: projectName, error });
+          // Don't reject - setup command failure shouldn't block project creation
+          console.warn(`[ProjectManager] Continuing despite setup command failure`);
+          resolve();
         }
       });
     });
@@ -448,6 +522,7 @@ export class ProjectManager extends EventEmitter {
         url: `http://localhost:${templateConfig.defaultPort}`
       },
       buildCommand: templateConfig.buildCommand,
+      setupCommand: templateConfig.setupCommand,
       hasE2E: hasE2E,
       dependsOn: dependsOn,
       gitEnabled: gitEnabled,
@@ -469,6 +544,11 @@ export class ProjectManager extends EventEmitter {
 
     // Set up Claude hooks for the project
     await this.setupProjectHooks(name);
+
+    // Run setup command if configured (e.g., adding MCP servers)
+    if (templateConfig.setupCommand) {
+      await this.runSetupCommand(name);
+    }
 
     // Initialize git repo and commit all files (template + hooks) if git is enabled
     if (gitEnabled) {

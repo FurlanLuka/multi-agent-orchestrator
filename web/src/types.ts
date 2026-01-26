@@ -195,6 +195,7 @@ export interface ProjectTemplateConfig {
     readyPattern: string;
   };
   buildCommand?: string;
+  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   defaultPort: number;
   dependencyInstall?: boolean;  // Whether to install dependencies when creating from template
 }
@@ -216,6 +217,7 @@ export interface ProjectConfig {
     url?: string;  // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
   buildCommand?: string;
+  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
   gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)

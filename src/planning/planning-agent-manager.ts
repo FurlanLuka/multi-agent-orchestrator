@@ -423,12 +423,13 @@ User: ${newMessage}`;
                       contentBlock = { type: 'text', text: block.text };
                       this.emit('output', block.text);
 
-                      // Parse [PLANNER_STATUS] messages for real-time status updates
-                      const statusMatch = block.text.match(/\[PLANNER_STATUS\]\s*(\{.*?\})/);
-                      if (statusMatch) {
+                      // Parse [PLANNER_STATUS] messages for real-time status updates (match all occurrences)
+                      const statusMatches = block.text.matchAll(/\[PLANNER_STATUS\]\s*(\{[^}]+\})/g);
+                      for (const statusMatch of statusMatches) {
                         try {
                           const statusData = JSON.parse(statusMatch[1]);
                           if (statusData.message) {
+                            console.log(`[PlanningAgent] Status: ${statusData.message}`);
                             const statusEvent: PlanningStatusEvent = {
                               phase: this.currentPlanningPhase || 'exploring',
                               message: statusData.message
@@ -443,6 +444,7 @@ User: ${newMessage}`;
                       // Detect plan JSON appearing = generating phase
                       if (this.isPlanningRequest && block.text.includes('"tasks"') && this.currentPlanningPhase !== 'generating') {
                         this.currentPlanningPhase = 'generating';
+                        console.log(`[PlanningAgent] Status: Generating plan...`);
                         const statusEvent: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
                         this.emit('planningStatus', statusEvent);
                       }
@@ -454,13 +456,27 @@ User: ${newMessage}`;
                         input: block.input || {}
                       };
 
-                      // File/code reading tools = exploring phase
-                      if (this.isPlanningRequest && ['Read', 'Glob', 'Grep'].includes(block.name)) {
-                        if (this.currentPlanningPhase !== 'exploring') {
-                          this.currentPlanningPhase = 'exploring';
-                          const statusEvent: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
-                          this.emit('planningStatus', statusEvent);
+                      // File/code reading tools = exploring phase - emit specific status
+                      if (this.isPlanningRequest && ['Read', 'Glob', 'Grep', 'Task'].includes(block.name)) {
+                        this.currentPlanningPhase = 'exploring';
+                        let statusMessage = 'Exploring codebase...';
+
+                        // Generate specific status based on tool and input
+                        if (block.name === 'Read' && block.input?.file_path) {
+                          const filePath = String(block.input.file_path);
+                          const fileName = filePath.split('/').pop() || filePath;
+                          statusMessage = `Reading ${fileName}`;
+                        } else if (block.name === 'Glob' && block.input?.pattern) {
+                          statusMessage = `Searching for ${block.input.pattern}`;
+                        } else if (block.name === 'Grep' && block.input?.pattern) {
+                          statusMessage = `Searching for "${block.input.pattern}"`;
+                        } else if (block.name === 'Task' && block.input?.description) {
+                          statusMessage = `${block.input.description}`;
                         }
+
+                        console.log(`[PlanningAgent] Status: ${statusMessage}`);
+                        const statusEvent: PlanningStatusEvent = { phase: 'exploring', message: statusMessage };
+                        this.emit('planningStatus', statusEvent);
                       }
                     } else if (block.type === 'tool_result' && block.tool_use_id) {
                       contentBlock = {
@@ -475,6 +491,7 @@ User: ${newMessage}`;
                       // Thinking blocks = analyzing phase (after exploring)
                       if (this.isPlanningRequest && this.currentPlanningPhase === 'exploring') {
                         this.currentPlanningPhase = 'analyzing';
+                        console.log(`[PlanningAgent] Status: Analyzing requirements...`);
                         const statusEvent: PlanningStatusEvent = { phase: 'analyzing', message: 'Analyzing requirements...' };
                         this.emit('planningStatus', statusEvent);
                       }

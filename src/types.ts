@@ -15,6 +15,7 @@ export interface ProjectConfig {
     url?: string;   // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
+  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
   dependsOn?: string[];  // Projects that must complete E2E before this one starts (e.g., frontend depends on backend)
@@ -588,6 +589,7 @@ export interface ProjectTemplateConfig {
     readyPattern: string;
   };
   buildCommand?: string;
+  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   defaultPort: number;
   dependencyInstall?: boolean;  // Whether to install dependencies when creating from template
 }
