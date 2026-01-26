@@ -1,48 +1,21 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+import { getShellEnv, clearShellEnvCache, execWithShellEnv } from '../utils/shell-env';
 
 const execAsync = promisify(exec);
 
-/**
- * Execute command via interactive login shell to get user's full PATH
- * This ensures nvm, homebrew, etc. paths are available
- * -l = login shell (sources .zprofile/.bash_profile)
- * -i = interactive shell (sources .zshrc/.bashrc where nvm is typically loaded)
- */
-function execWithUserPath(command: string, timeout: number): Promise<{ stdout: string; stderr: string }> {
-  const shell = process.env.SHELL || '/bin/bash';
-  // Use both -l (login) and -i (interactive) to source all profile files
-  return execAsync(`${shell} -l -i -c "${command}"`, {
-    timeout,
-    env: { ...process.env, HOME: os.homedir() },
-  });
-}
+// Re-export for backwards compatibility
+export { getShellEnv, clearShellEnvCache };
 
 /**
- * Get shell environment with user's full PATH
- * Exported for use when spawning processes elsewhere
+ * Execute command with user's shell environment
  */
-export async function getShellEnv(): Promise<Record<string, string>> {
-  try {
-    const shell = process.env.SHELL || '/bin/bash';
-    // Use both -l (login) and -i (interactive) to get full env including nvm
-    const { stdout } = await execAsync(`${shell} -l -i -c "env"`, {
-      timeout: 5000,
-      env: { ...process.env, HOME: os.homedir() },
-    });
-
-    const env: Record<string, string> = {};
-    for (const line of stdout.split('\n')) {
-      const idx = line.indexOf('=');
-      if (idx > 0) {
-        env[line.substring(0, idx)] = line.substring(idx + 1);
-      }
-    }
-    return env;
-  } catch {
-    return process.env as Record<string, string>;
-  }
+async function execWithUserPath(command: string, timeout: number): Promise<{ stdout: string; stderr: string }> {
+  const result = await execWithShellEnv(command, { cwd: os.homedir(), timeout });
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 export interface DependencyResult {

@@ -1,12 +1,12 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Config } from '@aio/types';
 import { writeProjectPermissions } from '../utils/permissions-writer';
-import { getShellEnv } from '../startup/dependency-check';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
+import { spawnWithShellEnv } from '../utils/shell-env';
 
 interface ManagedProcess {
   process: ChildProcess;
@@ -139,19 +139,15 @@ export class ProcessManager extends EventEmitter {
     const projectPath = this.expandPath(projectConfig.path);
     const readyPattern = new RegExp(projectConfig.devServer.readyPattern, 'i');
 
+    console.log(`[ProcessManager] Starting dev server for ${project}: ${projectConfig.devServer.command}`);
+
+    const proc = await spawnWithShellEnv(projectConfig.devServer.command, {
+      cwd: projectPath,
+      detached: true,
+      extraEnv: projectConfig.devServer.env,
+    });
+
     return new Promise((resolve, reject) => {
-      console.log(`[ProcessManager] Starting dev server for ${project}: ${projectConfig.devServer.command}`);
-
-      // Use user's shell or fall back to /bin/bash (avoid /bin/sh which may not exist)
-      const shellPath = process.env.SHELL || '/bin/bash';
-      const proc = spawn(projectConfig.devServer.command, [], {
-        cwd: projectPath,
-        env: { ...process.env, ...projectConfig.devServer.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: shellPath,
-        detached: true  // Create process group so we can kill all children
-      });
-
       const info: ManagedProcess = {
         process: proc,
         project,
@@ -162,7 +158,13 @@ export class ProcessManager extends EventEmitter {
 
       this.processes.set(key, info);
 
+      // Capture stderr for error reporting
+      let stderrBuffer = '';
+
       const handleOutput = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
+        if (stream === 'stderr') {
+          stderrBuffer += data.toString();
+        }
         const text = data.toString();
         const lines = text.split('\n').filter(l => l.trim());
 
@@ -192,6 +194,11 @@ export class ProcessManager extends EventEmitter {
       proc.on('exit', (code, signal) => {
         const uptime = Date.now() - info.startedAt;
         console.log(`[ProcessManager] Dev server for ${project} exited (code: ${code}, signal: ${signal}, uptime: ${uptime}ms)`);
+
+        // Log stderr if process failed quickly (likely command not found)
+        if (code === 127 || (code !== 0 && uptime < 5000)) {
+          console.log(`[ProcessManager] Dev server stderr: ${stderrBuffer.trim() || '(empty)'}`);
+        }
 
         this.processes.delete(key);
         this.emit('exit', { project, type: 'devServer', code, signal, uptime });
@@ -323,55 +330,49 @@ export class ProcessManager extends EventEmitter {
     console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
     console.log(`[ProcessManager] Permissions mode: ${useDangerousMode ? 'DANGEROUS (skip all)' : 'allowlist'}`);
 
-    // Get shell environment with full PATH (includes nvm, homebrew, etc.)
-    const shellEnv = await getShellEnv();
+    // Build args - add dangerous flag only if explicitly enabled
+    const args = [
+      '-p', prompt,
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--no-session-persistence'
+    ];
+
+    if (useDangerousMode) {
+      args.push('--dangerously-skip-permissions');
+    } else {
+      // Use acceptEdits mode to respect the settings.json allow list
+      args.push('--permission-mode', 'acceptEdits');
+
+      // Add MCP permission tool for live permission approval
+      const mcpConfigPath = this.generateMcpConfig();
+      args.push('--mcp-config', mcpConfigPath);
+      args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
+    }
+
+    // Build command string with escaped args
+    const escapedArgs = args.map(arg => arg.includes(' ') || arg.includes("'") ? `"${arg.replace(/"/g, '\\"')}"` : arg);
+    const fullCommand = `claude ${escapedArgs.join(' ')}`;
+
+    const proc = await spawnWithShellEnv(fullCommand, {
+      cwd: projectPath,
+      extraEnv: {
+        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
+        ORCHESTRATOR_PROJECT: project,
+        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0),
+      },
+    });
+
+    this.currentAgentProcess.set(project, proc);
+    this.emit('promptSent', { project, length: prompt.length });
 
     return new Promise((resolve, reject) => {
       let responseBuffer = '';
       let resultText = '';
       let partialLine = ''; // Buffer for incomplete lines
 
-      // Build args - add dangerous flag only if explicitly enabled
-      const args = [
-        '-p', prompt,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--no-session-persistence'
-      ];
-
-      if (useDangerousMode) {
-        args.push('--dangerously-skip-permissions');
-      } else {
-        // Use acceptEdits mode to respect the settings.json allow list
-        args.push('--permission-mode', 'acceptEdits');
-
-        // Add MCP permission tool for live permission approval
-        const mcpConfigPath = this.generateMcpConfig();
-        args.push('--mcp-config', mcpConfigPath);
-        args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
-      }
-
-      // Build environment with orchestrator info for MCP server
-      // Use shell env to get full PATH (nvm, homebrew, etc.)
-      const procEnv = {
-        ...shellEnv,
-        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
-        ORCHESTRATOR_PROJECT: project,
-        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0)
-      };
-
-      // Use just "claude" - shell env provides full PATH
-      const proc = spawn('claude', args, {
-        cwd: projectPath,
-        env: procEnv,
-        stdio: ['ignore', 'pipe', 'pipe']  // ignore stdin for one-shot
-      });
-
-      this.currentAgentProcess.set(project, proc);
-      this.emit('promptSent', { project, length: prompt.length });
-
       // Process stdout data as it arrives
-      proc.stdout.on('data', (chunk: Buffer) => {
+      proc.stdout?.on('data', (chunk: Buffer) => {
         const text = partialLine + chunk.toString();
         const lines = text.split('\n');
 

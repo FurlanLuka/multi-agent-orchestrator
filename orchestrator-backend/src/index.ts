@@ -1,6 +1,70 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
+import * as os from 'os';
+
+// Setup file logging for GUI app debugging
+const LOG_DIR = path.join(os.homedir(), '.aio-config', 'logs');
+const LOG_FILE = path.join(LOG_DIR, 'orchestrator.log');
+
+// Ensure log directory exists
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+// Create/truncate log file on startup
+const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+
+// Override console methods to also write to file
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+function formatLog(level: string, args: any[]): string {
+  const timestamp = new Date().toISOString();
+  const message = args.map(arg =>
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  return `[${timestamp}] [${level}] ${message}\n`;
+}
+
+console.log = (...args: any[]) => {
+  originalLog.apply(console, args);
+  logStream.write(formatLog('INFO', args));
+};
+
+console.error = (...args: any[]) => {
+  originalError.apply(console, args);
+  logStream.write(formatLog('ERROR', args));
+};
+
+console.warn = (...args: any[]) => {
+  originalWarn.apply(console, args);
+  logStream.write(formatLog('WARN', args));
+};
+
+// Catch uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  logStream.write(formatLog('FATAL', [`Uncaught Exception: ${err.stack || err}`]));
+  logStream.end();
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  logStream.write(formatLog('FATAL', [`Unhandled Rejection: ${reason}`]));
+});
+
+// Log startup
+console.log('=== Orchestrator Starting ===');
+console.log(`Log file: ${LOG_FILE}`);
+console.log(`CWD: ${process.cwd()}`);
+console.log(`execPath: ${process.execPath}`);
+console.log(`argv: ${process.argv.join(' ')}`);
+console.log(`HOME: ${os.homedir()}`);
+console.log(`SHELL: ${process.env.SHELL}`);
+
 import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep } from '@aio/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';

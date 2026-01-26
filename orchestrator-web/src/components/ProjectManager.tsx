@@ -99,13 +99,14 @@ interface ProjectManagerProps {
   creatingProject: boolean;
   addingProject: boolean;
   gitAvailable?: boolean;
+  port?: number | null;  // Dynamic port from useSocket
   onCreateProject: (options: CreateProjectOptions) => void;
   onAddProject: (options: AddProjectOptions) => void;
   onRemoveProject: (name: string) => void;
   onUpdateProject: (name: string, updates: Partial<ProjectConfig>) => void;
 }
 
-export function ProjectManager({ projects, templates, creatingProject, addingProject, gitAvailable = true, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
+export function ProjectManager({ projects, templates, creatingProject, addingProject, gitAvailable = true, port, onCreateProject, onAddProject, onRemoveProject, onUpdateProject }: ProjectManagerProps) {
   const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
 
   // Expanded project for editing E2E instructions, dev server URL, and git settings
@@ -120,13 +121,21 @@ export function ProjectManager({ projects, templates, creatingProject, addingPro
   const [editingPermissions, setEditingPermissions] = useState<string[]>([]);
   const [editingDangerouslyAllowAll, setEditingDangerouslyAllowAll] = useState<boolean>(false);
 
-  // Fetch permissions config on mount
+  // Fetch permissions config when port is available
   useEffect(() => {
-    fetch('http://localhost:3456/api/permissions')
+    // Use port prop if available, otherwise fall back to window or default
+    const effectivePort = port ?? window.__ORCHESTRATOR_PORT__ ?? 3456;
+
+    // Don't fetch if port is null (still waiting for Tauri)
+    if (effectivePort === null) {
+      return;
+    }
+
+    fetch(`http://localhost:${effectivePort}/api/permissions`)
       .then(res => res.json())
       .then(data => setPermissionsConfig(data))
       .catch(err => console.error('Failed to fetch permissions config:', err));
-  }, []);
+  }, [port]);
 
   // Template form state
   const [name, setName] = useState('');

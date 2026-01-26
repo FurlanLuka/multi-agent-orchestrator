@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { onBackendError, isTauri } from '../lib/tauri';
+import { onBackendError, onBackendReady, isTauri } from '../lib/tauri';
 import type {
   Session,
   Plan,
@@ -35,31 +35,43 @@ import type {
 const DEFAULT_PORT = 3456;
 
 /**
- * Get the socket URL, supporting dynamic port detection for Tauri
+ * Get the initial socket URL, supporting dynamic port detection for Tauri
+ * Note: This is only used for initial value. The actual port may be updated
+ * dynamically when running in Tauri via the backend-ready event.
  *
  * Port priority:
  * 1. window.__ORCHESTRATOR_PORT__ (set by Tauri at runtime)
  * 2. Import meta env variable (Vite build-time)
- * 3. Default port (3456)
+ * 3. Default port (3456) - only used in non-Tauri mode
  */
-function getSocketUrl(): string {
+function getInitialPort(): number | null {
   // Check for Tauri-injected port
   if (typeof window !== 'undefined' && window.__ORCHESTRATOR_PORT__) {
-    return `http://localhost:${window.__ORCHESTRATOR_PORT__}`;
+    return window.__ORCHESTRATOR_PORT__;
   }
 
   // Check for Vite environment variable
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ORCHESTRATOR_PORT) {
-    return `http://localhost:${import.meta.env.VITE_ORCHESTRATOR_PORT}`;
+    return parseInt(import.meta.env.VITE_ORCHESTRATOR_PORT, 10);
   }
 
-  // Default
-  return `http://localhost:${DEFAULT_PORT}`;
+  // In Tauri mode, return null to wait for backend-ready event
+  if (typeof window !== 'undefined' && isTauri()) {
+    return null;
+  }
+
+  // Default for non-Tauri mode (dev mode)
+  return DEFAULT_PORT;
 }
 
-const SOCKET_URL = getSocketUrl();
-
 export function useSocket() {
+  // Dynamic port state - null means waiting for Tauri to provide port
+  const [port, setPort] = useState<number | null>(getInitialPort);
+  const [socketUrl, setSocketUrl] = useState<string | null>(() => {
+    const initialPort = getInitialPort();
+    return initialPort ? `http://localhost:${initialPort}` : null;
+  });
+
   const [connected, setConnected] = useState(false);
   const [checkingDependencies, setCheckingDependencies] = useState(true);
   const [dependencyCheck, setDependencyCheck] = useState<DependencyCheckResult | null>(null);
@@ -75,6 +87,7 @@ export function useSocket() {
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
   const [addingProject, setAddingProject] = useState(false);
+  const [startingSession, setStartingSession] = useState(false);
 
   // Streaming messages for agentic UI
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
@@ -118,8 +131,56 @@ export function useSocket() {
   const pendingEventsRef = useRef<ChatStreamEvent[]>([]);
   const rafIdRef = useRef<number | null>(null);
 
+  // Listen for Tauri backend-ready event to get dynamic port
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
+    // If already have port, nothing to do
+    if (port !== null) return;
+
+    // Only listen in Tauri mode
+    if (!isTauri()) {
+      // Non-Tauri mode should have port set from getInitialPort
+      setPort(DEFAULT_PORT);
+      setSocketUrl(`http://localhost:${DEFAULT_PORT}`);
+      return;
+    }
+
+    // Check if port is already available on window (might have been set before React mounted)
+    if (window.__ORCHESTRATOR_PORT__) {
+      const existingPort = window.__ORCHESTRATOR_PORT__;
+      console.log(`[useSocket] Using existing port from window: ${existingPort}`);
+      setPort(existingPort);
+      setSocketUrl(`http://localhost:${existingPort}`);
+      return;
+    }
+
+    // Listen for backend-ready event from Tauri
+    let cleanup: (() => void) | undefined;
+
+    onBackendReady((newPort: number) => {
+      console.log(`[useSocket] Backend ready on port ${newPort}`);
+      setPort(newPort);
+      setSocketUrl(`http://localhost:${newPort}`);
+      // Store for other components that might need it
+      window.__ORCHESTRATOR_PORT__ = newPort;
+    }).then((unsubscribe) => {
+      cleanup = unsubscribe;
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [port]);
+
+  // Main socket connection effect - only runs when socketUrl is available
+  useEffect(() => {
+    // Don't connect until we have a valid URL
+    if (!socketUrl) {
+      console.log('[useSocket] Waiting for backend port...');
+      return;
+    }
+
+    console.log(`[useSocket] Connecting to ${socketUrl}`);
+    const socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
     });
     socketRef.current = socket;
@@ -151,6 +212,7 @@ export function useSocket() {
     socket.on('sessionCreated', (s: Session) => {
       setSession(s);
       setAllComplete(false);
+      setStartingSession(false);
       // New sessions are automatically active
       setActiveSessionId(s.id);
       setViewingSessionId(s.id);
@@ -653,7 +715,7 @@ export function useSocket() {
       }
       socket.disconnect();
     };
-  }, []);
+  }, [socketUrl]);
 
   // Listen for Tauri backend errors (port unavailable, etc.)
   useEffect(() => {
@@ -704,6 +766,7 @@ export function useSocket() {
 
   const startSession = useCallback((feature: string, projects: string[], branchName?: string) => {
     if (socketRef.current) {
+      setStartingSession(true);
       socketRef.current.emit('startSession', { feature, projects, branchName });
       // Clear cached messages for new session
       activeSessionMessagesRef.current = [];
@@ -963,6 +1026,7 @@ export function useSocket() {
   }), [flows]);
 
   return {
+    port,
     connected,
     checkingDependencies,
     dependencyCheck,
@@ -985,6 +1049,7 @@ export function useSocket() {
     templates,
     creatingProject,
     addingProject,
+    startingSession,
     sessions,
     loadingSession,
     activeSessionId,

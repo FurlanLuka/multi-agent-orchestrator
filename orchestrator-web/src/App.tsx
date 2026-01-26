@@ -52,6 +52,7 @@ import { SplashScreen } from './components/SplashScreen';
 
 function App() {
   const {
+    port,
     connected,
     checkingDependencies,
     dependencyCheck,
@@ -72,6 +73,7 @@ function App() {
     templates,
     creatingProject,
     addingProject,
+    startingSession,
     sessions: _sessions,
     loadingSession,
     activeSessionId,
@@ -460,6 +462,7 @@ function App() {
                         onLoadSession={() => {}}
                         onDeleteSession={() => {}}
                         loadingSession={loadingSession}
+                        startingSession={startingSession}
                       />
                       {showNewSession && (
                         <Button
@@ -480,6 +483,7 @@ function App() {
                         creatingProject={creatingProject}
                         addingProject={addingProject}
                         gitAvailable={dependencyCheck?.git.available ?? true}
+                        port={port}
                         onCreateProject={createProjectFromTemplate}
                         onAddProject={addProject}
                         onRemoveProject={removeProject}

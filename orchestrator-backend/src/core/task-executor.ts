@@ -7,6 +7,7 @@ import { LogAggregator } from './log-aggregator';
 import { ProjectManager } from './project-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 import { GitManager } from './git-manager';
+import { spawnWithShellEnv } from '../utils/shell-env';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -489,39 +490,31 @@ Please fix the issue and try again.`;
   /**
    * Runs a build command and captures output.
    */
-  private runBuildCommand(project: string, command: string): Promise<{
+  private async runBuildCommand(project: string, command: string): Promise<{
     success: boolean;
     stdout: string;
     stderr: string;
     exitCode: number;
     error?: string;
   }> {
+    // Expand ~ to home directory
+    let projectPath = this.config.projects[project].path;
+    if (projectPath.startsWith('~')) {
+      projectPath = projectPath.replace('~', process.env.HOME || '');
+    }
+
+    console.log(`[TaskExecutor] Running build: ${command} in ${projectPath}`);
+
+    const child = await spawnWithShellEnv(command, {
+      cwd: projectPath,
+    });
+
     return new Promise((resolve) => {
-      const { spawn } = require('child_process');
-
-      // Expand ~ to home directory
-      let projectPath = this.config.projects[project].path;
-      if (projectPath.startsWith('~')) {
-        projectPath = projectPath.replace('~', process.env.HOME || '');
-      }
-
-      // Parse command into cmd + args
-      const parts = command.split(' ');
-      const cmd = parts[0];
-      const args = parts.slice(1);
-
-      console.log(`[TaskExecutor] Running build: ${command} in ${projectPath}`);
-
-      const child = spawn(cmd, args, {
-        cwd: projectPath,
-        shell: true,
-        env: process.env
-      });
 
       let stdout = '';
       let stderr = '';
 
-      child.stdout.on('data', (data: Buffer) => {
+      child.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
         this.logAggregator.addLog({
           project,
@@ -532,7 +525,7 @@ Please fix the issue and try again.`;
         });
       });
 
-      child.stderr.on('data', (data: Buffer) => {
+      child.stderr?.on('data', (data: Buffer) => {
         stderr += data.toString();
         this.logAggregator.addLog({
           project,

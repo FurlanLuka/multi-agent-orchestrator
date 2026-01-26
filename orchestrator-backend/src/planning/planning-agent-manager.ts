@@ -1,10 +1,10 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '@aio/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
-import { getShellEnv } from '../startup/dependency-check';
+import { spawnWithShellEnv } from '../utils/shell-env';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -348,28 +348,21 @@ User: ${newMessage}`;
    * @param timeoutMs Timeout in milliseconds (defaults to CHAT timeout)
    */
   private async executeOneShot(prompt: string, timeoutMs: number = PlanningAgentManager.TIMEOUTS.CHAT): Promise<string> {
-    // Get shell environment with full PATH (includes nvm, homebrew, etc.)
-    const shellEnv = await getShellEnv();
+    console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
+    console.log('[PlanningAgent] CWD:', this.orchestratorDir);
+
+    // Escape prompt for shell (handle quotes and special chars)
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+    const fullCommand = `claude -p '${escapedPrompt}' --output-format stream-json --verbose --no-session-persistence --dangerously-skip-permissions`;
+
+    const proc = await spawnWithShellEnv(fullCommand, {
+      cwd: this.orchestratorDir,
+    });
+
+    this.currentProcess = proc;
+    console.log('[PlanningAgent] Process spawned, PID:', proc.pid);
 
     return new Promise((resolve, reject) => {
-      console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
-      console.log('[PlanningAgent] CWD:', this.orchestratorDir);
-
-      // Use just "claude" - shell env provides full PATH
-      const proc = spawn('claude', [
-        '-p', prompt,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--no-session-persistence',
-        '--dangerously-skip-permissions'  // Planner needs to read files across all projects
-      ], {
-        cwd: this.orchestratorDir,
-        env: shellEnv,
-        stdio: ['ignore', 'pipe', 'pipe']  // ignore stdin, pipe stdout/stderr
-      });
-
-      this.currentProcess = proc;
-      console.log('[PlanningAgent] Process spawned, PID:', proc.pid);
 
       let responseBuffer = '';
       let resultText = '';
@@ -390,7 +383,7 @@ User: ${newMessage}`;
       this.emit('stream', startEvent);
 
       // Process stdout data as it arrives
-      proc.stdout.on('data', (chunk: Buffer) => {
+      proc.stdout?.on('data', (chunk: Buffer) => {
         const text = partialLine + chunk.toString();
         const lines = text.split('\n');
 
@@ -537,7 +530,7 @@ User: ${newMessage}`;
         }
       });
 
-      proc.stderr.on('data', (data: Buffer) => {
+      proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
         console.error('[PlanningAgent] STDERR:', text.substring(0, 200));
       });
@@ -1308,8 +1301,6 @@ Be intelligent - a passing build with runtime errors in logs should FAIL. A heal
   - Conflicting requirements or unclear specifications
   - Issues requiring access/permissions the agent doesn't have
   - Complex problems beyond simple code/dependency fixes
-
-- **skip**: Use when the task actually succeeded despite some noise (e.g., build command failed but dev server logs show successful compilation).
 
 ## RESPONSE FORMAT (REQUIRED)
 

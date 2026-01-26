@@ -1,6 +1,6 @@
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execWithShellEnv } from '../utils/shell-env';
 
 /**
  * GitManager handles git operations for project repositories.
@@ -24,41 +24,18 @@ export class GitManager {
     cwd: string,
     args: string[]
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    return new Promise((resolve) => {
-      const expandedCwd = this.expandPath(cwd);
+    const expandedCwd = this.expandPath(cwd);
 
-      const proc = spawn('git', args, {
-        cwd: expandedCwd,
-        shell: false,
-        env: process.env,
-      });
+    // Escape args for shell
+    const escapedArgs = args.map(arg => {
+      if (arg.includes(' ') || arg.includes("'") || arg.includes('"')) {
+        return `"${arg.replace(/"/g, '\\"')}"`;
+      }
+      return arg;
+    });
 
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on('close', (code: number | null) => {
-        resolve({
-          stdout: stdout.trim(),
-          stderr: stderr.trim(),
-          exitCode: code ?? 1,
-        });
-      });
-
-      proc.on('error', (err: Error) => {
-        resolve({
-          stdout: '',
-          stderr: String(err),
-          exitCode: 1,
-        });
-      });
+    return execWithShellEnv(`git ${escapedArgs.join(' ')}`, {
+      cwd: expandedCwd,
     });
   }
 

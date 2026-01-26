@@ -1,10 +1,10 @@
 import { EventEmitter } from 'events';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@aio/types';
 import { GitManager } from './git-manager';
 import { getHookTemplatesDir, getProjectTemplatesDir } from '../config/paths';
+import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
 
 export interface AddProjectOptions {
   name: string;
@@ -283,8 +283,8 @@ export class ProjectManager extends EventEmitter {
     if (fs.existsSync(path.join(projectPath, 'bun.lockb'))) {
       return { cmd: 'bun', args: ['install'] };
     }
-    // Default to npm
-    return { cmd: 'npm', args: ['install'] };
+    // Default to npm - explicitly include dev dependencies
+    return { cmd: 'npm', args: ['install', '--include=dev'] };
   }
 
   /**
@@ -292,6 +292,7 @@ export class ProjectManager extends EventEmitter {
    */
   async installDependencies(projectName: string): Promise<void> {
     const projectConfig = this.config.projects[projectName];
+    
     if (!projectConfig) {
       throw new Error(`Project "${projectName}" does not exist`);
     }
@@ -306,38 +307,45 @@ export class ProjectManager extends EventEmitter {
     }
 
     const { cmd, args } = this.detectPackageManager(projectPath);
-    console.log(`[ProjectManager] Running ${cmd} ${args.join(' ')} for ${projectName}...`);
-    console.log(`[ProjectManager] Install spawn details:`, {
-      cmd,
-      args,
-      cwd: projectPath,
-      shell: true,
-      SHELL: process.env.SHELL,
-      PATH: process.env.PATH?.split(':').slice(0, 5).join(':') + '...'  // First 5 PATH entries
-    });
+    const fullCommand = `${cmd} ${args.join(' ')}`;
+    console.log(`[ProjectManager] Running ${fullCommand} for ${projectName}...`);
     this.emit('dependencyInstallStart', { project: projectName, packageManager: cmd });
 
-    return new Promise((resolve, reject) => {
-      // Use shell: true to let Node find npm via PATH
-      const proc = spawn(cmd, args, {
-        cwd: projectPath,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
-        env: process.env
-      });
+    // Debug command to log env info
+    const debugCommand = `
+echo "=== ORCHESTRATOR DEBUG ===" >&2
+echo "PATH first 300: \${PATH:0:300}" >&2
+echo "Which npm: $(which npm 2>/dev/null || echo 'not found')" >&2
+echo "npm version: $(npm --version 2>&1 || echo 'n/a')" >&2
+echo "==========================" >&2
+${fullCommand}
+`.trim();
 
+    console.log(`[ProjectManager] Shell: ${getDefaultShell()}, CWD: ${projectPath}`);
+
+    const proc = await spawnWithShellEnv(debugCommand, {
+      cwd: projectPath,
+    });
+
+    console.log(`[ProjectManager] Spawned PID: ${proc.pid}`);
+
+    return new Promise((resolve, reject) => {
       let stdout = '';
       let stderr = '';
 
       proc.stdout?.on('data', (data) => {
         const text = data.toString();
         stdout += text;
+        // Log npm output for debugging
+        console.log(`[ProjectManager] [${projectName}] stdout: ${text.trim().substring(0, 200)}`);
         this.emit('dependencyInstallLog', { project: projectName, text, stream: 'stdout' });
       });
 
       proc.stderr?.on('data', (data) => {
         const text = data.toString();
         stderr += text;
+        // Log npm stderr for debugging
+        console.log(`[ProjectManager] [${projectName}] stderr: ${text.trim().substring(0, 200)}`);
         this.emit('dependencyInstallLog', { project: projectName, text, stream: 'stderr' });
       });
 
@@ -348,6 +356,16 @@ export class ProjectManager extends EventEmitter {
       });
 
       proc.on('exit', (code) => {
+        // Debug: check what was installed
+        const binPath = path.join(projectPath, 'node_modules', '.bin');
+        let binContents: string[] = [];
+        try {
+          binContents = fs.readdirSync(binPath);
+          console.log(`[ProjectManager] node_modules/.bin contents (${binContents.length} items): ${binContents.slice(0, 10).join(', ')}${binContents.length > 10 ? '...' : ''}`);
+        } catch {
+          console.log(`[ProjectManager] node_modules/.bin does not exist or is empty`);
+        }
+
         if (code === 0) {
           console.log(`[ProjectManager] ${cmd} install completed for ${projectName}`);
           this.emit('dependencyInstallComplete', { project: projectName });
@@ -382,13 +400,11 @@ export class ProjectManager extends EventEmitter {
     console.log(`[ProjectManager] Running setup command for ${projectName}: ${setupCommand}`);
     this.emit('setupCommandStart', { project: projectName, command: setupCommand });
 
+    const proc = await spawnWithShellEnv(setupCommand, {
+      cwd: projectPath,
+    });
+
     return new Promise((resolve, reject) => {
-      const proc = spawn(setupCommand, [], {
-        cwd: projectPath,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
-        env: process.env
-      });
 
       let stdout = '';
       let stderr = '';

@@ -25,6 +25,7 @@ interface SessionSetupProps {
   onLoadSession?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   loadingSession?: boolean;
+  startingSession?: boolean;
 }
 
 function formatDate(timestamp: number): string {
@@ -70,6 +71,7 @@ export function SessionSetup({
   onLoadSession,
   onDeleteSession,
   loadingSession = false,
+  startingSession = false,
 }: SessionSetupProps) {
   const [feature, setFeature] = useState('');
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
@@ -206,12 +208,13 @@ export function SessionSetup({
           )}
 
           <Button
-            leftSection={<IconRocket size={18} />}
+            leftSection={startingSession ? <Loader size={18} /> : <IconRocket size={18} />}
             size="md"
             onClick={handleStart}
-            disabled={!connected || !feature.trim() || selectedProjects.length === 0}
+            disabled={!connected || !feature.trim() || selectedProjects.length === 0 || startingSession}
+            loading={startingSession}
           >
-            Start Planning
+            {startingSession ? 'Starting...' : 'Start Planning'}
           </Button>
         </Stack>
       {/* </Paper> */}
