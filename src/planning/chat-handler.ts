@@ -199,6 +199,13 @@ export class ChatHandler extends EventEmitter {
   }
 
   /**
+   * Clears the pending plan (used when plan is approved externally via socket)
+   */
+  clearPendingPlan(): void {
+    this.pendingPlan = null;
+  }
+
+  /**
    * Approves the pending plan
    */
   approvePlan(): Plan | null {

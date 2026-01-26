@@ -146,17 +146,49 @@ export function useSocket() {
       }));
 
       // Initialize test scenarios when project enters E2E state
+      // IMPORTANT: Preserve existing test statuses (passed tests stay passed during retries)
       if (status === 'E2E') {
         setSession(currentSession => {
           if (currentSession?.plan?.testPlan?.[project]) {
             const scenarios = currentSession.plan.testPlan[project];
-            setTestStates(prev => ({
-              ...prev,
-              [project]: {
-                scenarios: scenarios.map(name => ({ name, status: 'pending' as const })),
-                updatedAt: Date.now()
+            setTestStates(prev => {
+              const existingState = prev[project];
+
+              // If no existing state, initialize all as pending
+              if (!existingState) {
+                return {
+                  ...prev,
+                  [project]: {
+                    scenarios: scenarios.map(name => ({ name, status: 'pending' as const })),
+                    updatedAt: Date.now()
+                  }
+                };
               }
-            }));
+
+              // Preserve existing statuses, only add new scenarios as pending
+              const existingScenarioMap = new Map(
+                existingState.scenarios.map(s => [s.name.toLowerCase().trim(), s])
+              );
+
+              const mergedScenarios = scenarios.map(name => {
+                const normalizedName = name.toLowerCase().trim();
+                const existing = existingScenarioMap.get(normalizedName);
+                if (existing) {
+                  // Keep existing status (especially 'passed' tests)
+                  return existing;
+                }
+                // New scenario, initialize as pending
+                return { name, status: 'pending' as const };
+              });
+
+              return {
+                ...prev,
+                [project]: {
+                  scenarios: mergedScenarios,
+                  updatedAt: Date.now()
+                }
+              };
+            });
           }
           return currentSession;
         });

@@ -1492,6 +1492,8 @@ Output these markers on their own line, not inside code blocks.`;
     // Handle plan approval
     socket.on('approvePlan', (plan: Plan) => {
       sessionManager.setPlan(plan);
+      // Clear the chat-handler's internal pending plan state
+      chatHandler.clearPendingPlan();
       // Initialize task tracking and broadcast to all clients
       statusMonitor.initializeTasks(plan.tasks);
       (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
@@ -1500,6 +1502,9 @@ Output these markers on their own line, not inside code blocks.`;
       if (updatedSession) {
         (ui.io as any).emitSession(updatedSession);
       }
+
+      // Clear pending plan on all clients (prevents race condition where planProposal might re-appear)
+      (ui.io as any).emit('planCleared');
 
       // Emit plan approved as instant flow (goes straight to history as green card)
       (ui.io as any).emitInstantFlow({
