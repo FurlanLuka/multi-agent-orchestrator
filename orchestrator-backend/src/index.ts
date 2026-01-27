@@ -703,7 +703,8 @@ After fixing, the E2E tests will be re-run automatically.`;
           console.log(`[Orchestrator] >>> ROUTING E2E FIX TO TaskExecutor: "${targetProject}" (task #${fixTaskIndex})`);
           statusMonitor.updateStatus(targetProject, 'E2E_FIXING', `Fixing issues from ${project} E2E`);
 
-          // Execute through TaskExecutor (handles: agent → verification → commit)
+          // Execute through TaskExecutor using persistent session
+          // Agent will call task_complete MCP tool, triggering verification and E2E retry hooks
           if (!taskExecutor) {
             console.error(`[Orchestrator] TaskExecutor not initialized for E2E fix`);
             statusMonitor.updateStatus(targetProject, 'FAILED', 'TaskExecutor not initialized');
@@ -713,11 +714,14 @@ After fixing, the E2E tests will be re-run automatically.`;
           }
 
           try {
-            const result = await taskExecutor.executeTask(fixTask, fixTaskIndex);
+            const result = await taskExecutor.executePersistentSession(
+              targetProject,
+              [{ task: fixTask, taskIndex: fixTaskIndex }]
+            );
 
             if (!result.success) {
-              console.error(`[Orchestrator] E2E fix task failed for ${targetProject}: ${result.message}`);
-              statusMonitor.updateStatus(targetProject, 'BLOCKED', `E2E fix failed: ${result.message}`);
+              console.error(`[Orchestrator] E2E fix task failed for ${targetProject}`);
+              statusMonitor.updateStatus(targetProject, 'BLOCKED', `E2E fix failed`);
               pendingE2ERetry.delete(targetProject);
               e2eFixingFor.delete(targetProject);
             } else {
@@ -1412,21 +1416,19 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
                 );
 
               if (remainingTasks.length > 0) {
-                // Continue with remaining tasks
+                // Continue with remaining tasks using persistent session
                 chatHandler.systemMessage(`Continuing with ${remainingTasks.length} remaining task(s)...`);
-                for (const { task, taskIndex } of remainingTasks) {
-                  console.log(`[Orchestrator] Resuming task #${taskIndex} (${action.project}:${task.name})`);
-                  statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Starting...');
+                console.log(`[Orchestrator] Starting persistent session for ${action.project} with ${remainingTasks.length} remaining task(s)`);
 
-                  const result = await taskExecutor!.executeTask(task, taskIndex);
+                const result = await taskExecutor!.executePersistentSession(action.project, remainingTasks);
 
-                  if (!result.success) {
-                    console.log(`[Orchestrator] Task #${taskIndex} failed, stopping for user intervention`);
-                    chatHandler.systemMessage(
-                      `Task "${task.name}" failed. Execution stopped. Please provide a fix instruction.`
-                    );
-                    return; // Stop and wait for user
-                  }
+                if (!result.success) {
+                  const failedTask = remainingTasks.find(t => t.taskIndex === result.failedTasks[0]);
+                  console.log(`[Orchestrator] Task failed, stopping for user intervention`);
+                  chatHandler.systemMessage(
+                    `Task "${failedTask?.task.name || 'unknown'}" failed. Please provide a fix instruction.`
+                  );
+                  return; // Stop and wait for user
                 }
                 // All remaining tasks completed
                 statusMonitor.updateStatus(action.project, 'READY', 'All tasks completed');
@@ -2085,34 +2087,25 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         return;
       }
 
-      // 4. Reset task status to working (triggers UI update showing "in progress")
-      statusMonitor.updateTaskStatus(failedIdx, 'working', 'Retrying...');
+      // 4. Build task list: failed task + remaining tasks
+      const allTasks = session?.plan?.tasks || [];
+      const tasksToRun = allTasks
+        .map((t, idx) => ({ task: t, taskIndex: idx }))
+        .filter(({ task: t, taskIndex }) =>
+          t.project === project && taskIndex >= failedIdx
+        );
+
+      // 5. Re-execute using persistent session
       statusMonitor.updateStatus(project, 'WORKING', `Retrying task: ${task.name}`);
 
-      // 5. Re-execute the task
       try {
-        const result = await taskExecutor!.executeTask(task, failedIdx);
+        console.log(`[Orchestrator] Starting persistent session for retry: ${project} with ${tasksToRun.length} task(s)`);
+        const result = await taskExecutor!.executePersistentSession(project, tasksToRun);
 
         if (!result.success) {
-          chatHandler.systemMessage(`Retry failed for ${task.name}: ${result.message}`);
+          const failedTask = tasksToRun.find(t => t.taskIndex === result.failedTasks[0]);
+          chatHandler.systemMessage(`Retry failed for ${failedTask?.task.name || 'unknown'}. Please provide a fix.`);
           return;
-        }
-
-        // Continue with remaining tasks (same logic as user fix continuation)
-        const allTasks = session?.plan?.tasks || [];
-        const remainingTasks = allTasks
-          .map((t, idx) => ({ task: t, taskIndex: idx }))
-          .filter(({ task: t, taskIndex }) =>
-            t.project === project && taskIndex > failedIdx
-          );
-
-        for (const { task: t, taskIndex } of remainingTasks) {
-          statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Starting...');
-          const res = await taskExecutor!.executeTask(t, taskIndex);
-          if (!res.success) {
-            chatHandler.systemMessage(`Task "${t.name}" failed. Please provide a fix.`);
-            return;
-          }
         }
 
         // All tasks for this project completed, set to READY
