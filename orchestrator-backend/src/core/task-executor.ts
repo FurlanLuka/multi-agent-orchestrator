@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, UserActionRequiredEvent } from '@aio/types';
+import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, UserActionRequiredEvent, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
@@ -7,6 +7,7 @@ import { LogAggregator } from './log-aggregator';
 import { ProjectManager } from './project-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 import { GitManager } from './git-manager';
+import { SessionLogger } from './session-logger';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,6 +25,7 @@ export interface TaskExecutorConfig {
   gitManager?: GitManager;
   getGitBranch?: (project: string) => string | undefined;
   io?: any;  // Socket.io instance for flow events
+  sessionLogger?: SessionLogger;  // Optional session logger for debugging
 }
 
 export interface TaskResult {
@@ -52,12 +54,21 @@ export class TaskExecutor extends EventEmitter {
   private gitManager?: GitManager;
   private getGitBranch?: (project: string) => string | undefined;
   private io?: any;  // Socket.io instance for flow events
+  private sessionLogger?: SessionLogger;  // Optional session logger for debugging
   private activeTaskFlows: Map<number, string> = new Map(); // taskIndex -> flowId
 
   // Pending user input promises - resolved when user submits values
   private pendingUserInputs: Map<number, {
     resolve: (values: Record<string, string>) => void;
     reject: (reason: Error) => void;
+  }> = new Map();
+
+  // Persistent session state - tracks fix attempts per task
+  private fixAttemptsPerTask: Map<number, number> = new Map();
+
+  // Pending task complete requests - resolved when verification response is ready
+  private pendingTaskComplete: Map<string, {
+    resolve: (response: TaskCompleteResponse) => void;
   }> = new Map();
 
   // Task summaries per project - provides context for subsequent tasks
@@ -101,6 +112,7 @@ export class TaskExecutor extends EventEmitter {
     this.gitManager = deps.gitManager;
     this.getGitBranch = deps.getGitBranch;
     this.io = deps.io;
+    this.sessionLogger = deps.sessionLogger;
   }
 
   /**
@@ -173,7 +185,7 @@ export class TaskExecutor extends EventEmitter {
         // Run the agent and capture output
         let agentOutput = '';
         try {
-          agentOutput = await this.processManager.startAgent(task.project, sessionDir, currentPrompt);
+          agentOutput = await this.processManager.sendToAgent(task.project, currentPrompt, taskIndex);
         } catch (agentErr) {
           console.error(`[TaskExecutor] Agent error for task #${taskIndex}:`, agentErr);
           throw agentErr;
@@ -894,5 +906,369 @@ Please fix the issue and try again.`;
 
     fs.writeFileSync(envFilePath, finalContent, 'utf-8');
     console.log(`[TaskExecutor] Wrote ${Object.keys(values).length} env vars to ${envFilePath}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Persistent Session Execution (single agent handles all tasks)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Executes all tasks for a project using a single persistent agent.
+   * The agent uses the task_complete MCP tool to signal completion and receive
+   * verification results or next tasks.
+   *
+   * @param project The project name
+   * @param tasks All tasks for this project
+   * @returns Promise that resolves when all tasks are complete or agent escalates
+   */
+  async executePersistentSession(
+    project: string,
+    tasks: Array<{ task: TaskDefinition; taskIndex: number }>
+  ): Promise<{ success: boolean; completedTasks: number[]; failedTasks: number[] }> {
+    const sessionDir = this.getSessionDir(project);
+    if (!sessionDir) {
+      return { success: false, completedTasks: [], failedTasks: tasks.map(t => t.taskIndex) };
+    }
+
+    const devServerUrl = this.getDevServerUrl(project);
+    const completedTasks: number[] = [];
+    const failedTasks: number[] = [];
+
+    // Reset fix attempts tracking
+    this.fixAttemptsPerTask.clear();
+
+    console.log(`[TaskExecutor] Starting persistent session for ${project} with ${tasks.length} tasks`);
+
+    // Build initial prompt with ALL tasks
+    const initialPrompt = this.buildPersistentSessionPrompt(project, tasks, devServerUrl);
+
+    // Mark project as working and first task as working
+    this.statusMonitor.updateStatus(project, 'WORKING', 'Starting persistent session...');
+    if (tasks.length > 0) {
+      this.statusMonitor.updateTaskStatus(tasks[0].taskIndex, 'working', 'Agent implementing...');
+      this.stateMachine.markAgentActive(project);
+
+      // Create task flow for first task
+      const flowId = `task_${project}_${tasks[0].taskIndex}_${Date.now()}`;
+      this.activeTaskFlows.set(tasks[0].taskIndex, flowId);
+      if (this.io) {
+        (this.io as any).emitFlowStart({
+          id: flowId,
+          type: 'task',
+          project,
+          taskName: tasks[0].task.name,
+          status: 'in_progress',
+          startedAt: Date.now(),
+          steps: [{ id: 'working', status: 'active', message: 'Working on task', timestamp: Date.now() }]
+        });
+      }
+    }
+
+    try {
+      // Run agent with all tasks in one prompt
+      // Agent uses task_complete MCP tool after each task, which blocks and waits for our response
+      // This keeps the agent alive with context preserved across all tasks
+      await this.processManager.runPersistentAgent(project, initialPrompt, tasks[0]?.taskIndex);
+
+      // Determine final results from task statuses
+      for (const { taskIndex } of tasks) {
+        const taskState = this.statusMonitor.getTaskState(taskIndex);
+        if (taskState?.status === 'completed') {
+          completedTasks.push(taskIndex);
+        } else {
+          failedTasks.push(taskIndex);
+        }
+      }
+
+      return { success: failedTasks.length === 0, completedTasks, failedTasks };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[TaskExecutor] Persistent session failed for ${project}:`, err);
+
+      // Mark remaining tasks as failed
+      for (const { taskIndex } of tasks) {
+        const taskState = this.statusMonitor.getTaskState(taskIndex);
+        if (taskState?.status !== 'completed') {
+          this.statusMonitor.updateTaskStatus(taskIndex, 'failed', errorMsg);
+          failedTasks.push(taskIndex);
+        }
+      }
+
+      return { success: false, completedTasks, failedTasks };
+    } finally {
+      this.stateMachine.markAgentIdle(project);
+    }
+  }
+
+  /**
+   * Handles a task_complete request from the persistent agent.
+   * Runs verification, analyzes results, and returns the appropriate response.
+   */
+  async handleTaskCompleteRequest(
+    request: TaskCompleteRequest,
+    allTasks: Array<{ task: TaskDefinition; taskIndex: number }>
+  ): Promise<TaskCompleteResponse> {
+    const { project, taskIndex, summary } = request;
+
+    console.log(`[TaskExecutor] Handling task_complete for ${project} task #${taskIndex}`);
+
+    // Find the task
+    const taskEntry = allTasks.find(t => t.taskIndex === taskIndex);
+    if (!taskEntry) {
+      return {
+        status: 'escalate',
+        escalationReason: `Task #${taskIndex} not found`
+      };
+    }
+
+    const { task } = taskEntry;
+
+    // Store summary for context
+    if (!this.taskSummaries.has(project)) {
+      this.taskSummaries.set(project, []);
+    }
+    this.taskSummaries.get(project)!.push({ taskName: task.name, summary });
+
+    // Update flow to verifying
+    const flowId = this.activeTaskFlows.get(taskIndex);
+    if (this.io && flowId) {
+      (this.io as any).emitFlowStep(flowId, {
+        id: 'verify',
+        status: 'active',
+        message: 'Verifying task',
+        timestamp: Date.now()
+      });
+    }
+
+    // Collect verification context
+    this.statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Running verification...');
+    const verificationContext = await this.collectVerificationContext(
+      project,
+      task.name,
+      task.task,
+      flowId
+    );
+
+    // Check if build and health passed
+    const buildPassed = !verificationContext.buildOutput || verificationContext.buildOutput.exitCode === 0;
+    const healthPassed = !verificationContext.healthCheck || verificationContext.healthCheck.healthy;
+
+    let analysis: TaskAnalysisResult;
+
+    if (buildPassed && healthPassed) {
+      // Auto-pass
+      console.log(`[TaskExecutor] Task #${taskIndex} auto-passed (build: OK, health: OK)`);
+      analysis = { passed: true, analysis: 'All verification checks passed' };
+    } else {
+      // Need Planning Agent analysis
+      this.statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Analyzing results...');
+      analysis = await this.planningAgent.analyzeTaskResult(verificationContext);
+    }
+
+    // Log task completion to session logger
+    if (this.sessionLogger) {
+      this.sessionLogger.agentTask(project, `Task #${taskIndex}: ${task.name}`);
+      this.sessionLogger.agentResult(project, `${analysis.passed ? 'PASSED' : 'FAILED'}: ${summary}`);
+    }
+
+    if (analysis.passed) {
+      // Task passed - complete it and return next task
+      console.log(`[TaskExecutor] Task #${taskIndex} PASSED`);
+
+      // Complete flow
+      if (this.io && flowId) {
+        (this.io as any).emitFlowComplete(flowId, 'completed', {
+          passed: true,
+          summary: 'Task verified successfully'
+        });
+        this.activeTaskFlows.delete(taskIndex);
+      }
+
+      // Git commit if enabled
+      const projectConfig = this.config.projects[project];
+      if (projectConfig?.gitEnabled && this.gitManager) {
+        try {
+          let projectPath = projectConfig.path;
+          if (projectPath.startsWith('~')) {
+            projectPath = projectPath.replace('~', process.env.HOME || '');
+          }
+          const commitMessage = `feat: ${task.name}`;
+          const commitResult = await this.gitManager.commit(projectPath, commitMessage);
+          if (commitResult.success && commitResult.commitHash) {
+            console.log(`[TaskExecutor] Git commit: ${commitResult.commitHash}`);
+          }
+        } catch (err) {
+          console.warn(`[TaskExecutor] Git commit failed:`, err);
+        }
+      }
+
+      this.statusMonitor.updateTaskStatus(taskIndex, 'completed', 'Task completed and verified');
+      this.emit('taskCompleted', { taskIndex, project });
+
+      // Find next task for this project
+      const currentIdx = allTasks.findIndex(t => t.taskIndex === taskIndex);
+      const nextTaskEntry = allTasks.slice(currentIdx + 1).find(t => t.task.project === project);
+
+      if (nextTaskEntry) {
+        // More tasks - return next task
+        this.statusMonitor.updateTaskStatus(nextTaskEntry.taskIndex, 'working', 'Agent implementing...');
+
+        // Create flow for next task
+        const nextFlowId = `task_${project}_${nextTaskEntry.taskIndex}_${Date.now()}`;
+        this.activeTaskFlows.set(nextTaskEntry.taskIndex, nextFlowId);
+        if (this.io) {
+          (this.io as any).emitFlowStart({
+            id: nextFlowId,
+            type: 'task',
+            project,
+            taskName: nextTaskEntry.task.name,
+            status: 'in_progress',
+            startedAt: Date.now(),
+            steps: [{ id: 'working', status: 'active', message: 'Working on task', timestamp: Date.now() }]
+          });
+        }
+
+        return {
+          status: 'next_task',
+          nextTask: {
+            index: nextTaskEntry.taskIndex,
+            name: nextTaskEntry.task.name,
+            description: nextTaskEntry.task.task,
+            project
+          }
+        };
+      } else {
+        // No more tasks for this project
+        this.statusMonitor.updateStatus(project, 'READY', 'All tasks completed');
+        return { status: 'all_complete' };
+      }
+    }
+
+    // Task failed - check fix attempts
+    const attempts = (this.fixAttemptsPerTask.get(taskIndex) || 0) + 1;
+    this.fixAttemptsPerTask.set(taskIndex, attempts);
+
+    console.log(`[TaskExecutor] Task #${taskIndex} FAILED (attempt ${attempts}/${this.MAX_FIX_ATTEMPTS})`);
+
+    if (analysis.suggestedAction === 'escalate' || attempts >= this.MAX_FIX_ATTEMPTS) {
+      // Escalate - too many failures or pre-existing issues
+      const reason = analysis.suggestedAction === 'escalate'
+        ? analysis.analysis
+        : `Failed after ${attempts} attempts: ${analysis.analysis}`;
+
+      // Complete flow as failed
+      if (this.io && flowId) {
+        (this.io as any).emitFlowComplete(flowId, 'failed', {
+          passed: false,
+          summary: 'Escalated',
+          details: reason
+        });
+        this.activeTaskFlows.delete(taskIndex);
+      }
+
+      this.statusMonitor.updateTaskStatus(taskIndex, 'failed', reason);
+      this.statusMonitor.updateStatus(project, 'FAILED', reason);
+      this.emit('taskFailed', { taskIndex, project, error: reason, requiresUserAction: true });
+
+      return {
+        status: 'escalate',
+        escalationReason: reason,
+        attemptNumber: attempts,
+        maxAttempts: this.MAX_FIX_ATTEMPTS
+      };
+    }
+
+    // Return fix required
+    this.statusMonitor.updateTaskStatus(taskIndex, 'fixing', `Fix attempt ${attempts}/${this.MAX_FIX_ATTEMPTS}`);
+
+    // Update flow with fixing step
+    if (this.io && flowId) {
+      (this.io as any).emitFlowStep(flowId, {
+        id: `fix_${attempts}`,
+        status: 'active',
+        message: `Fix attempt ${attempts}/${this.MAX_FIX_ATTEMPTS}`,
+        timestamp: Date.now()
+      });
+    }
+
+    const fixPrompt = analysis.fixPrompt || this.buildFixPrompt(
+      task.name,
+      analysis.analysis,
+      task.task,
+      undefined
+    );
+
+    return {
+      status: 'fix_required',
+      fixPrompt,
+      verificationError: analysis.analysis,
+      attemptNumber: attempts,
+      maxAttempts: this.MAX_FIX_ATTEMPTS
+    };
+  }
+
+  /**
+   * Builds the initial prompt for a persistent session with all tasks.
+   */
+  private buildPersistentSessionPrompt(
+    project: string,
+    tasks: Array<{ task: TaskDefinition; taskIndex: number }>,
+    devServerUrl: string | null
+  ): string {
+    let prompt = `# Implementation Session for ${project}
+
+You are implementing a feature across multiple tasks. Complete each task in order, calling the \`task_complete\` tool after each one.
+
+## Your Tasks
+
+`;
+
+    for (const { task, taskIndex } of tasks) {
+      prompt += `### Task ${taskIndex}: ${task.name}
+${task.task}
+
+---
+
+`;
+    }
+
+    if (devServerUrl) {
+      prompt += `\n**DEV SERVER**: Running at ${devServerUrl}\n`;
+    }
+
+    prompt += `
+## Workflow
+
+1. Implement the current task's requirements
+2. Call the \`task_complete\` MCP tool with:
+   - \`taskIndex\`: The task number you just completed
+   - \`summary\`: Brief description of what you implemented (files changed, key functions, etc.)
+3. Based on the response:
+   - \`next_task\`: Proceed to the next task provided
+   - \`fix_required\`: Fix the issues described in \`fixPrompt\`, then call \`task_complete\` again
+   - \`all_complete\`: Session is done, all tasks verified successfully
+   - \`escalate\`: Stop working, user intervention is needed
+
+## Critical Rules
+
+1. **DO NOT skip calling task_complete** - the orchestrator needs it to verify your work
+2. **DO NOT start the next task** until you receive a \`next_task\` response
+3. **DO NOT write tests** - testing is handled separately
+4. **DO NOT start dev servers** - the orchestrator manages dev servers
+5. **DO NOT run npm install** - the orchestrator handles dependencies
+6. **DO NOT use browser automation tools** to test your work
+7. Focus ONLY on implementing the feature code
+
+## Status Reporting
+
+As you work, output status markers:
+\`[WORKER_STATUS] {"message": "Brief description of current step"}\`
+
+## Start Now
+
+Begin with Task ${tasks[0]?.taskIndex ?? 0}: ${tasks[0]?.task.name ?? 'First task'}
+`;
+
+    return prompt;
   }
 }

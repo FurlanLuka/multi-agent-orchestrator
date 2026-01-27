@@ -293,29 +293,8 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Starts a Claude Code agent for a project (no-op in one-shot mode)
-   * Agents are started on-demand when sendToAgent is called
-   * @returns The agent's response output (for parsing task summaries, etc.)
-   */
-  async startAgent(project: string, _sessionDir: string, initialTask?: string): Promise<string> {
-    const projectConfig = this.config.projects[project];
-    if (!projectConfig) {
-      throw new Error(`Unknown project: ${project}`);
-    }
-
-    console.log(`[ProcessManager] Agent for ${project} ready (one-shot mode)`);
-    this.emit('agentReady', { project });
-
-    // Send initial task if provided
-    if (initialTask) {
-      return await this.sendToAgent(project, initialTask);
-    }
-
-    return '';
-  }
-
-  /**
-   * Sends a prompt to an agent using one-shot mode and returns the response
+   * Sends a prompt to an agent and returns the response.
+   * Used for E2E fix tasks that need direct prompting outside persistent sessions.
    * @param project The project name
    * @param prompt The prompt to send
    * @param taskIndex Optional task index for permission tracking
@@ -523,11 +502,180 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Checks if an agent is ready to receive prompts (always true in one-shot mode)
+   * Runs a persistent agent session that handles multiple tasks via task_complete MCP tool.
+   * Similar to sendToAgent but without --no-session-persistence, allowing the agent
+   * to maintain context across task_complete calls (which block waiting for our response).
    */
-  hasAgentStdin(project: string): boolean {
+  async runPersistentAgent(project: string, prompt: string, taskIndex?: number): Promise<string> {
     const projectConfig = this.config.projects[project];
-    return !!projectConfig; // Ready if project exists
+    if (!projectConfig) {
+      throw new Error(`Unknown project: ${project}`);
+    }
+
+    const projectPath = this.expandPath(projectConfig.path);
+
+    const fs = require('fs');
+    if (!fs.existsSync(projectPath)) {
+      throw new Error(`Project path does not exist: ${projectPath}`);
+    }
+
+    const useDangerousMode = projectConfig.permissions?.dangerouslyAllowAll === true;
+
+    console.log(`[ProcessManager] Running persistent agent for "${project}"`);
+    console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
+
+    // Build args - note: NO --no-session-persistence to keep context
+    const args = [
+      '-p', prompt,
+      '--output-format', 'stream-json',
+      '--verbose'
+      // Removed: --no-session-persistence (agent keeps context for multi-task sessions)
+    ];
+
+    if (useDangerousMode) {
+      args.push('--dangerously-skip-permissions');
+    } else {
+      const mcpConfigPath = this.generateMcpConfig();
+      args.push('--mcp-config', mcpConfigPath);
+      args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
+    }
+
+    const proc = await spawnWithShellEnv('claude', {
+      cwd: projectPath,
+      args,
+      extraEnv: {
+        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
+        ORCHESTRATOR_PROJECT: project,
+        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0),
+      },
+    });
+
+    this.currentAgentProcess.set(project, proc);
+    this.emit('promptSent', { project, length: prompt.length });
+
+    return new Promise((resolve, reject) => {
+      let responseBuffer = '';
+      let resultText = '';
+      let partialLine = '';
+
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        const text = partialLine + chunk.toString();
+        const lines = text.split('\n');
+        partialLine = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          try {
+            const msg: StreamJsonMessage = JSON.parse(line);
+
+            switch (msg.type) {
+              case 'system':
+                if (msg.subtype === 'init') {
+                  console.log(`[ProcessManager] Persistent agent ${project} initialized`);
+                }
+                break;
+
+              case 'assistant':
+                if (msg.message?.content) {
+                  for (const block of msg.message.content) {
+                    if (block.type === 'text' && block.text) {
+                      responseBuffer += block.text;
+
+                      const textLines = block.text.split('\n').filter((l: string) => l.trim());
+                      for (const textLine of textLines) {
+                        this.bufferLog(project, `[agent] ${textLine}`);
+                        this.emit('log', { project, type: 'agent', stream: 'stdout', text: textLine, timestamp: Date.now() });
+
+                        // Detect worker status markers
+                        const workerStatusMatch = textLine.match(/`?\[WORKER_STATUS\]\s*(\{.*\})`?/);
+                        if (workerStatusMatch) {
+                          try {
+                            const status = JSON.parse(workerStatusMatch[1]);
+                            if (status.message) {
+                              this.emit('workerStatus', { project, message: status.message, timestamp: Date.now() });
+                            }
+                          } catch {
+                            // Ignore
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                break;
+
+              case 'result':
+                resultText = msg.result || responseBuffer;
+                console.log(`[ProcessManager] Persistent agent ${project} completed (${resultText.length} chars)`);
+                break;
+
+              case 'error':
+                console.error(`[ProcessManager] Persistent agent ${project} error:`, msg);
+                break;
+            }
+          } catch {
+            this.bufferLog(project, `[agent:raw] ${line}`);
+          }
+        }
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        if (!text.includes('Compiling') && !text.includes('Bundling')) {
+          console.error(`[ProcessManager] Persistent agent ${project} stderr:`, text);
+          this.bufferLog(project, `[agent:stderr] ${text}`);
+        }
+      });
+
+      proc.on('error', (err) => {
+        console.error(`[ProcessManager] Persistent agent error for ${project}:`, err);
+        this.currentAgentProcess.delete(project);
+        reject(err);
+      });
+
+      proc.on('exit', (code, signal) => {
+        if (partialLine.trim()) {
+          try {
+            const msg: StreamJsonMessage = JSON.parse(partialLine);
+            if (msg.type === 'result') {
+              resultText = msg.result || responseBuffer;
+            }
+          } catch {
+            // Ignore
+          }
+        }
+
+        console.log(`[ProcessManager] Persistent agent ${project} exited (code: ${code}, signal: ${signal})`);
+        this.currentAgentProcess.delete(project);
+
+        if (code === 0 || resultText) {
+          this.emit('agentTaskComplete', { project, result: resultText });
+          resolve(resultText);
+        } else {
+          // Emit crash event so orchestrator can mark tasks as failed
+          this.emit('persistentAgentCrash', {
+            project,
+            code,
+            signal,
+            error: `Persistent agent crashed unexpectedly (code: ${code}, signal: ${signal})`
+          });
+          reject(new Error(`Persistent agent exited with code ${code}`));
+        }
+      });
+
+      // 30 minute timeout for persistent sessions (handles multiple tasks)
+      const timeout = setTimeout(() => {
+        if (this.currentAgentProcess.has(project)) {
+          console.error(`[ProcessManager] Persistent agent ${project} timeout - killing process`);
+          proc.kill('SIGKILL');
+          this.currentAgentProcess.delete(project);
+          reject(new Error('Persistent agent timeout (30 minutes)'));
+        }
+      }, 30 * 60 * 1000);
+
+      proc.on('exit', () => clearTimeout(timeout));
+    });
   }
 
   /**

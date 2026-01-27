@@ -90,7 +90,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep } from '@aio/types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -324,6 +324,9 @@ async function main() {
   // TaskExecutor instance - will be fully initialized after session is created (needs getSessionDir)
   let taskExecutor: TaskExecutor | null = null;
 
+  // Track all tasks by project for persistent session task_complete handling
+  let allTasksByProject: Map<string, Array<{ task: TaskDefinition; taskIndex: number }>> = new Map();
+
   // Session logger (initialized when session is created)
   let sessionLogger: SessionLogger | null = null;
 
@@ -398,6 +401,13 @@ async function main() {
 
   processManager.on('agentComplete', ({ project }) => {
     console.log(`[Orchestrator] ${project} agent completed`);
+  });
+
+  // Handle persistent agent crashes
+  processManager.on('persistentAgentCrash', ({ project, error }: { project: string; code: number; signal: string | null; error: string }) => {
+    console.error(`[Orchestrator] Persistent agent crashed for ${project}: ${error}`);
+    statusMonitor.updateStatus(project, 'FAILED', `Agent crashed: ${error}`);
+    chatHandler.systemMessage(`Agent for ${project} crashed unexpectedly. Please retry.`);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -1808,12 +1818,12 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         }
       }
 
-      // Group tasks by project
-      const tasksByProject = new Map<string, Array<{ task: TaskDefinition; taskIndex: number }>>();
+      // Group tasks by project and store globally for taskCompleteRequest handler
+      allTasksByProject = new Map<string, Array<{ task: TaskDefinition; taskIndex: number }>>();
       tasks.forEach((task, taskIndex) => {
-        const existing = tasksByProject.get(task.project) || [];
+        const existing = allTasksByProject.get(task.project) || [];
         existing.push({ task, taskIndex });
-        tasksByProject.set(task.project, existing);
+        allTasksByProject.set(task.project, existing);
       });
 
       // Create TaskExecutor instance for this execution
@@ -1830,10 +1840,27 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         gitManager,
         getGitBranch: (project: string) => session?.gitBranches?.[project],
         io: ui.io,  // For flow events during task verification
+        sessionLogger: sessionLogger || undefined,  // Pass session logger for debugging
       });
 
       // Clear task summaries from any previous session
       taskExecutor.clearTaskSummaries();
+
+      // Set up task complete handler for persistent agent MCP tool
+      ui.setTaskCompleteHandler(async (request: TaskCompleteRequest) => {
+        console.log(`[Orchestrator] Task complete for ${request.project} task #${request.taskIndex}`);
+
+        const projectTasks = allTasksByProject.get(request.project);
+        if (!projectTasks || projectTasks.length === 0) {
+          return { status: 'escalate', escalationReason: 'No tasks found for project' };
+        }
+
+        if (!taskExecutor) {
+          return { status: 'escalate', escalationReason: 'TaskExecutor not initialized' };
+        }
+
+        return await taskExecutor.handleTaskCompleteRequest(request, projectTasks);
+      });
 
       // Track failed tasks for user fix continuation
       taskExecutor.on('taskFailed', ({ taskIndex, project }: { taskIndex: number; project: string }) => {
@@ -1847,31 +1874,31 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         (ui.io as any).emitUserActionRequired(event);
       });
 
-      // Run tasks: parallel across projects, sequential within each project
-      const projectPromises = Array.from(tasksByProject.entries()).map(async ([project, projectTasks]) => {
-        console.log(`[Orchestrator] Starting ${projectTasks.length} task(s) for ${project}`);
+      // Run tasks using persistent sessions: one persistent agent per project
+      // Projects run in parallel, tasks within each project are handled sequentially
+      // via the task_complete MCP tool
+      const projectPromises = Array.from(allTasksByProject.entries()).map(async ([project, projectTasks]) => {
+        console.log(`[Orchestrator] Starting persistent session for ${project} with ${projectTasks.length} task(s)`);
 
-        // Run tasks sequentially within this project
-        for (const { task, taskIndex } of projectTasks) {
-          console.log(`[Orchestrator] Running task #${taskIndex} (${project}:${task.name})`);
-          statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Starting...');
+        const result = await taskExecutor!.executePersistentSession(project, projectTasks);
 
-          const result = await taskExecutor!.executeTask(task, taskIndex);
-
-          if (!result.success) {
-            console.error(`[Orchestrator] Task #${taskIndex} failed: ${result.message}`);
-            // STOP execution on this project - status is FAILED, wait for user intervention
-            console.log(`[Orchestrator] Stopping execution for ${project} - requires user intervention`);
+        if (!result.success) {
+          console.error(`[Orchestrator] Persistent session for ${project} ended with failures`);
+          if (result.failedTasks.length > 0) {
+            const failedTask = projectTasks.find(t => t.taskIndex === result.failedTasks[0]);
             chatHandler.systemMessage(
-              `Task "${task.name}" failed for ${project}. Execution stopped. ` +
+              `Task "${failedTask?.task.name || result.failedTasks[0]}" failed for ${project}. ` +
               `Please provide a fix instruction to continue.`
             );
-            return; // Exit the task loop for this project
           }
+          return;
         }
 
-        // All tasks for this project completed, set to READY
-        statusMonitor.updateStatus(project, 'READY', 'All tasks completed');
+        // All tasks for this project completed, set to READY (if not already)
+        const currentStatus = statusMonitor.getStatus(project);
+        if (currentStatus?.status !== 'READY' && currentStatus?.status !== 'FAILED') {
+          statusMonitor.updateStatus(project, 'READY', 'All tasks completed');
+        }
       });
 
       // Wait for all projects to complete (they run in parallel)

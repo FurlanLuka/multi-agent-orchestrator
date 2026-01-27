@@ -9,7 +9,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '@aio/types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@aio/types';
 import { getWebDistPath } from '../config/paths';
 
@@ -26,6 +26,8 @@ export interface UIServerDependencies {
       };
     }>;
   };
+  // Callback for task completion (set after TaskExecutor is created)
+  onTaskComplete?: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>;
 }
 
 export interface UIServer {
@@ -34,9 +36,13 @@ export interface UIServer {
   io: SocketServer;
   start: () => void;
   stop: () => void;
+  setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
 }
 
-export function createUIServer(port: number = 3456, deps?: Partial<UIServerDependencies>): UIServer {
+export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
+  // Use mutable deps object so handlers can be set later
+  const deps: Partial<UIServerDependencies> = { ...initialDeps };
+
   const app = express();
   const server = createServer(app);
   const io = new SocketServer(server, {
@@ -171,6 +177,41 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     toolName: string;
     toolInput: Record<string, unknown>;
   }>();
+
+  // ═══════════════════════════════════════════════════════════════
+  // Task Complete Handling (for persistent agent task verification)
+  // ═══════════════════════════════════════════════════════════════
+
+  // HTTP endpoint for MCP server to call when agent signals task completion
+  app.post('/api/task-complete', async (req: Request, res: Response) => {
+    const { project, taskIndex, summary } = req.body as TaskCompleteRequest;
+
+    console.log(`[UIServer] Task complete signal for ${project} task #${taskIndex}`);
+
+    // Check if callback is registered
+    if (!deps.onTaskComplete) {
+      console.error(`[UIServer] No task complete handler registered`);
+      res.json({
+        status: 'escalate',
+        escalationReason: 'Task executor not initialized'
+      } as TaskCompleteResponse);
+      return;
+    }
+
+    try {
+      // Call the handler directly (blocks until verification completes)
+      const response = await deps.onTaskComplete({ project, taskIndex, summary });
+      console.log(`[UIServer] Task complete response for ${project} task #${taskIndex}: ${response.status}`);
+      res.json(response);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Task complete error for ${project} task #${taskIndex}:`, err);
+      res.json({
+        status: 'escalate',
+        escalationReason: `Verification error: ${errorMsg}`
+      } as TaskCompleteResponse);
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════
   // Planning Question Handling (for interactive Q&A during planning)
@@ -539,6 +580,9 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     stop: () => {
       server.close();
       io.close();
+    },
+    setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => {
+      deps.onTaskComplete = handler;
     }
   };
 }

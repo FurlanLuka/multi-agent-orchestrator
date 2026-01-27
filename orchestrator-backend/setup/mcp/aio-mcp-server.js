@@ -83,6 +83,24 @@ async function handleMessage(msg) {
             },
             required: ['questions']
           }
+        },
+        {
+          name: 'task_complete',
+          description: 'Signal task completion and request verification. Call this after implementing each task. Returns next task, fix instructions, or completion status.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              taskIndex: {
+                type: 'number',
+                description: 'The index of the completed task (0-based)'
+              },
+              summary: {
+                type: 'string',
+                description: 'Brief summary of what was implemented (files changed, key functions added, etc.)'
+              }
+            },
+            required: ['taskIndex', 'summary']
+          }
         }
       ]
     });
@@ -127,6 +145,24 @@ async function handleMessage(msg) {
 
     respond(id, {
       content: [{ type: 'text', text: answers }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'task_complete') {
+    const taskIndex = params.arguments?.taskIndex;
+    const summary = params.arguments?.summary || '';
+
+    if (taskIndex === undefined || taskIndex === null) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'taskIndex is required' }) }]
+      });
+      return;
+    }
+
+    // Call orchestrator endpoint (blocks until verification completes)
+    const result = await signalTaskComplete(taskIndex, summary);
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
     });
   }
   else if (method === 'notifications/initialized') {
@@ -215,6 +251,45 @@ function askPlanningQuestions(questions) {
     req.on('timeout', () => {
       req.destroy();
       resolve('No response - proceeding with defaults');
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+function signalTaskComplete(taskIndex, summary) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      project: PROJECT,
+      taskIndex: taskIndex,
+      summary: summary
+    });
+
+    const url = new URL(`${ORCHESTRATOR_URL}/api/task-complete`);
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 600000  // 10 minute timeout for verification
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve(body || JSON.stringify({ status: 'escalate', escalationReason: 'No response from orchestrator' }));
+      });
+    });
+
+    req.on('error', () => resolve(JSON.stringify({ status: 'escalate', escalationReason: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ status: 'escalate', escalationReason: 'Verification timeout' }));
     });
 
     req.write(postData);

@@ -824,3 +824,30 @@ export interface ProjectTestState {
   scenarios: TestScenarioState[];
   updatedAt: number;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Persistent Agent Types (for task_complete MCP tool)
+// ═══════════════════════════════════════════════════════════════
+
+/** Request sent when agent calls task_complete MCP tool */
+export interface TaskCompleteRequest {
+  project: string;
+  taskIndex: number;
+  summary: string;
+}
+
+/** Response returned to agent after task verification */
+export interface TaskCompleteResponse {
+  status: 'next_task' | 'fix_required' | 'all_complete' | 'escalate';
+  nextTask?: {
+    index: number;
+    name: string;
+    description: string;
+    project: string;
+  };
+  fixPrompt?: string;
+  verificationError?: string;
+  attemptNumber?: number;
+  maxAttempts?: number;
+  escalationReason?: string;
+}
