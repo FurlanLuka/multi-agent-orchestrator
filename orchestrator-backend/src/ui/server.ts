@@ -57,6 +57,16 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
+  // Shutdown endpoint - allows UI to trigger server shutdown
+  app.post('/api/shutdown', (req: Request, res: Response) => {
+    res.json({ status: 'shutting_down' });
+    process.stdout.write('\n\x1b[33mShutdown requested by client. Goodbye!\x1b[0m\n');
+    // Give time for response to be sent before exiting
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
+  });
+
   app.get('/api/status', (req: Request, res: Response) => {
     if (deps?.statusMonitor) {
       res.json(deps.statusMonitor.getStatusesObject());

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   MantineProvider,
   AppShell,
@@ -19,6 +19,8 @@ import {
   Tabs,
   Card,
   TextInput,
+  Switch,
+  Tooltip,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -38,6 +40,7 @@ import {
   IconGitMerge,
   IconSettings,
   IconPlayerPlay,
+  IconPower,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -109,6 +112,50 @@ function App() {
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
   const [showNewSession, setShowNewSession] = useState(false);
   const [quickStartName, setQuickStartName] = useState('');
+
+  // Shutdown on close preference (persisted to localStorage)
+  const [shutdownOnClose, setShutdownOnClose] = useState(() => {
+    return localStorage.getItem('aio-shutdown-on-close') === 'true';
+  });
+
+  // Handle shutdown on close toggle
+  const handleShutdownOnCloseChange = useCallback((checked: boolean) => {
+    setShutdownOnClose(checked);
+    localStorage.setItem('aio-shutdown-on-close', String(checked));
+  }, []);
+
+  // Shutdown server function
+  const shutdownServer = useCallback(() => {
+    if (port) {
+      navigator.sendBeacon(`http://localhost:${port}/api/shutdown`, '');
+    }
+  }, [port]);
+
+  // Handle beforeunload - prompt user if shutdownOnClose is enabled
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (shutdownOnClose && session) {
+        // Show browser's native "Leave site?" dialog
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    const handleUnload = () => {
+      if (shutdownOnClose) {
+        shutdownServer();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleUnload);
+    };
+  }, [shutdownOnClose, session, shutdownServer]);
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
@@ -208,6 +255,18 @@ function App() {
                   Session Active
                 </Badge>
               )}
+              <Tooltip label="When enabled, closing this tab will also stop the server">
+                <Group gap="xs">
+                  <IconPower size={16} style={{ color: shutdownOnClose ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-gray-5)' }} />
+                  <Switch
+                    size="sm"
+                    checked={shutdownOnClose}
+                    onChange={(e) => handleShutdownOnCloseChange(e.currentTarget.checked)}
+                    label="Stop server on close"
+                    styles={{ label: { fontSize: '12px', color: 'var(--mantine-color-gray-6)' } }}
+                  />
+                </Group>
+              </Tooltip>
             </Group>
           </Group>
         </AppShell.Header>

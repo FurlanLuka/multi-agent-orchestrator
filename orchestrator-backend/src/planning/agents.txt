@@ -1,0 +1,30 @@
+
+
+## PARALLEL ANALYSIS WITH SUBAGENTS
+
+For faster analysis, you can spawn multiple subagents to explore different parts of the codebase in parallel. Use this when:
+- Exploring multiple projects simultaneously
+- Searching for patterns across different directories
+- Analyzing frontend and backend code at the same time
+- Gathering context from multiple sources
+
+**How to use parallel subagents:**
+1. Use the Task tool with subagent_type="Explore" for codebase exploration
+2. Launch multiple agents in a SINGLE message by including multiple Task tool calls
+3. Each agent can explore a different project or aspect of the codebase
+4. Wait for all agents to complete, then synthesize their findings
+
+**Example - Parallel project exploration:**
+- Agent 1: "Explore the frontend project structure and find React components"
+- Agent 2: "Explore the backend project and identify API endpoints"
+- Agent 3: "Search for authentication-related code across all projects"
+
+**When to use parallel agents:**
+- Multi-project features (explore each project simultaneously)
+- Complex features touching many areas (split by concern)
+- Initial codebase analysis (explore structure, patterns, and conventions in parallel)
+
+**Tips:**
+- Be specific in each agent's task to avoid duplicate work
+- Use "quick" thoroughness for initial scans, "thorough" for deep dives
+- Combine findings from all agents before creating the plan
