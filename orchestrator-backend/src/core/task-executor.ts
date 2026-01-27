@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, Config, UserActionRequiredEvent } from '@aio/types';
+import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, UserActionRequiredEvent } from '@aio/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
@@ -222,10 +222,25 @@ export class TaskExecutor extends EventEmitter {
           flowId
         );
 
-        // Let Planning Agent intelligently analyze all context
-        this.statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Planning Agent analyzing results...');
-        console.log(`[TaskExecutor] Task #${taskIndex} sending context to Planning Agent for analysis...`);
-        const analysis = await this.planningAgent.analyzeTaskResult(verificationContext);
+        // Quick pass check: if build passed and health check passed, skip PA analysis
+        const buildPassed = !verificationContext.buildOutput || verificationContext.buildOutput.exitCode === 0;
+        const healthPassed = !verificationContext.healthCheck || verificationContext.healthCheck.healthy;
+
+        let analysis: TaskAnalysisResult;
+
+        if (buildPassed && healthPassed) {
+          // All automated checks passed - skip expensive PA analysis
+          console.log(`[TaskExecutor] Task #${taskIndex} auto-passed (build: ${buildPassed ? 'OK' : 'N/A'}, health: ${healthPassed ? 'OK' : 'N/A'})`);
+          analysis = {
+            passed: true,
+            analysis: 'All verification checks passed'
+          };
+        } else {
+          // Something failed - need PA to analyze and potentially generate fix
+          this.statusMonitor.updateTaskStatus(taskIndex, 'verifying', 'Planning Agent analyzing results...');
+          console.log(`[TaskExecutor] Task #${taskIndex} sending context to Planning Agent for analysis...`);
+          analysis = await this.planningAgent.analyzeTaskResult(verificationContext);
+        }
 
         if (analysis.passed) {
           console.log(`[TaskExecutor] Task #${taskIndex} PASSED: ${analysis.analysis}`);

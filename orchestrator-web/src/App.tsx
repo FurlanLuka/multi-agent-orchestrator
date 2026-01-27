@@ -113,6 +113,8 @@ function App() {
     recheckDependencies,
     permissionPrompt,
     respondToPermission,
+    planningQuestion,
+    answerPlanningQuestion,
     retryProject,
     retryPlan,
   } = useSocket();
@@ -523,13 +525,12 @@ function App() {
                       <Group gap="sm" align="center">
                       {session?.projects.map(projectName => {
                         const config = projects[projectName];
-                        if (!config || !config.devServer) return null;
-                        const url = config.devServer.url || `http://localhost:${config.devServer.port || 5173}`;
+                        if (!config?.devServer?.url) return null;
                         return (
                           <Button
                             key={projectName}
                             component="a"
-                            href={url}
+                            href={config.devServer.url}
                             target="_blank"
                             variant="light"
                             color="blue"
@@ -745,6 +746,8 @@ function App() {
                         readOnly={isReadOnly}
                         permissionPrompt={permissionPrompt}
                         onPermissionResponse={respondToPermission}
+                        planningQuestion={planningQuestion}
+                        onAnswerPlanningQuestion={answerPlanningQuestion}
                       />
                     </Box>
                   </Paper>

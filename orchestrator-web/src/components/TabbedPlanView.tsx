@@ -24,6 +24,7 @@ import {
 } from '@tabler/icons-react';
 import type { Plan, TaskState, TaskStatus, ProjectTestState, TestScenarioStatus } from '@aio/types';
 import { MarkdownMessage } from './MarkdownMessage';
+import { MermaidDiagram } from './MermaidDiagram';
 import { UserActionCard } from './UserActionCard';
 
 interface Props {
@@ -281,7 +282,12 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                 marginTop: '4px',
               }}
             >
-              <MarkdownMessage content={plan.architecture} />
+              {/* Render raw mermaid syntax directly, or markdown-wrapped content via MarkdownMessage */}
+              {plan.architecture.includes('```') ? (
+                <MarkdownMessage content={plan.architecture} />
+              ) : (
+                <MermaidDiagram chart={plan.architecture} />
+              )}
             </Box>
           </Collapse>
         </Box>

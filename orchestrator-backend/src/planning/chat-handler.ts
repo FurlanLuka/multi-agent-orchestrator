@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '@aio/types';
+import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@aio/types';
 import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {
@@ -65,19 +65,22 @@ export class ChatHandler extends EventEmitter {
       this.emit('analysisResult', event);
     });
 
-    // Forward verification start events for UI
-    this.planningAgent.on('verificationStart', (event: VerificationStartEvent) => {
-      this.emit('verificationStart', event);
+    // Forward flow events for 2-phase planning UI
+    this.planningAgent.on('flowStart', (flow: RequestFlow) => {
+      this.emit('flowStart', flow);
     });
 
-    // Forward E2E analyzing events for UI
-    this.planningAgent.on('e2eAnalyzing', (event: E2EAnalyzingEvent) => {
-      this.emit('e2eAnalyzing', event);
+    this.planningAgent.on('flowStep', (data: { flowId: string; step: FlowStep }) => {
+      this.emit('flowStep', data);
     });
 
-    // Forward structured chat response events (from planning requests that don't produce a plan)
-    this.planningAgent.on('chatResponse', (event: ChatResponseEvent) => {
-      this.emit('chatResponse', event);
+    this.planningAgent.on('flowComplete', (data: { flowId: string; status: FlowStatus; result?: { passed: boolean; summary?: string; details?: string }; timestamp: number }) => {
+      this.emit('flowComplete', data);
+    });
+
+    // Forward exploration result for session persistence
+    this.planningAgent.on('explorationComplete', (result: ExplorationAnalysisResult) => {
+      this.emit('explorationComplete', result);
     });
   }
 
@@ -142,20 +145,6 @@ export class ChatHandler extends EventEmitter {
     try {
       const response = await this.planningAgent.sendChat(message);
 
-      // Check for structured response marker using unified parser
-      const responseParsed = parseMarkedResponse<ChatResponseEvent>(response, MARKERS.RESPONSE, ['message', 'status']);
-      if (responseParsed.success && responseParsed.data) {
-        console.log('[ChatHandler] Structured response:', responseParsed.data.status, responseParsed.data.message.substring(0, 50));
-        this.emit('chatResponse', responseParsed.data);
-      } else if (response.includes('[RESPONSE]')) {
-        // Marker found but parsing failed
-        console.error('[ChatHandler] Failed to parse response JSON:', responseParsed.error);
-        this.emit('chatResponse', {
-          message: 'Response received (parsing error)',
-          status: 'info'
-        } as ChatResponseEvent);
-      }
-
       // Check for action marker using unified parser
       const actionParsed = parseMarkedResponse<PlanningAction>(response, MARKERS.ACTION, ['type']);
       if (actionParsed.success && actionParsed.data) {
@@ -167,11 +156,6 @@ export class ChatHandler extends EventEmitter {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error: ${error.message}`);
-      // Emit error response
-      this.emit('chatResponse', {
-        message: `Error: ${error.message}`,
-        status: 'error'
-      } as ChatResponseEvent);
     }
   }
 
@@ -203,19 +187,6 @@ export class ChatHandler extends EventEmitter {
    */
   clearPendingPlan(): void {
     this.pendingPlan = null;
-  }
-
-  /**
-   * Approves the pending plan
-   */
-  approvePlan(): Plan | null {
-    const plan = this.pendingPlan;
-    if (plan) {
-      this.addMessage('user', 'Plan approved! Starting execution...');
-      this.pendingPlan = null;
-      this.emit('planApproved', plan);
-    }
-    return plan;
   }
 
   /**

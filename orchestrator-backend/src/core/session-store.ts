@@ -16,6 +16,7 @@ import {
   FullSessionData,
   TaskState,
   TaskDefinition,
+  ExplorationAnalysisResult,
 } from '@aio/types';
 
 /**
@@ -323,6 +324,18 @@ export class SessionStore extends EventEmitter {
     session.pendingPlan = undefined;
     this.writeSession(session);
     console.log(`[SessionStore] Cleared pending plan for session ${sessionId}`);
+  }
+
+  /**
+   * Sets the exploration/analysis result from Phase 1
+   */
+  setExplorationResult(sessionId: string, result: ExplorationAnalysisResult): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    session.explorationResult = result;
+    this.writeSession(session);
+    console.log(`[SessionStore] Set exploration result for session ${sessionId}`);
   }
 
   /**

@@ -29,6 +29,7 @@ import type {
   FlowStep,
   FlowStatus,
   PermissionPrompt,
+  PlanningQuestion,
 } from '@aio/types';
 
 // Default port for standalone mode (fallback only)
@@ -137,6 +138,9 @@ export function useSocket() {
 
   // Permission prompt state (for live permission approval via MCP)
   const [permissionPrompt, setPermissionPrompt] = useState<PermissionPrompt | null>(null);
+
+  // Planning question state (for interactive Q&A during planning via MCP)
+  const [planningQuestion, setPlanningQuestion] = useState<PlanningQuestion | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -740,6 +744,18 @@ export function useSocket() {
       setPermissionPrompt(event);
     });
 
+    // Planning question events (for interactive Q&A during planning via MCP)
+    socket.on('planningQuestion', (event: PlanningQuestion) => {
+      const currentQ = event.questions[event.currentIndex];
+      console.log(`Planning question (${event.currentIndex + 1}/${event.questions.length}): ${currentQ?.question}`);
+      setPlanningQuestion(event);
+    });
+
+    // Clear planning question when all questions answered
+    socket.on('planningQuestionClear', () => {
+      setPlanningQuestion(null);
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
@@ -1086,6 +1102,14 @@ export function useSocket() {
     }
   }, [permissionPrompt]);
 
+  // Answer planning question (for interactive Q&A during planning via MCP)
+  const answerPlanningQuestion = useCallback((questionId: string, answer: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('answerPlanningQuestion', { questionId, answer });
+      setPlanningQuestion(null);
+    }
+  }, []);
+
   // Retry a failed project task (FATAL_DEBUGGING or FAILED status)
   const retryProject = useCallback((project: string) => {
     if (socketRef.current) {
@@ -1148,6 +1172,7 @@ export function useSocket() {
     availableBranches,
     loadingBranches,
     permissionPrompt,
+    planningQuestion,
     sendChat,
     startSession,
     approvePlan,
@@ -1177,6 +1202,7 @@ export function useSocket() {
     getBranches,
     recheckDependencies,
     respondToPermission,
+    answerPlanningQuestion,
     retryProject,
     retryPlan,
   };

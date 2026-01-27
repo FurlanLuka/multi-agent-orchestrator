@@ -2,9 +2,10 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EAnalyzingEvent, ChatResponseEvent } from '@aio/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult } from '@aio/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
+import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -256,37 +257,7 @@ When executing an action, respond with BOTH:
 
 When NOT executing (refusing):
 - Explain why based on the current project status
-- Tell user what status would allow the action
-
-## STRUCTURED RESPONSE FORMAT (REQUIRED)
-
-ALL your responses to the user MUST end with a structured JSON block using the [RESPONSE] marker.
-This is how the UI displays your responses - without it, users won't see your message!
-
-Format:
-[RESPONSE] {"message": "Your main response", "status": "info", "details": "Optional markdown details"}
-
-Status options:
-- "info" - General information, explanations, answers (blue)
-- "success" - Confirmations, completed actions (green)
-- "warning" - Cautions, things to watch out for (yellow)
-- "error" - Problems, failures, things that went wrong (red)
-
-Examples:
-
-**Answering a question:**
-[RESPONSE] {"message": "The backend uses a modular architecture with database access through an ORM", "status": "info", "details": "Key files:\\n- src/app.module.ts - Main module\\n- src/entities/ - Database entities"}
-
-**Confirming an action:**
-[RESPONSE] {"message": "Restarting backend server", "status": "success"}
-
-**Warning about something:**
-[RESPONSE] {"message": "Cannot send prompt - backend is currently working", "status": "warning", "details": "Wait for the current task to complete or fail before sending new instructions."}
-
-**Reporting an error:**
-[RESPONSE] {"message": "Failed to analyze the codebase", "status": "error", "details": "Could not find package.json in the specified path."}
-
-IMPORTANT: Always include [RESPONSE] at the end of your message. The UI depends on this!`;
+- Tell user what status would allow the action`;
 
     // Build state context for user action requests
     const stateContext = this.buildStateContext();
@@ -625,6 +596,600 @@ User: ${newMessage}`;
   }
 
   /**
+   * Generates MCP config file for planning agent with ask_planning_question tool.
+   * Uses ensureMcpServerExtracted() to ensure the MCP server is always up-to-date.
+   */
+  private generatePlanningMcpConfig(): string {
+    const cacheDir = getCacheDir();
+    const configPath = path.join(cacheDir, 'planning-mcp-config.json');
+
+    // Use the extracted MCP server path (ensures it's always up-to-date)
+    const mcpServerPath = ensureMcpServerExtracted();
+
+    const config = {
+      mcpServers: {
+        'orchestrator-planning': {
+          command: 'node',
+          args: [mcpServerPath]
+        }
+      }
+    };
+
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return configPath;
+  }
+
+  /**
+   * Executes a one-shot Claude call WITH MCP server enabled for interactive Q&A.
+   * Used for Phase 1 (exploration + analysis) where Claude can ask the user questions.
+   *
+   * @param prompt The prompt to send
+   * @param timeoutMs Timeout in milliseconds
+   * @param projectPaths Map of project names to paths (for MCP env vars)
+   */
+  private async executeOneShotWithMCP(
+    prompt: string,
+    timeoutMs: number,
+    projectPaths?: Record<string, string>
+  ): Promise<string> {
+    console.log(`[PlanningAgent] Executing one-shot with MCP (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
+
+    const mcpConfigPath = this.generatePlanningMcpConfig();
+
+    // Spawn claude with MCP server enabled
+    const args = [
+      '-p', prompt,
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--no-session-persistence',
+      '--dangerously-skip-permissions',
+      '--mcp-config', mcpConfigPath  // Enable MCP server for ask_planning_question
+    ];
+
+    // Set env vars for MCP server
+    const extraEnv = {
+      ORCHESTRATOR_URL: 'http://localhost:3456',
+      ORCHESTRATOR_PROJECT: 'planning',
+      ORCHESTRATOR_TASK_INDEX: '0'
+    };
+
+    const proc = await spawnWithShellEnv('claude', {
+      cwd: this.orchestratorDir,
+      args: args,
+      extraEnv: extraEnv,
+    });
+
+    this.currentProcess = proc;
+    console.log('[PlanningAgent] Process spawned with MCP, PID:', proc.pid);
+
+    return new Promise((resolve, reject) => {
+      let responseBuffer = '';
+      let resultText = '';
+      let lineCount = 0;
+      let partialLine = '';
+      const contentBlocks: ContentBlock[] = [];
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const startEvent: ChatStreamEvent = {
+        type: 'message_start',
+        messageId,
+        isPlanningRequest: this.isPlanningRequest
+      };
+      this.emit('stream', startEvent);
+
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        const text = partialLine + chunk.toString();
+        const lines = text.split('\n');
+        partialLine = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          lineCount++;
+
+          try {
+            const msg: StreamJsonMessage = JSON.parse(line);
+
+            switch (msg.type) {
+              case 'system':
+                if (msg.subtype === 'init') {
+                  console.log('[PlanningAgent] Process with MCP initialized');
+                }
+                break;
+
+              case 'assistant':
+                if (msg.message?.content) {
+                  for (const block of msg.message.content) {
+                    let contentBlock: ContentBlock | null = null;
+
+                    if (block.type === 'text' && block.text) {
+                      responseBuffer += block.text;
+                      contentBlock = { type: 'text', text: block.text };
+                      this.emit('output', block.text);
+
+                      // Parse status messages
+                      const statusMatches = block.text.matchAll(/\[PLANNER_STATUS\]\s*(\{[^}]+\})/g);
+                      for (const statusMatch of statusMatches) {
+                        try {
+                          const statusData = JSON.parse(statusMatch[1]);
+                          if (statusData.message) {
+                            const statusEvent: PlanningStatusEvent = {
+                              phase: this.currentPlanningPhase || 'exploring',
+                              message: statusData.message
+                            };
+                            this.emit('planningStatus', statusEvent);
+                          }
+                        } catch { /* ignore */ }
+                      }
+                    } else if (block.type === 'tool_use' && block.id && block.name) {
+                      contentBlock = {
+                        type: 'tool_use',
+                        id: block.id,
+                        name: block.name,
+                        input: block.input || {}
+                      };
+
+                      // Update status based on tool being used
+                      if (['Read', 'Glob', 'Grep', 'Task'].includes(block.name)) {
+                        let statusMessage = 'Exploring codebase...';
+                        if (block.name === 'Read' && block.input?.file_path) {
+                          const fileName = String(block.input.file_path).split('/').pop() || '';
+                          statusMessage = `Reading ${fileName}`;
+                        } else if (block.name === 'Glob' && block.input?.pattern) {
+                          statusMessage = `Searching for ${block.input.pattern}`;
+                        } else if (block.name === 'Grep' && block.input?.pattern) {
+                          statusMessage = `Searching for "${block.input.pattern}"`;
+                        } else if (block.name === 'Task' && block.input?.description) {
+                          statusMessage = `${block.input.description}`;
+                        }
+                        const statusEvent: PlanningStatusEvent = { phase: 'exploring', message: statusMessage };
+                        this.emit('planningStatus', statusEvent);
+                      }
+                      // MCP tool for asking questions
+                      else if (block.name === 'mcp__orchestrator__ask_planning_question') {
+                        const question = block.input?.question as string || 'Question';
+                        const statusEvent: PlanningStatusEvent = {
+                          phase: 'exploring',
+                          message: `Asking: ${question.substring(0, 50)}...`
+                        };
+                        this.emit('planningStatus', statusEvent);
+                      }
+                    } else if (block.type === 'tool_result' && block.tool_use_id) {
+                      contentBlock = {
+                        type: 'tool_result',
+                        tool_use_id: block.tool_use_id,
+                        content: block.content || '',
+                        is_error: block.is_error
+                      };
+                    } else if (block.type === 'thinking' && block.thinking) {
+                      contentBlock = { type: 'thinking', thinking: block.thinking };
+                    }
+
+                    if (contentBlock) {
+                      contentBlocks.push(contentBlock);
+                      const blockEvent: ChatStreamEvent = {
+                        type: 'content_block',
+                        messageId,
+                        block: contentBlock
+                      };
+                      this.emit('stream', blockEvent);
+                    }
+                  }
+                }
+                break;
+
+              case 'result':
+                resultText = msg.result || responseBuffer;
+                break;
+
+              case 'error':
+                console.error('[PlanningAgent] Error from Claude (MCP):', msg);
+                const errorEvent: ChatStreamEvent = { type: 'error', messageId, error: 'Claude error' };
+                this.emit('stream', errorEvent);
+                break;
+            }
+          } catch {
+            // Not JSON - skip
+          }
+        }
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        console.error('[PlanningAgent] STDERR (MCP):', text.substring(0, 200));
+      });
+
+      proc.on('error', (err) => {
+        console.error('[PlanningAgent] Process error (MCP):', err);
+        this.currentProcess = null;
+        this.emit('free');
+        reject(err);
+      });
+
+      proc.on('exit', (code, signal) => {
+        if (partialLine.trim()) {
+          try {
+            const msg: StreamJsonMessage = JSON.parse(partialLine);
+            if (msg.type === 'result') {
+              resultText = msg.result || responseBuffer;
+            }
+          } catch { /* ignore */ }
+        }
+
+        console.log(`[PlanningAgent] Process with MCP exited (code: ${code}, signal: ${signal})`);
+        this.currentProcess = null;
+        this.emit('free');
+
+        const finalResult = resultText || responseBuffer;
+        if (code === 0 || finalResult) {
+          const completeEvent: ChatStreamEvent = {
+            type: 'message_complete',
+            messageId,
+            content: contentBlocks
+          };
+          this.emit('stream', completeEvent);
+          resolve(finalResult);
+        } else {
+          reject(new Error(`Process exited with code ${code}`));
+        }
+      });
+
+      const timeout = setTimeout(() => {
+        if (this.currentProcess) {
+          console.error(`[PlanningAgent] Timeout after ${timeoutMs}ms (MCP) - killing process`);
+          this.currentProcess.kill('SIGKILL');
+          this.currentProcess = null;
+          this.emit('free');
+          reject(new Error(`Planning Agent timeout after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+
+      proc.on('exit', () => clearTimeout(timeout));
+    });
+  }
+
+  /**
+   * Phase 1: Exploration + Analysis with MCP for interactive Q&A.
+   * Explores project structure, analyzes requirements, and can ask user questions.
+   */
+  async runExplorationAnalysisPhase(
+    feature: string,
+    projects: string[],
+    projectPaths: Record<string, string>
+  ): Promise<ExplorationAnalysisResult> {
+    const prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths);
+
+    console.log('[PlanningAgent] Starting Phase 1: Exploration + Analysis');
+
+    // 60% of plan creation time for exploration/analysis phase
+    const result = await this.executeOneShotWithMCP(
+      prompt,
+      Math.floor(PlanningAgentManager.TIMEOUTS.PLAN_CREATION * 0.6),
+      projectPaths
+    );
+
+    // Log the raw result for debugging (truncated)
+    console.log('[PlanningAgent] Phase 1 raw result length:', result.length);
+    if (result.includes('[EXPLORATION_RESULT]')) {
+      console.log('[PlanningAgent] Found EXPLORATION_RESULT marker');
+      const markerIndex = result.indexOf('[EXPLORATION_RESULT]');
+      console.log('[PlanningAgent] Content after marker (first 500 chars):', result.substring(markerIndex, markerIndex + 500));
+    } else {
+      console.log('[PlanningAgent] WARNING: No EXPLORATION_RESULT marker found in response');
+      console.log('[PlanningAgent] Response preview (last 1000 chars):', result.substring(result.length - 1000));
+    }
+
+    const parsed = parseMarkedResponse<ExplorationAnalysisResult>(
+      result,
+      MARKERS.EXPLORATION_RESULT,
+      ['projects', 'featureRequirements']
+    );
+
+    if (!parsed.success || !parsed.data) {
+      console.error('[PlanningAgent] Phase 1 parsing failed:', parsed.error);
+      throw new Error(`Exploration/Analysis failed: ${parsed.error}`);
+    }
+
+    console.log('[PlanningAgent] Phase 1 completed successfully');
+    console.log('[PlanningAgent] Questions asked:', parsed.data.questionsAsked?.length || 0);
+    console.log('[PlanningAgent] Projects explored:', Object.keys(parsed.data.projects || {}).join(', '));
+
+    return parsed.data;
+  }
+
+  /**
+   * Builds the prompt for Phase 1: Exploration + Analysis
+   */
+  private buildExplorationAnalysisPrompt(
+    feature: string,
+    projects: string[],
+    projectPaths: Record<string, string>
+  ): string {
+    const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
+
+    return `You are an exploration and analysis agent for a multi-project orchestrator.
+
+## Feature to Implement
+${feature}
+
+## Projects
+${projectList}
+
+## Your Task
+
+### Part 1: Exploration
+For each project, discover:
+1. **Guidelines** - Read CLAUDE.md, .claude/development.md, .claude/skills/*.md
+2. **Technology Stack** - package.json, framework, language
+3. **Patterns** - API style, state management, component structure
+4. **Key Files** - Entry points, important modules
+5. **Related Features** - Similar existing implementations
+
+### Part 2: Analysis
+Based on exploration:
+1. **Parse Requirements** - What exactly needs to be built
+2. **Define API Contracts** - Endpoints, request/response formats, which project provides/consumes
+3. **Determine Execution Order** - Which projects first, dependencies
+4. **Pattern Recommendations** - What conventions to follow
+5. **Identify Considerations** - Risks, edge cases
+
+## IMPORTANT: Asking Questions
+
+You have access to the \`ask_planning_question\` tool (via MCP). Use it when:
+- Requirements are ambiguous
+- Multiple valid approaches exist and user preference matters
+- You need domain-specific information not in the code
+- Credentials or external service details are needed
+
+Example:
+\`\`\`
+Use tool: ask_planning_question
+Arguments: {
+  "question": "Should the authentication use JWT tokens or session cookies?",
+  "context": "Both are supported by the existing backend framework"
+}
+\`\`\`
+
+Ask questions ONE AT A TIME. Wait for the answer before asking the next question.
+DO NOT ask more than 3-4 questions total - focus on the most important clarifications.
+
+## Status Reporting
+
+Output status markers as you work:
+[PLANNER_STATUS] {"message": "Exploring backend structure"}
+[PLANNER_STATUS] {"message": "Reading auth module"}
+[PLANNER_STATUS] {"message": "Analyzing API endpoints"}
+
+## Output Format (REQUIRED)
+
+After exploration, analysis, and any Q&A, output:
+
+[EXPLORATION_RESULT] {
+  "projects": {
+    "project-name": {
+      "guidelines": "Summary of guidelines found",
+      "technology": {"framework": "...", "language": "...", "packageManager": "..."},
+      "patterns": {"apiStyle": "...", "stateManagement": "...", "componentStructure": "..."},
+      "keyFiles": ["src/index.ts", "src/app.ts"],
+      "relatedFeatures": ["existing similar feature"]
+    }
+  },
+  "featureRequirements": "Detailed requirements based on exploration and user answers",
+  "apiContracts": [
+    {
+      "endpoint": "/api/example",
+      "method": "POST",
+      "requestBody": "{ field: string }",
+      "responseBody": "{ id: number }",
+      "providedBy": "backend",
+      "consumedBy": ["frontend"]
+    }
+  ],
+  "executionOrder": [
+    {"project": "backend", "reason": "Provides API", "dependsOn": []},
+    {"project": "frontend", "reason": "Consumes API", "dependsOn": ["backend"]}
+  ],
+  "recommendations": {
+    "backend": "Use existing auth middleware pattern",
+    "frontend": "Follow existing form component structure"
+  },
+  "considerations": ["Edge case 1", "Security consideration"],
+  "questionsAsked": [
+    {"question": "What was asked?", "answer": "What user answered"}
+  ],
+  "timestamp": ${Date.now()}
+}
+
+Start by exploring the projects NOW. Use Read, Glob, Grep tools to understand the codebase. Ask clarifying questions if needed. Then output the structured result.`;
+  }
+
+  /**
+   * Phase 2: Plan Generation based on exploration results.
+   * Takes the output from Phase 1 and generates the detailed Plan JSON.
+   */
+  async runPlanGenerationPhase(params: {
+    feature: string;
+    projects: string[];
+    explorationAnalysis: ExplorationAnalysisResult;
+  }): Promise<Plan> {
+    const { feature, projects, explorationAnalysis } = params;
+    const prompt = this.buildPlanGenerationPrompt(feature, projects, explorationAnalysis);
+
+    // 40% of plan creation time for generation phase
+    const result = await this.executeOneShot(
+      prompt,
+      Math.floor(PlanningAgentManager.TIMEOUTS.PLAN_CREATION * 0.4)
+    );
+
+    // Extract plan JSON from the result
+    const planMatch = result.match(/```json\s*(\{[\s\S]*?"feature"[\s\S]*?"tasks"[\s\S]*?\})\s*```/);
+    if (!planMatch) {
+      throw new Error('Plan generation did not produce valid Plan JSON');
+    }
+
+    try {
+      const plan: Plan = JSON.parse(planMatch[1]);
+      return plan;
+    } catch (err) {
+      throw new Error(`Failed to parse Plan JSON: ${err}`);
+    }
+  }
+
+  /**
+   * Builds the prompt for Phase 2: Plan Generation
+   */
+  private buildPlanGenerationPrompt(
+    feature: string,
+    projects: string[],
+    analysis: ExplorationAnalysisResult
+  ): string {
+    // Identify projects with E2E testing disabled
+    const projectsWithoutE2E = projects.filter(p => {
+      const config = this.projectConfig[p];
+      return config && config.hasE2E === false;
+    });
+
+    const e2eExclusionNote = projectsWithoutE2E.length > 0
+      ? `\n\nE2E TESTING EXCLUSIONS:
+The following projects have E2E testing DISABLED:
+${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
+DO NOT include these projects in the "testPlan" section.`
+      : '';
+
+    return `You are generating a detailed implementation plan based on prior exploration and analysis.
+
+## Feature
+${feature}
+
+## Projects
+${projects.join(', ')}${e2eExclusionNote}
+
+## Exploration & Analysis Results
+
+### Feature Requirements (clarified with user)
+${analysis.featureRequirements}
+
+### API Contracts
+${JSON.stringify(analysis.apiContracts, null, 2)}
+
+### Execution Order
+${JSON.stringify(analysis.executionOrder, null, 2)}
+
+### Recommendations by Project
+${Object.entries(analysis.recommendations).map(([p, r]) => `- ${p}: ${r}`).join('\n')}
+
+### Considerations
+${analysis.considerations.map(c => `- ${c}`).join('\n')}
+
+### Questions Asked (context)
+${analysis.questionsAsked.length > 0
+  ? analysis.questionsAsked.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
+  : 'No questions were asked'}
+
+## Your Task
+
+Generate a detailed Plan JSON based on the above analysis. The plan should:
+1. Follow the execution order specified
+2. Use the API contracts exactly as defined
+3. Apply the recommendations for each project
+4. Address all considerations
+
+## Plan JSON Format
+
+\`\`\`json
+{
+  "feature": "Feature name",
+  "description": "Brief description",
+  "overview": "High-level implementation approach",
+  "architecture": "Mermaid diagram (flowchart LR)",
+  "tasks": [
+    {
+      "project": "project-name",
+      "name": "Task name",
+      "task": "## Detailed task description in markdown\\n\\n**Files to create:**\\n- ...\\n\\n**Implementation:**\\n- ..."
+    }
+  ],
+  "testPlan": {
+    "project-name": ["E2E scenario 1", "E2E scenario 2"]
+  },
+  "e2eDependencies": {
+    "frontend": ["backend"]
+  }
+}
+\`\`\`
+
+## Task Requirements
+
+Each task MUST include:
+1. **Files to create/modify** - exact paths
+2. **Implementation details** - functions, classes, components
+3. **For APIs:** endpoints, request body, response format, status codes
+4. **For UIs:** component props, state, behavior
+5. **Dependencies:** what to import or install
+
+## Rules
+- Tasks for DIFFERENT projects run IN PARALLEL
+- Tasks for SAME project run SEQUENTIALLY
+- NO unit tests - only implementation code
+- NO starting dev servers
+- testPlan = E2E scenarios only
+
+Generate the Plan JSON now:`;
+  }
+
+  /**
+   * Emits flow events for UI feedback
+   */
+  private emitFlowStart(flowId: string): void {
+    this.emit('flowStart', {
+      id: flowId,
+      type: 'planning',
+      status: 'in_progress',
+      startedAt: Date.now(),
+      steps: []
+    });
+  }
+
+  private emitFlowStep(flowId: string, stepId: string, status: 'active' | 'completed' | 'failed', message: string): void {
+    this.emit('flowStep', {
+      flowId,
+      step: {
+        id: stepId,
+        status,
+        message,
+        timestamp: Date.now()
+      }
+    });
+  }
+
+  private emitFlowComplete(flowId: string, status: 'completed' | 'failed', result?: { passed: boolean; summary?: string; details?: string }): void {
+    this.emit('flowComplete', {
+      flowId,
+      status,
+      result,
+      timestamp: Date.now()
+    });
+  }
+
+  private handlePhaseError(flowId: string, phaseName: string, err: unknown): void {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error(`[PlanningAgent] ${phaseName} failed:`, errorMessage);
+
+    this.emitFlowComplete(flowId, 'failed', {
+      passed: false,
+      summary: `${phaseName} failed`,
+      details: errorMessage
+    });
+
+    const errorStatus: PlanningStatusEvent = {
+      phase: 'error',
+      message: `${phaseName} failed`,
+      errorDetails: errorMessage
+    };
+    this.emit('planningStatus', errorStatus);
+    this.isPlanningRequest = false;
+  }
+
+  /**
    * Handles output and extracts plans or structured responses
    */
   private processOutput(output: string): void {
@@ -647,21 +1212,7 @@ User: ${newMessage}`;
         console.error('[PlanningAgent] Failed to parse plan JSON:', err);
       }
     } else {
-      // No plan detected - check for [RESPONSE] marker (structured chat response)
-      const responseParsed = parseMarkedResponse<ChatResponseEvent>(output, MARKERS.RESPONSE, ['message', 'status']);
-      if (responseParsed.success && responseParsed.data) {
-        console.log('[PlanningAgent] Detected structured response:', responseParsed.data.status);
-        this.emit('chatResponse', responseParsed.data);
-      } else if (output.includes('[RESPONSE]')) {
-        // Marker found but parsing failed - emit generic response
-        console.error('[PlanningAgent] Failed to parse response JSON:', responseParsed.error);
-        this.emit('chatResponse', {
-          message: 'Response received (parsing error)',
-          status: 'info'
-        } as ChatResponseEvent);
-      }
-
-      // Still emit 'complete' to clear planning status if this was a planning request
+      // No plan detected - emit 'complete' to clear planning status if this was a planning request
       // This fixes the bug where UI stays stuck at "Exploring codebase" when PA responds without a plan
       if (this.isPlanningRequest) {
         const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Response complete' };
@@ -750,9 +1301,90 @@ ${prompt}`;
   }
 
   /**
-   * Requests the Planning Agent to create a plan for a feature
+   * Requests the Planning Agent to create a plan for a feature.
+   * Uses 2-phase architecture with interactive Q&A via MCP.
+   *
+   * Phase 1: Exploration + Analysis (with MCP for user questions)
+   * Phase 2: Plan Generation (based on Phase 1 results)
    */
   async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
+    const flowId = `planning_${Date.now()}`;
+    const paths = projectPaths || {};
+
+    // Set planning request flag
+    this.isPlanningRequest = true;
+    this.currentPlanningPhase = 'exploring';
+
+    // Emit flow start
+    this.emitFlowStart(flowId);
+
+    try {
+      // ═══════════════════════════════════════════════════════════════
+      // PHASE 1: Exploration + Analysis (with MCP for Q&A)
+      // ═══════════════════════════════════════════════════════════════
+      this.emitFlowStep(flowId, 'explore_analyze', 'active', 'Exploring & Analyzing');
+      const statusExploring: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
+      this.emit('planningStatus', statusExploring);
+
+      let explorationAnalysis: ExplorationAnalysisResult;
+      try {
+        explorationAnalysis = await this.runExplorationAnalysisPhase(feature, projects, paths);
+        this.emitFlowStep(flowId, 'explore_analyze', 'completed', 'Analysis complete');
+        // Emit exploration result for session persistence
+        this.emit('explorationComplete', explorationAnalysis);
+      } catch (err) {
+        // Phase 1 failed - fall back to legacy single-phase planning
+        console.log('[PlanningAgent] Phase 1 failed, falling back to legacy planning:', err);
+        this.emitFlowStep(flowId, 'explore_analyze', 'failed', 'Exploration failed, using fallback');
+
+        // Use legacy single-phase planning
+        await this.requestPlanLegacy(feature, projects, projectPaths);
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // PHASE 2: Plan Generation
+      // ═══════════════════════════════════════════════════════════════
+      this.emitFlowStep(flowId, 'generate', 'active', 'Generating plan');
+      this.currentPlanningPhase = 'generating';
+      const statusGenerating: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
+      this.emit('planningStatus', statusGenerating);
+
+      try {
+        const plan = await this.runPlanGenerationPhase({
+          feature,
+          projects,
+          explorationAnalysis
+        });
+
+        this.emitFlowComplete(flowId, 'completed', {
+          passed: true,
+          summary: 'Plan ready for review'
+        });
+
+        const statusComplete: PlanningStatusEvent = { phase: 'complete', message: 'Plan ready!' };
+        this.emit('planningStatus', statusComplete);
+        this.emit('planProposal', plan);
+
+      } catch (err) {
+        this.handlePhaseError(flowId, 'Plan generation', err);
+      }
+
+    } catch (err) {
+      this.emitFlowComplete(flowId, 'failed', {
+        passed: false,
+        summary: 'Planning failed unexpectedly',
+        details: String(err)
+      });
+    } finally {
+      this.isPlanningRequest = false;
+    }
+  }
+
+  /**
+   * Legacy single-phase planning (fallback when 2-phase fails or for simple cases)
+   */
+  private async requestPlanLegacy(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
     // Set planning request flag and emit initial status
     this.isPlanningRequest = true;
     this.currentPlanningPhase = 'exploring';
@@ -1238,15 +1870,7 @@ Focus on:
    * Uses intelligent analysis of build output, dev server logs, and health check.
    * Returns pass/fail decision with context-aware fix prompt if needed.
    */
-  async analyzeTaskResult(context: TaskVerificationContext, taskIndex?: number): Promise<TaskAnalysisResult> {
-    // Emit verification start event for UI
-    const verificationStartEvent: VerificationStartEvent = {
-      project: context.project,
-      taskName: context.taskName,
-      taskIndex: taskIndex ?? -1
-    };
-    this.emit('verificationStart', verificationStartEvent);
-
+  async analyzeTaskResult(context: TaskVerificationContext, _taskIndex?: number): Promise<TaskAnalysisResult> {
     // Get project config to show which verification features are enabled
     const projectConfig = this.projectConfig[context.project];
     const installEnabled = projectConfig?.installEnabled ?? false;
@@ -1511,10 +2135,6 @@ The [EVENT_ACTION] marker followed by JSON is REQUIRED.`;
     fixes?: Array<{ project: string; prompt: string }>;  // New: targeted fixes per project
     isInfrastructureFailure?: boolean;  // If true, go straight to FATAL - not fixable by code
   }> {
-    // Emit e2eAnalyzing event for UI
-    const e2eAnalyzingEvent: E2EAnalyzingEvent = { project };
-    this.emit('e2eAnalyzing', e2eAnalyzingEvent);
-
     const devServerSection = devServerLogs?.trim()
       ? `\nDev Server Logs (stdout/stderr - includes request logs, errors, exceptions):
 \`\`\`

@@ -14,8 +14,7 @@ export interface ProjectConfig {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
-    port?: number;  // Dev server port (used to construct URL as http://localhost:{port})
-    url?: string;   // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
+    url?: string;   // Dev server URL for health checks (e.g., "http://localhost:3000")
   };
 
   // Build (optional)
@@ -610,77 +609,6 @@ export interface StreamingMessage {
   createdAt: number;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Unified Chat Event Types (for Planning Agent chat UX)
-// ═══════════════════════════════════════════════════════════════
-
-export type ChatEventType =
-  | 'status'          // In-progress with spinner (verifying, analyzing, running E2E)
-  | 'result'          // Pass/fail result (task verified, E2E passed/failed)
-  | 'info';           // Informational (plan approved, fix sent, waiting)
-
-export interface ChatCardEvent {
-  id: string;
-  type: ChatEventType;
-  category: 'task' | 'e2e' | 'plan' | 'fix' | 'failure';
-  project?: string;
-  taskName?: string;
-  timestamp: number;
-
-  // For 'status' type
-  message?: string;
-
-  // For 'result' type
-  passed?: boolean;
-  summary?: string;
-  details?: string;      // Markdown supported
-  fixPrompt?: string;
-  retryCount?: number;
-  maxRetries?: number;
-
-  // For chat response cards (overrides passed for color)
-  responseStatus?: 'info' | 'success' | 'warning' | 'error';
-}
-
-// Specific events emitted by backend
-export interface VerificationStartEvent {
-  project: string;
-  taskName: string;
-  taskIndex: number;
-}
-
-export interface E2EStartEvent {
-  project: string;
-  testScenarios: string[];
-}
-
-export interface E2EAnalyzingEvent {
-  project: string;
-}
-
-export interface FixSentEvent {
-  fromProject: string;
-  toProject: string;
-  reason: string;
-}
-
-export interface WaitingForProjectEvent {
-  project: string;
-  waitingFor: string[];
-}
-
-export interface PlanApprovedCardEvent {
-  feature: string;
-  taskCount: number;
-  projectCount: number;
-}
-
-export interface ChatResponseEvent {
-  message: string;
-  status: 'info' | 'success' | 'warning' | 'error';
-  details?: string;
-}
-
 // User action required event (backend → frontend)
 export interface UserActionRequiredEvent {
   taskIndex: number;
@@ -695,12 +623,84 @@ export interface UserActionResponseEvent {
   values: Record<string, string>;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Planning Phase Types (for 2-phase planning with interactive Q&A)
+// ═══════════════════════════════════════════════════════════════
+
+/** Project exploration data gathered during Phase 1 */
+export interface ProjectExploration {
+  guidelines?: string;           // CLAUDE.md / .claude/development.md content summary
+  technology: {
+    framework?: string;
+    language?: string;
+    packageManager?: string;
+  };
+  patterns: {
+    apiStyle?: string;           // REST, GraphQL, etc.
+    stateManagement?: string;
+    componentStructure?: string;
+  };
+  keyFiles: string[];            // Important entry points and modules
+  relatedFeatures: string[];     // Similar existing implementations found
+}
+
+/** Combined output from Phase 1: Exploration + Analysis */
+export interface ExplorationAnalysisResult {
+  // Exploration data
+  projects: Record<string, ProjectExploration>;
+
+  // Analysis data
+  featureRequirements: string;
+  apiContracts: Array<{
+    endpoint: string;
+    method: string;
+    requestBody?: string;
+    responseBody?: string;
+    providedBy: string;
+    consumedBy: string[];
+  }>;
+  executionOrder: Array<{
+    project: string;
+    reason: string;
+    dependsOn: string[];
+  }>;
+  recommendations: Record<string, string>;
+  considerations: string[];
+
+  // Q&A history (for context)
+  questionsAsked: Array<{
+    question: string;
+    answer: string;
+  }>;
+
+  timestamp: number;
+}
+
+/** Question type for planning Q&A */
+export type PlanningQuestionType = 'text' | 'select_one' | 'select_many';
+
+/** Single question item for planning Q&A */
+export interface PlanningQuestionItem {
+  question: string;
+  context?: string;
+  type?: PlanningQuestionType;  // Default: 'text'
+  options?: string[];           // For select_one/select_many - predefined options (custom always available)
+}
+
+/** Planning questions from MCP server - supports multiple questions shown one at a time */
+export interface PlanningQuestion {
+  questionId: string;
+  questions: PlanningQuestionItem[];  // Array of questions to ask
+  currentIndex: number;               // Which question is currently being shown (0-based)
+}
+
 // Session persistence types
 export interface PersistedSession {
   id: string;
   feature: string;
   projects: string[];
   startedAt: number;
+  explorationResult?: ExplorationAnalysisResult;  // Result from Phase 1 exploration/analysis
   plan?: Plan;
   pendingPlan?: PlanProposal;  // Plan waiting for user approval
   statuses: Record<string, ProjectState>;

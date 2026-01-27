@@ -639,12 +639,6 @@ async function main() {
           const waitingOn = Array.from(projectsWithFixes).filter(p => p !== project);
           console.log(`[Orchestrator] Fixes needed in ${waitingOn.join(', ')}, setting ${project} to BLOCKED`);
           statusMonitor.updateStatus(project, 'BLOCKED', `Waiting for ${waitingOn.join(', ')} to complete fixes`);
-
-          (ui.io as any).emitWaitingForProject({
-            project,
-            waitingFor: waitingOn
-          });
-
           pendingE2E.set(project, { message: `Re-running E2E after fixes`, waitingOn });
         }
 
@@ -826,19 +820,9 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Track projects with E2E requests already in the queue (prevents duplicates)
   const e2eQueuedProjects: Set<string> = new Set();
 
-  // Helper to get dev server URL for a project (from config only, no hardcoded defaults)
+  // Helper to get dev server URL for a project (from config only)
   const getDevServerUrl = (project: string): string | null => {
-    const projectConfig = config.projects[project];
-    // Use explicit URL if configured (takes precedence)
-    if (projectConfig?.devServer?.url) {
-      return projectConfig.devServer.url;
-    }
-    // Fall back to port-based URL
-    if (projectConfig?.devServer?.port) {
-      return `http://localhost:${projectConfig.devServer.port}`;
-    }
-    // No hardcoded defaults - return null if not configured
-    return null;
+    return config.projects[project]?.devServer?.url ?? null;
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -932,9 +916,6 @@ After fixing, the E2E tests will be re-run automatically.`;
           }]
         };
         (ui.io as any).emitFlowStart(flow);
-
-        // Emit waiting event for UI (legacy)
-        (ui.io as any).emitWaitingForProject({ project, waitingFor: waitingOn });
         return;
       }
     }
@@ -1327,16 +1308,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     }
   });
 
-  chatHandler.on('planApproved', (plan: Plan) => {
-    console.log(`[Orchestrator] Plan approved, setting on session`);
-    sessionManager.setPlan(plan);
-    statusMonitor.initializeTasks(plan.tasks);  // Initialize task tracking
-    // Broadcast initial task states to all connected clients
-    (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
-    sessionLogger?.log('PLAN_APPROVED', { feature: plan.feature, taskCount: plan.tasks.length });
-    // Note: sessionStore.setPlan already clears pendingPlan
-  });
-
   // Track failed task index per project for continuation after user fix
   const failedTaskIndex: Map<string, number> = new Map();
 
@@ -1543,32 +1514,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     (ui.io as any).emitAnalysisResult(event);
   });
 
-  // Forward verification start events to UI
-  chatHandler.on('verificationStart', (event) => {
-    (ui.io as any).emitVerificationStart(event);
-  });
-
-  // Forward E2E analyzing events to UI
-  chatHandler.on('e2eAnalyzing', (event) => {
-    (ui.io as any).emitE2EAnalyzing(event);
-  });
-
-  // Forward chat response events as instant flows (structured responses from Planning Agent)
-  chatHandler.on('chatResponse', (event) => {
-    // Convert to instant flow for unified UI
-    (ui.io as any).emitInstantFlow({
-      id: `response_${Date.now()}`,
-      type: 'info',
-      startedAt: Date.now(),
-      steps: [],
-      result: {
-        passed: event.status !== 'error',
-        summary: event.message,
-        details: event.details
-      }
-    });
-  });
-
   // Forward streaming events to UI for agentic chat
   // Also persist chat messages on message_complete
   // NOTE: PA responses don't need flows - they appear in the chat timeline
@@ -1590,6 +1535,27 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         };
         sessionStore.appendChatMessage(currentSessionId, message);
       }
+    }
+  });
+
+  // Forward flow events for 2-phase planning UI
+  chatHandler.on('flowStart', (flow) => {
+    ui.io.emit('flowStart', flow);
+  });
+
+  chatHandler.on('flowStep', (data) => {
+    ui.io.emit('flowStep', data);
+  });
+
+  chatHandler.on('flowComplete', (data) => {
+    ui.io.emit('flowComplete', data);
+  });
+
+  // Persist exploration result from Phase 1 to session
+  chatHandler.on('explorationComplete', (result) => {
+    const currentSessionId = sessionStore.getCurrentSessionId();
+    if (currentSessionId) {
+      sessionStore.setExplorationResult(currentSessionId, result);
     }
   });
 

@@ -472,8 +472,8 @@ export function AddProjectModal({
                   {selectedTemplateConfig.config.devServer && (
                     <>
                       <Badge size="xs" variant="outline">{selectedTemplateConfig.config.devServer.command}</Badge>
-                      {selectedTemplateConfig.config.devServer.port && (
-                        <Badge size="xs" variant="outline">Port {selectedTemplateConfig.config.devServer.port}</Badge>
+                      {selectedTemplateConfig.config.devServer.url && (
+                        <Badge size="xs" variant="outline">{selectedTemplateConfig.config.devServer.url}</Badge>
                       )}
                     </>
                   )}

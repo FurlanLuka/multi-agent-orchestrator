@@ -100,6 +100,19 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
+   * Extracts port number from a URL string
+   */
+  private getPortFromUrl(url: string | undefined): number | null {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      return parsed.port ? parseInt(parsed.port, 10) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Stores log lines for a project (for crash context)
    */
   private bufferLog(project: string, line: string): void {
@@ -637,11 +650,11 @@ export class ProcessManager extends EventEmitter {
     const key = this.getKey(project, 'devServer');
     const info = this.processes.get(key);
     const projectConfig = this.config.projects[project];
-    const port = projectConfig?.devServer?.port || 3000;
+    const port = this.getPortFromUrl(projectConfig?.devServer?.url);
 
     if (info) {
       const pid = info.process.pid;
-      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${pid}, port: ${port})`);
+      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${pid}${port ? `, port: ${port}` : ''})`);
 
       // Wait for actual 'exit' event OR timeout
       const exitPromise = new Promise<void>((resolve) => {
@@ -703,23 +716,26 @@ export class ProcessManager extends EventEmitter {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    // Kill any lingering processes on the port
-    await this.killProcessOnPort(port);
-
-    // Wait for port to be actually free
-    console.log(`[ProcessManager] Waiting for port ${port} to be free...`);
-    const portFree = await this.waitForPortFree(port, 10000);
-
-    if (!portFree) {
-      console.error(`[ProcessManager] Port ${port} still in use after 10s, forcing kill`);
+    // Port-based cleanup (only if we know the port from URL)
+    if (port) {
+      // Kill any lingering processes on the port
       await this.killProcessOnPort(port);
-      // Wait longer after force kill
-      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Final check
-      const finalCheck = await this.waitForPortFree(port, 3000);
-      if (!finalCheck) {
-        console.error(`[ProcessManager] WARNING: Port ${port} may still be in use, proceeding anyway`);
+      // Wait for port to be actually free
+      console.log(`[ProcessManager] Waiting for port ${port} to be free...`);
+      const portFree = await this.waitForPortFree(port, 10000);
+
+      if (!portFree) {
+        console.error(`[ProcessManager] Port ${port} still in use after 10s, forcing kill`);
+        await this.killProcessOnPort(port);
+        // Wait longer after force kill
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Final check
+        const finalCheck = await this.waitForPortFree(port, 3000);
+        if (!finalCheck) {
+          console.error(`[ProcessManager] WARNING: Port ${port} may still be in use, proceeding anyway`);
+        }
       }
     }
 
@@ -736,10 +752,10 @@ export class ProcessManager extends EventEmitter {
   stopAll(): void {
     console.log(`[ProcessManager] Stopping all processes`);
 
-    // Collect ports to clean up
+    // Collect ports to clean up (extract from URLs)
     const portsToClean: number[] = [];
     for (const project of Object.keys(this.config.projects)) {
-      const port = this.config.projects[project]?.devServer?.port;
+      const port = this.getPortFromUrl(this.config.projects[project]?.devServer?.url);
       if (port) portsToClean.push(port);
     }
 
@@ -865,14 +881,12 @@ export class ProcessManager extends EventEmitter {
       return { healthy: false, error: 'No dev server configured' };
     }
 
-    // Determine URL - use configured URL, or fall back to port, or infer from project type
-    let url = projectConfig.devServer.url;
-    if (!url && projectConfig.devServer.port) {
-      url = `http://localhost:${projectConfig.devServer.port}`;
-    }
+    // URL must be explicitly configured for health check
+    const url = projectConfig.devServer.url;
     if (!url) {
-      const isFrontend = project.toLowerCase().includes('frontend');
-      url = isFrontend ? 'http://localhost:5173' : 'http://localhost:3000';
+      // No URL configured - skip health check (can't verify, assume healthy)
+      console.log(`[ProcessManager] Health check for ${project}: SKIPPED (no URL configured)`);
+      return { healthy: true };
     }
 
     try {

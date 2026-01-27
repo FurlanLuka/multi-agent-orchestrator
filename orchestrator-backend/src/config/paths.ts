@@ -282,55 +282,110 @@ export class PathResolver {
   }
 
   /**
-   * Ensure setup files are extracted to the real filesystem
-   * Called on startup in production mode
+   * Ensure setup files are extracted to the real filesystem.
+   * Called on startup in production mode.
+   *
+   * Always re-syncs to ensure the latest setup files are used.
+   * This handles cases where the user updates AIO but the version number
+   * hasn't changed (e.g., during development or quick patches).
    */
   ensureSetupExtracted(): void {
     if (this.isDevelopment) {
-      return; // No extraction needed in development
+      return; // No extraction needed in development - use source directly
     }
 
     const extractedSetupDir = this.setupDir;
     const bundledSetupDir = this.bundledSetupDir;
 
-    // Check if extraction is needed
-    const versionFile = path.join(extractedSetupDir, '.version');
-    const currentVersion = process.env.npm_package_version || '1.0.0';
+    // Always sync setup files to ensure they're up to date
+    // This handles updates where version hasn't changed
+    console.log(`[PathResolver] Syncing setup files to: ${extractedSetupDir}`);
 
-    let needsExtraction = !fs.existsSync(extractedSetupDir);
-    if (!needsExtraction && fs.existsSync(versionFile)) {
-      const extractedVersion = fs.readFileSync(versionFile, 'utf-8').trim();
-      needsExtraction = extractedVersion !== currentVersion;
-    } else if (!needsExtraction) {
-      // No version file, re-extract to be safe
-      needsExtraction = true;
+    // Ensure setup directory exists
+    if (!fs.existsSync(extractedSetupDir)) {
+      fs.mkdirSync(extractedSetupDir, { recursive: true });
     }
 
-    if (!needsExtraction) {
-      console.log(`[PathResolver] Setup files already extracted at: ${extractedSetupDir}`);
-      return;
-    }
-
-    console.log(`[PathResolver] Extracting setup files to: ${extractedSetupDir}`);
-
-    // Remove old extracted setup
-    if (fs.existsSync(extractedSetupDir)) {
-      fs.rmSync(extractedSetupDir, { recursive: true });
-    }
-
-    // Create setup directory
-    fs.mkdirSync(extractedSetupDir, { recursive: true });
-
-    // Copy all files from bundled setup to extracted location
-    this.copyDirRecursive(bundledSetupDir, extractedSetupDir);
-
-    // Write version file
-    fs.writeFileSync(versionFile, currentVersion);
+    // Sync files (copy newer files, remove deleted files)
+    this.syncDirRecursive(bundledSetupDir, extractedSetupDir);
 
     // Make scripts executable
     this.makeScriptsExecutable(extractedSetupDir);
 
-    console.log(`[PathResolver] Setup files extracted successfully`);
+    // Write version file for reference
+    const versionFile = path.join(extractedSetupDir, '.version');
+    const currentVersion = process.env.npm_package_version || '1.0.0';
+    fs.writeFileSync(versionFile, currentVersion);
+
+    console.log(`[PathResolver] Setup files synced successfully`);
+  }
+
+  /**
+   * Recursively sync directory contents (copy new/updated, remove deleted).
+   * More efficient than full remove + copy as it only updates changed files.
+   */
+  private syncDirRecursive(src: string, dest: string): void {
+    if (!fs.existsSync(src)) {
+      return;
+    }
+
+    // Get list of files in source
+    const srcEntries = fs.readdirSync(src, { withFileTypes: true });
+    const srcNames = new Set(srcEntries.map(e => e.name));
+
+    // Get list of files in destination (if exists)
+    const destNames = new Set<string>();
+    if (fs.existsSync(dest)) {
+      const destEntries = fs.readdirSync(dest, { withFileTypes: true });
+      for (const entry of destEntries) {
+        destNames.add(entry.name);
+      }
+    } else {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+
+    // Process each source entry
+    for (const entry of srcEntries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        // Recurse into subdirectory
+        this.syncDirRecursive(srcPath, destPath);
+      } else {
+        // Copy file if different or missing
+        let needsCopy = !fs.existsSync(destPath);
+        if (!needsCopy) {
+          try {
+            const srcContent = fs.readFileSync(srcPath);
+            const destContent = fs.readFileSync(destPath);
+            needsCopy = !srcContent.equals(destContent);
+          } catch {
+            needsCopy = true;
+          }
+        }
+        if (needsCopy) {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      }
+    }
+
+    // Remove files in dest that don't exist in src (cleanup old files)
+    for (const name of destNames) {
+      if (!srcNames.has(name) && name !== '.version') {
+        const destPath = path.join(dest, name);
+        try {
+          const stat = fs.statSync(destPath);
+          if (stat.isDirectory()) {
+            fs.rmSync(destPath, { recursive: true });
+          } else {
+            fs.unlinkSync(destPath);
+          }
+        } catch {
+          // Ignore errors during cleanup
+        }
+      }
+    }
   }
 
   /**
@@ -425,21 +480,22 @@ export function getMcpDir(): string {
 }
 
 /**
- * Get the path to the MCP permission server in setup directory
+ * Get the path to the AIO MCP server in setup directory.
+ * The AIO MCP server provides tools for permission prompts and planning questions.
  */
 export function getBundledMcpServerPath(): string {
-  return path.join(getSetupDir(), 'mcp', 'permission-server.js');
+  return path.join(getSetupDir(), 'mcp', 'aio-mcp-server.js');
 }
 
 /**
- * Get the path where the MCP permission server should be copied to
+ * Get the path where the AIO MCP server should be copied to
  */
 export function getExtractedMcpServerPath(): string {
-  return path.join(getMcpDir(), 'permission-server.js');
+  return path.join(getMcpDir(), 'aio-mcp-server.js');
 }
 
 /**
- * Ensure the MCP permission server is copied to the cache directory.
+ * Ensure the AIO MCP server is copied to the cache directory.
  * We copy it so that node can execute it (bundled resources may be read-only).
  */
 export function ensureMcpServerExtracted(): string {
@@ -454,7 +510,7 @@ export function ensureMcpServerExtracted(): string {
 
   // Check if source file exists
   if (!fs.existsSync(bundledPath)) {
-    throw new Error(`MCP permission server not found at: ${bundledPath}. Check that resources are properly bundled.`);
+    throw new Error(`AIO MCP server not found at: ${bundledPath}. Check that resources are properly bundled.`);
   }
 
   // Check if we need to copy/update the file
@@ -475,10 +531,10 @@ export function ensureMcpServerExtracted(): string {
     try {
       const content = fs.readFileSync(bundledPath, 'utf-8');
       fs.writeFileSync(extractedPath, content, { mode: 0o755 });
-      console.log(`[PathResolver] Copied MCP permission server to: ${extractedPath}`);
+      console.log(`[PathResolver] Copied AIO MCP server to: ${extractedPath}`);
     } catch (err) {
       console.error(`[PathResolver] Failed to copy MCP server:`, err);
-      throw new Error(`Failed to copy MCP permission server: ${err}`);
+      throw new Error(`Failed to copy AIO MCP server: ${err}`);
     }
   }
 

@@ -9,7 +9,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, VerificationStartEvent, E2EStartEvent, E2EAnalyzingEvent, FixSentEvent, WaitingForProjectEvent, PlanApprovedCardEvent, ChatResponseEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '@aio/types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus } from '@aio/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@aio/types';
 import { getWebDistPath } from '../config/paths';
 
@@ -172,6 +172,59 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     toolInput: Record<string, unknown>;
   }>();
 
+  // ═══════════════════════════════════════════════════════════════
+  // Planning Question Handling (for interactive Q&A during planning)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Track pending planning questions (supports multiple questions shown one at a time)
+  const pendingPlanningQuestions = new Map<string, {
+    resolve: (answers: string) => void;
+    questions: Array<{ question: string; context?: string }>;
+    answers: string[];
+    currentIndex: number;
+  }>();
+
+  // HTTP endpoint for planning questions (called by MCP server)
+  // Supports multiple questions - returns all answers joined when complete
+  app.post('/api/planning-questions', (req: Request, res: Response) => {
+    const { project, taskIndex, questions } = req.body;
+    const key = `planning_${project}_${taskIndex}_${Date.now()}`;
+
+    console.log(`[UIServer] Planning questions for ${project}: ${questions.length} question(s)`);
+
+    // Store resolver and emit first question
+    pendingPlanningQuestions.set(key, {
+      resolve: (answers: string) => res.send(answers),
+      questions,
+      answers: [],
+      currentIndex: 0
+    });
+
+    // Emit to frontend with full questions array
+    io.emit('planningQuestion', {
+      questionId: key,
+      questions,
+      currentIndex: 0
+    });
+
+    // Timeout after 5 minutes for all questions
+    setTimeout(() => {
+      if (pendingPlanningQuestions.has(key)) {
+        const pending = pendingPlanningQuestions.get(key)!;
+        pendingPlanningQuestions.delete(key);
+        // Return whatever answers we got, plus defaults for unanswered
+        const allAnswers = [...pending.answers];
+        for (let i = pending.answers.length; i < pending.questions.length; i++) {
+          allAnswers.push('No response provided');
+        }
+        res.send(allAnswers.map((a, i) => `Q${i + 1}: ${a}`).join('\n\n'));
+      }
+    }, 300000);
+  });
+
+  // Expose pendingPlanningQuestions for socket handler
+  (io as any).pendingPlanningQuestions = pendingPlanningQuestions;
+
   // HTTP endpoint for MCP server to call when Claude needs permission
   app.post('/api/permission-prompt', (req: Request, res: Response) => {
     const { project, taskIndex, toolName, toolInput } = req.body;
@@ -299,11 +352,6 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
       io.emit('startSessionRequest', { feature, projects });
     });
 
-    socket.on('approvePlan', (plan: Plan) => {
-      console.log(`[UIServer] Plan approved`);
-      io.emit('planApproved', plan);
-    });
-
     socket.on('startExecution', () => {
       console.log(`[UIServer] Start execution requested`);
       io.emit('startExecutionRequest');
@@ -326,6 +374,38 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     socket.on('retryProject', ({ project }: { project: string }) => {
       console.log(`[UIServer] Retry requested for ${project}`);
       io.emit('retryProject', { project });
+    });
+
+    // Handle planning question answer (for interactive Q&A during planning)
+    socket.on('answerPlanningQuestion', ({ questionId, answer }: { questionId: string; answer: string }) => {
+      console.log(`[UIServer] Planning question answered: ${questionId}`);
+      const pending = (io as any).pendingPlanningQuestions?.get(questionId);
+      if (pending) {
+        // Store the answer
+        pending.answers.push(answer);
+        pending.currentIndex++;
+
+        if (pending.currentIndex < pending.questions.length) {
+          // More questions to ask - emit next question
+          console.log(`[UIServer] Moving to next question (${pending.currentIndex + 1}/${pending.questions.length})`);
+          io.emit('planningQuestion', {
+            questionId,
+            questions: pending.questions,
+            currentIndex: pending.currentIndex
+          });
+        } else {
+          // All questions answered - resolve with all answers
+          console.log(`[UIServer] All ${pending.questions.length} questions answered`);
+          const formattedAnswers = pending.answers.map((a: string, i: number) =>
+            `Q${i + 1}: ${pending.questions[i].question}\nA${i + 1}: ${a}`
+          ).join('\n\n');
+          pending.resolve(formattedAnswers);
+          (io as any).pendingPlanningQuestions.delete(questionId);
+
+          // Clear question from frontend
+          io.emit('planningQuestionClear', { questionId });
+        }
+      }
     });
 
     socket.on('disconnect', () => {
@@ -392,41 +472,6 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
     io.emit('analysisResult', event);
   };
 
-  // Emit verification start event (task verification beginning)
-  const emitVerificationStart = (event: VerificationStartEvent) => {
-    io.emit('verificationStart', event);
-  };
-
-  // Emit E2E start event (E2E tests beginning)
-  const emitE2EStart = (event: E2EStartEvent) => {
-    io.emit('e2eStart', event);
-  };
-
-  // Emit E2E analyzing event (analyzing E2E results)
-  const emitE2EAnalyzing = (event: E2EAnalyzingEvent) => {
-    io.emit('e2eAnalyzing', event);
-  };
-
-  // Emit fix sent event (fix sent to another project)
-  const emitFixSent = (event: FixSentEvent) => {
-    io.emit('fixSent', event);
-  };
-
-  // Emit waiting for project event (waiting for dependencies)
-  const emitWaitingForProject = (event: WaitingForProjectEvent) => {
-    io.emit('waitingForProject', event);
-  };
-
-  // Emit plan approved card event
-  const emitPlanApprovedCard = (event: PlanApprovedCardEvent) => {
-    io.emit('planApprovedCard', event);
-  };
-
-  // Emit chat response event (structured response from Planning Agent)
-  const emitChatResponse = (event: ChatResponseEvent) => {
-    io.emit('chatResponse', event);
-  };
-
   // Emit user action required event (task needs user input)
   const emitUserActionRequired = (event: UserActionRequiredEvent) => {
     io.emit('userActionRequired', event);
@@ -476,13 +521,6 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
   (io as any).emitTaskStates = emitTaskStates;
   (io as any).emitPlanningStatus = emitPlanningStatus;
   (io as any).emitAnalysisResult = emitAnalysisResult;
-  (io as any).emitVerificationStart = emitVerificationStart;
-  (io as any).emitE2EStart = emitE2EStart;
-  (io as any).emitE2EAnalyzing = emitE2EAnalyzing;
-  (io as any).emitFixSent = emitFixSent;
-  (io as any).emitWaitingForProject = emitWaitingForProject;
-  (io as any).emitPlanApprovedCard = emitPlanApprovedCard;
-  (io as any).emitChatResponse = emitChatResponse;
   (io as any).emitUserActionRequired = emitUserActionRequired;
   (io as any).emitFlowStart = emitFlowStart;
   (io as any).emitFlowStep = emitFlowStep;

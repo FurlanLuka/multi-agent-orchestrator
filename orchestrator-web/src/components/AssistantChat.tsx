@@ -23,11 +23,11 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, RequestFlow, PermissionPrompt } from '@aio/types';
-import { PlanningStatusIndicator } from './PlanningStatusIndicator';
-import { TabbedPlanView } from './TabbedPlanView';
+import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, RequestFlow, PermissionPrompt, PlanningQuestion } from '@aio/types';
+// PlanningStatusIndicator removed - status now shown in ActiveFlowCard
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
+import { PlanReadyFlowCard } from './PlanReadyFlowCard';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
@@ -42,6 +42,8 @@ interface AssistantChatProps {
   readOnly?: boolean;
   permissionPrompt?: PermissionPrompt | null;
   onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
+  planningQuestion?: PlanningQuestion | null;
+  onAnswerPlanningQuestion?: (questionId: string, answer: string) => void;
 }
 
 // Types for markdown components
@@ -395,11 +397,12 @@ function ChatThread({
   completedFlows,
   onSendMessage,
   onApprovePlan,
-  onRetryPlan,
   sessionActive,
   readOnly = false,
   permissionPrompt,
   onPermissionResponse,
+  planningQuestion,
+  onAnswerPlanningQuestion,
 }: AssistantChatProps) {
   // Check if this permission is for the planner
   const isPlannerPermission = permissionPrompt?.project === 'planner';
@@ -488,13 +491,8 @@ function ChatThread({
           <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <ScrollArea h="100%" viewportRef={scrollRef}>
               <Stack gap="md" p="xs">
-                {/* Planning Status Indicator - shown when generating plan */}
-                {planningStatus && (
-                  <PlanningStatusIndicator status={planningStatus} onRetry={onRetryPlan} />
-                )}
-
-                {/* Unified timeline - hide during planning for cleaner UX */}
-                {!planningStatus && timeline.map((item) => {
+                {/* Unified timeline - shown when no active planning flow */}
+                {timeline.map((item) => {
                   if (item.type === 'message') {
                     return (
                       <ChatMessage
@@ -511,23 +509,12 @@ function ChatThread({
                   }
                 })}
 
-                {/* Pending Plan with TabbedPlanView */}
+                {/* Pending Plan - green flow card with full plan view */}
                 {pendingPlan && (
-                  <Card p="md" withBorder shadow="sm" radius="md" bg="green.0" style={{ borderColor: 'var(--mantine-color-green-4)' }}>
-                    <Stack gap="md">
-                      <Badge color="green" variant="filled" size="lg">Plan Ready for Review</Badge>
-                      <TabbedPlanView plan={pendingPlan.plan} isApproval={true} />
-                      <Group>
-                        <Button
-                          variant="filled"
-                          color="green"
-                          onClick={() => onApprovePlan(pendingPlan.plan)}
-                        >
-                          Approve & Start
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
+                  <PlanReadyFlowCard
+                    pendingPlan={pendingPlan}
+                    onApprovePlan={onApprovePlan}
+                  />
                 )}
               </Stack>
             </ScrollArea>
@@ -537,7 +524,7 @@ function ChatThread({
           {activeFlows.length > 0 && (
             <>
               <Divider my="sm" />
-              <Box style={{ maxHeight: 220, overflow: 'auto' }} p="xs">
+              <Box p="xs">
                 <Group gap="xs" mb="xs">
                   <Text size="xs" fw={600} c="blue">
                     ACTIVE
@@ -548,7 +535,13 @@ function ChatThread({
                 </Group>
                 <Stack gap="sm">
                   {activeFlows.map(flow => (
-                    <ActiveFlowCard key={flow.id} flow={flow} />
+                    <ActiveFlowCard
+                      key={flow.id}
+                      flow={flow}
+                      pendingQuestion={flow.type === 'planning' ? planningQuestion : null}
+                      onAnswerQuestion={onAnswerPlanningQuestion}
+                      planningStatus={flow.type === 'planning' ? planningStatus : null}
+                    />
                   ))}
                 </Stack>
               </Box>

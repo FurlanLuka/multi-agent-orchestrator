@@ -222,11 +222,11 @@ export const MARKERS = {
   E2E_RESULT: 'E2E_RESULT',        // Used by Planning Agent when analyzing E2E results
   E2E_RESULTS: 'E2E_RESULTS',      // Used by E2E testing agent to report test results
   EVENT_ACTION: 'EVENT_ACTION',
-  RESPONSE: 'RESPONSE',
   ACTION: 'ACTION',
   TEST_STATUS: 'TEST_STATUS',
   WORKER_STATUS: 'WORKER_STATUS',
   PR_CONTENT: 'PR_CONTENT',        // Used to generate PR title and body
+  EXPLORATION_RESULT: 'EXPLORATION_RESULT',  // Used by Phase 1 planning (exploration + analysis)
 } as const;
 
 export type MarkerName = typeof MARKERS[keyof typeof MARKERS];
