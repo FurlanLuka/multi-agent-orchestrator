@@ -164,10 +164,24 @@ export function extractJSON<T>(response: string, requiredFields: string[] = []):
 
 /**
  * Extract JSON with "allPassed" from E2E output.
- * Handles multiple code blocks and finds the correct one.
+ * First checks for [E2E_RESULTS] marker (preferred), then falls back to code blocks.
  */
 export function extractE2EResult(response: string): { allPassed: boolean; failures?: any[]; overallAnalysis?: string } | null {
-  // Find all JSON code blocks
+  // First, check for [E2E_RESULTS] marker (single line JSON)
+  const markerMatch = response.match(/\[E2E_RESULTS\]\s*(\{.*\})/);
+  if (markerMatch) {
+    try {
+      const parsed = JSON.parse(markerMatch[1]);
+      if ('allPassed' in parsed) {
+        console.log(`[extractE2EResult] Found via [E2E_RESULTS] marker: allPassed=${parsed.allPassed}`);
+        return parsed;
+      }
+    } catch (err) {
+      console.warn(`[extractE2EResult] Failed to parse [E2E_RESULTS] marker JSON:`, err);
+    }
+  }
+
+  // Fallback: Find JSON code blocks
   const codeBlockRegex = /```json\s*\n?([\s\S]*?)\n?```/g;
   let match;
 
@@ -182,7 +196,7 @@ export function extractE2EResult(response: string): { allPassed: boolean; failur
 
       // Check if this is the E2E result (has allPassed field)
       if ('allPassed' in parsed) {
-        console.log(`[extractE2EResult] Found E2E result: allPassed=${parsed.allPassed}`);
+        console.log(`[extractE2EResult] Found E2E result in code block: allPassed=${parsed.allPassed}`);
         return parsed;
       }
     } catch (err) {
@@ -191,10 +205,10 @@ export function extractE2EResult(response: string): { allPassed: boolean; failur
     }
   }
 
-  // Fallback: try to find allPassed anywhere in the response
+  // Final fallback: try to find allPassed anywhere in the response
   const allPassedMatch = response.match(/"allPassed"\s*:\s*(true|false)/);
   if (allPassedMatch) {
-    console.log(`[extractE2EResult] Found allPassed via regex: ${allPassedMatch[1]}`);
+    console.log(`[extractE2EResult] Found allPassed via regex fallback: ${allPassedMatch[1]}`);
     return { allPassed: allPassedMatch[1] === 'true' };
   }
 
@@ -204,7 +218,8 @@ export function extractE2EResult(response: string): { allPassed: boolean; failur
 // Standard marker names used across the orchestrator
 export const MARKERS = {
   TASK_RESULT: 'TASK_RESULT',
-  E2E_RESULT: 'E2E_RESULT',
+  E2E_RESULT: 'E2E_RESULT',        // Used by Planning Agent when analyzing E2E results
+  E2E_RESULTS: 'E2E_RESULTS',      // Used by E2E testing agent to report test results
   EVENT_ACTION: 'EVENT_ACTION',
   RESPONSE: 'RESPONSE',
   ACTION: 'ACTION',

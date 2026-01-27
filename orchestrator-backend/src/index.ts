@@ -1032,7 +1032,15 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
 - After passing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "passed"}
 - After failing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "failed", "error": "brief error description"}
 
-**FAIL FAST**: When a test fails, STOP immediately and report the failure. Do not continue to other tests.`;
+**FAIL FAST**: When a test fails, STOP immediately and report the failure. Do not continue to other tests.
+
+## FINAL RESULT (REQUIRED)
+
+At the END, output the test results using the [E2E_RESULTS] marker on a SINGLE LINE:
+
+[E2E_RESULTS] {"allPassed": true/false, "failures": [{"test": "name", "error": "msg", "codeAnalysis": "analysis", "suspectedProject": "frontend|backend|both|this"}], "overallAnalysis": "summary"}
+
+This marker is REQUIRED - the orchestrator uses it to parse results.`;
 
       // Execute E2E directly without going through Planning Agent
       await actionExecutor.execute({ type: 'send_e2e', project, prompt: e2ePrompt });
@@ -1082,19 +1090,24 @@ ${passedTests.length > 0 ? `\n(${passedTests.length} tests already passed and sk
       e2eQueuedProjects.delete(project);
 
       if (e2ePrompt && e2ePrompt.trim()) {
-        // Append mandatory marker instructions to ensure the agent outputs TEST_STATUS markers
+        // Append mandatory marker instructions to ensure the agent outputs required markers
         // (The PA should include these but sometimes doesn't emphasize them enough)
         e2ePrompt += `
 
 ---
-**MANDATORY: OUTPUT TEST STATUS MARKERS**
+**MANDATORY: OUTPUT MARKERS**
 
 You MUST output these markers for real-time tracking (the UI depends on them):
 - Before each test: [TEST_STATUS] {"scenario": "exact scenario text", "status": "running"}
 - After passing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "passed"}
 - After failing: [TEST_STATUS] {"scenario": "exact scenario text", "status": "failed", "error": "brief error"}
 
-Output these markers on their own line, not inside code blocks.`;
+Output these markers on their own line, not inside code blocks.
+
+**MANDATORY: FINAL RESULT**
+
+At the END, output results using [E2E_RESULTS] marker on ONE LINE:
+[E2E_RESULTS] {"allPassed": true/false, "failures": [{"test": "name", "error": "msg", "codeAnalysis": "analysis", "suspectedProject": "frontend|backend|both|this"}], "overallAnalysis": "summary"}`;
 
         console.log(`[Orchestrator] Executing E2E for ${project} (prompt: ${e2ePrompt.length} chars)`);
 

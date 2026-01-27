@@ -257,9 +257,17 @@ export class ActionExecutor extends EventEmitter {
       const result = await this.processManager.sendToAgent(action.project, action.prompt);
       console.log(`[ActionExecutor] Agent ${action.project} completed E2E (${result.length} chars)`);
 
-      // Check if E2E failure is due to dev server issues (not actual test failures)
-      if (this.detectsDevServerIssue(result)) {
-        console.log(`[ActionExecutor] Detected dev server issue during E2E for ${action.project}`);
+      // Check if result contains a valid E2E response:
+      // 1. [E2E_RESULTS] marker (preferred - single line JSON)
+      // 2. allPassed field in any JSON (fallback for older prompts)
+      const hasE2EResultsMarker = /\[E2E_RESULTS\]\s*\{/.test(result);
+      const hasAllPassedField = /["']?allPassed["']?\s*:\s*(true|false)/i.test(result);
+      const hasValidE2EResponse = hasE2EResultsMarker || hasAllPassedField;
+
+      // Only check for dev server issues if there's NO valid E2E response
+      // This prevents treating reported CORS/fetch errors in E2E analysis as dev server issues
+      if (!hasValidE2EResponse && this.detectsDevServerIssue(result)) {
+        console.log(`[ActionExecutor] Detected dev server issue during E2E for ${action.project} (no valid E2E response)`);
 
         const recovered = await this.attemptDevServerRecovery(action.project);
         if (recovered) {
@@ -286,6 +294,13 @@ export class ActionExecutor extends EventEmitter {
 
       // Clear retry count on success (even if tests fail, server was working)
       this.retryCount.delete(action.project);
+
+      // Log what type of E2E response we detected
+      if (hasE2EResultsMarker) {
+        console.log(`[ActionExecutor] E2E result has [E2E_RESULTS] marker - passing to Planning Agent`);
+      } else if (hasAllPassedField) {
+        console.log(`[ActionExecutor] E2E result has allPassed field (no marker) - passing to Planning Agent`);
+      }
 
       // Don't update status here - emit result for analysis
       // The listener will analyze and set status to either IDLE (passed) or E2E_FIXING (failed)

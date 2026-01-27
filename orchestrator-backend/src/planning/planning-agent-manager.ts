@@ -1177,22 +1177,17 @@ Generate an E2E test prompt that instructs the agent to:
    - Identify what the code is trying to do and where it fails
    - Determine if the issue is in THIS project or another
 
-7. Return a structured response at the END:
+7. Return a structured response at the END using the [E2E_RESULTS] marker on a SINGLE LINE:
 
-\`\`\`json
-{
-  "allPassed": true/false,
-  "failures": [
-    {
-      "test": "test name",
-      "error": "actual error message",
-      "codeAnalysis": "What I found: ComponentX.tsx:45 calls POST /api/endpoint which returns 404",
-      "suspectedProject": "frontend" | "backend" | "both" | "this"
-    }
-  ],
-  "overallAnalysis": "Summary of what went wrong and which project(s) likely need fixes"
-}
-\`\`\`
+[E2E_RESULTS] {"allPassed": true/false, "failures": [{"test": "name", "error": "msg", "codeAnalysis": "analysis", "suspectedProject": "frontend|backend|both|this"}], "overallAnalysis": "summary"}
+
+IMPORTANT: The [E2E_RESULTS] marker and JSON MUST be on ONE LINE. This marker is REQUIRED - the orchestrator uses it to parse results.
+
+Example success:
+[E2E_RESULTS] {"allPassed": true, "failures": [], "overallAnalysis": "All tests passed"}
+
+Example failure:
+[E2E_RESULTS] {"allPassed": false, "failures": [{"test": "Create post", "error": "Failed to fetch", "codeAnalysis": "CORS error when calling backend API", "suspectedProject": "backend"}], "overallAnalysis": "Backend needs CORS configuration"}
 
 Output the E2E prompt that should be sent to the agent.`;
 
