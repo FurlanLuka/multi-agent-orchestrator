@@ -312,4 +312,114 @@ export class GitManager {
     console.log(`[GitManager] Merged '${sourceBranch}' into '${targetBranch}' at ${projectPath}`);
     return { success: true, message: `Merged '${sourceBranch}' into '${targetBranch}'` };
   }
+
+  /**
+   * Checks if the project has a GitHub remote (origin points to github.com)
+   */
+  async isGitHubProject(projectPath: string): Promise<{ isGitHub: boolean; repoUrl?: string }> {
+    const remoteResult = await this.runGitCommand(projectPath, ['remote', 'get-url', 'origin']);
+    if (remoteResult.exitCode !== 0) {
+      return { isGitHub: false };
+    }
+
+    const remoteUrl = remoteResult.stdout.trim();
+    const isGitHub = remoteUrl.includes('github.com');
+
+    return { isGitHub, repoUrl: isGitHub ? remoteUrl : undefined };
+  }
+
+  /**
+   * Creates a pull request using GitHub CLI (gh)
+   * Returns the PR URL on success
+   */
+  async createPullRequest(
+    projectPath: string,
+    options: {
+      title: string;
+      body: string;
+      baseBranch: string;
+      headBranch: string;
+    }
+  ): Promise<{ success: boolean; message: string; prUrl?: string }> {
+    const expandedPath = this.expandPath(projectPath);
+
+    // Check if gh is available
+    try {
+      await execWithShellEnv('gh --version', { cwd: expandedPath, timeout: 5000 });
+    } catch {
+      return { success: false, message: 'GitHub CLI (gh) is not installed. Install it with: brew install gh' };
+    }
+
+    // Check if authenticated
+    try {
+      const authResult = await execWithShellEnv('gh auth status', { cwd: expandedPath, timeout: 5000 });
+      if (authResult.exitCode !== 0) {
+        return { success: false, message: 'GitHub CLI is not authenticated. Run: gh auth login' };
+      }
+    } catch {
+      return { success: false, message: 'GitHub CLI is not authenticated. Run: gh auth login' };
+    }
+
+    // Create the PR
+    const { title, body, baseBranch, headBranch } = options;
+
+    // Escape title and body for shell
+    const escapedTitle = title.replace(/"/g, '\\"').replace(/`/g, '\\`');
+    const escapedBody = body.replace(/"/g, '\\"').replace(/`/g, '\\`');
+
+    const prCommand = `gh pr create --title "${escapedTitle}" --body "${escapedBody}" --base "${baseBranch}" --head "${headBranch}"`;
+
+    try {
+      const result = await execWithShellEnv(prCommand, { cwd: expandedPath, timeout: 30000 });
+
+      if (result.exitCode !== 0) {
+        // Check for common errors
+        const errorOutput = (result.stderr || result.stdout).toLowerCase();
+        if (errorOutput.includes('already exists')) {
+          // PR already exists - try to get the URL
+          const viewResult = await execWithShellEnv(`gh pr view ${headBranch} --json url -q .url`, { cwd: expandedPath, timeout: 10000 });
+          if (viewResult.exitCode === 0) {
+            return {
+              success: true,
+              message: 'Pull request already exists',
+              prUrl: viewResult.stdout.trim()
+            };
+          }
+          return { success: false, message: 'Pull request already exists for this branch' };
+        }
+        return { success: false, message: result.stderr || result.stdout || 'Failed to create pull request' };
+      }
+
+      // Extract PR URL from output (gh pr create outputs the URL)
+      const prUrl = result.stdout.trim().split('\n').pop() || '';
+
+      console.log(`[GitManager] Created PR: ${prUrl}`);
+      return { success: true, message: 'Pull request created successfully', prUrl };
+    } catch (err: any) {
+      console.error(`[GitManager] Failed to create PR:`, err);
+      return { success: false, message: err.message || 'Failed to create pull request' };
+    }
+  }
+
+  /**
+   * Gets commit log between two refs (for PR description)
+   */
+  async getCommitLog(
+    projectPath: string,
+    baseRef: string,
+    headRef: string
+  ): Promise<string[]> {
+    const result = await this.runGitCommand(projectPath, [
+      'log',
+      '--oneline',
+      '--no-merges',
+      `${baseRef}..${headRef}`
+    ]);
+
+    if (result.exitCode !== 0) {
+      return [];
+    }
+
+    return result.stdout.trim().split('\n').filter(line => line.trim());
+  }
 }

@@ -795,6 +795,7 @@ export interface DependencyStatus {
 export interface DependencyCheckResult {
   claude: DependencyStatus;
   git: DependencyStatus;
+  gh: DependencyStatus;  // GitHub CLI (optional - for PR creation)
 }
 
 // Chat message (legacy - simple text)

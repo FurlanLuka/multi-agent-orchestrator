@@ -127,6 +127,10 @@ export function useSocket() {
   // Git merge state tracking
   const [mergingBranch, setMergingBranch] = useState<Record<string, boolean>>({});
   const [mergeResults, setMergeResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  // GitHub PR state tracking
+  const [creatingPR, setCreatingPR] = useState<Record<string, boolean>>({});
+  const [prResults, setPRResults] = useState<Record<string, { success: boolean; message: string; prUrl?: string }>>({});
+  const [gitHubInfo, setGitHubInfo] = useState<Record<string, { isGitHub: boolean; repoUrl?: string }>>({});
 
   // Permission prompt state (for live permission approval via MCP)
   const [permissionPrompt, setPermissionPrompt] = useState<PermissionPrompt | null>(null);
@@ -702,6 +706,24 @@ export function useSocket() {
       console.error(`Git merge error for ${project}: ${error}`);
     });
 
+    // GitHub PR events
+    socket.on('gitHubInfo', ({ project, isGitHub, repoUrl }: { project: string; isGitHub: boolean; repoUrl?: string }) => {
+      setGitHubInfo(prev => ({ ...prev, [project]: { isGitHub, repoUrl } }));
+      console.log(`GitHub info for ${project}: isGitHub=${isGitHub}`);
+    });
+
+    socket.on('createPRSuccess', ({ project, message, prUrl }: { project: string; message: string; prUrl?: string }) => {
+      setCreatingPR(prev => ({ ...prev, [project]: false }));
+      setPRResults(prev => ({ ...prev, [project]: { success: true, message, prUrl } }));
+      console.log(`PR created for ${project}: ${prUrl}`);
+    });
+
+    socket.on('createPRError', ({ project, error }: { project: string; error: string }) => {
+      setCreatingPR(prev => ({ ...prev, [project]: false }));
+      setPRResults(prev => ({ ...prev, [project]: { success: false, message: error } }));
+      console.error(`Create PR error for ${project}: ${error}`);
+    });
+
     // Permission prompt events (for live permission approval via MCP)
     socket.on('permissionPrompt', (event: PermissionPrompt) => {
       console.log(`Permission prompt for ${event.project}: ${event.toolName}`);
@@ -1011,6 +1033,26 @@ export function useSocket() {
     }
   }, []);
 
+  // Get GitHub info for a project
+  const getGitHubInfo = useCallback((project: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('getGitHubInfo', { project });
+    }
+  }, []);
+
+  // Create a pull request
+  const createPR = useCallback((project: string, branchName: string, baseBranch?: string, title?: string, body?: string) => {
+    if (socketRef.current) {
+      setCreatingPR(prev => ({ ...prev, [project]: true }));
+      setPRResults(prev => {
+        const updated = { ...prev };
+        delete updated[project];
+        return updated;
+      });
+      socketRef.current.emit('createPR', { project, branchName, baseBranch, title, body });
+    }
+  }, []);
+
   // Respond to permission prompt (for live permission approval via MCP)
   const respondToPermission = useCallback((approved: boolean, allowAll?: boolean) => {
     if (socketRef.current && permissionPrompt) {
@@ -1081,6 +1123,9 @@ export function useSocket() {
     pushResults,
     mergingBranch,
     mergeResults,
+    creatingPR,
+    prResults,
+    gitHubInfo,
     permissionPrompt,
     sendChat,
     startSession,
@@ -1106,6 +1151,8 @@ export function useSocket() {
     pushBranch,
     clearPushResult,
     mergeBranch,
+    getGitHubInfo,
+    createPR,
     recheckDependencies,
     respondToPermission,
     retryProject,

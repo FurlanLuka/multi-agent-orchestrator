@@ -167,6 +167,48 @@ async function checkGit(): Promise<DependencyResult> {
 }
 
 /**
+ * Check if GitHub CLI (gh) is installed
+ */
+async function checkGitHubCLI(): Promise<DependencyResult> {
+  try {
+    const { stdout } = await execWithUserPath('gh --version', 5000);
+
+    const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
+    const version = versionMatch ? versionMatch[1] : stdout.trim().split('\n')[0];
+
+    return {
+      name: 'GitHub CLI',
+      available: true,
+      version,
+    };
+  } catch (err: any) {
+    return {
+      name: 'GitHub CLI',
+      available: false,
+      error: err.message || 'GitHub CLI not found',
+      installGuide: getGitHubCLIInstallGuide(),
+    };
+  }
+}
+
+/**
+ * Get platform-specific install guide for GitHub CLI
+ */
+function getGitHubCLIInstallGuide(): string {
+  const platform = os.platform();
+
+  if (platform === 'darwin') {
+    return 'Install GitHub CLI:\n  brew install gh\n\nThen authenticate:\n  gh auth login';
+  }
+
+  if (platform === 'win32') {
+    return 'Install GitHub CLI:\n  winget install --id GitHub.cli\n\nThen authenticate:\n  gh auth login';
+  }
+
+  return 'Install GitHub CLI:\n  See https://github.com/cli/cli#installation\n\nThen authenticate:\n  gh auth login';
+}
+
+/**
  * Get platform-specific install guide for Claude Code
  */
 function getClaudeCodeInstallGuide(): string {
@@ -230,9 +272,12 @@ export async function checkDependencies(): Promise<DependencyCheckResult> {
     checkClaudeCode(),
     checkNodeJs(),
     checkGit(),
+    checkGitHubCLI(),
   ]);
 
-  const allAvailable = dependencies.every((d) => d.available);
+  // gh is optional, so only check critical deps for allAvailable
+  const criticalDeps = dependencies.filter(d => d.name !== 'GitHub CLI');
+  const allAvailable = criticalDeps.every((d) => d.available);
 
   return {
     allAvailable,

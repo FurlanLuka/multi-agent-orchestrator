@@ -12,7 +12,12 @@ import {
   Card,
   ActionIcon,
   Loader,
+  Box,
 } from '@mantine/core';
+import { RichTextEditor, Link } from '@mantine/tiptap';
+import { useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
 import { IconRocket, IconTrash, IconPlayerPlay, IconCheck, IconAlertTriangle, IconClock, IconGitBranch } from '@tabler/icons-react';
 import type { SessionSummary, SessionStatus, ProjectConfig } from '@aio/types';
 
@@ -73,22 +78,46 @@ export function SessionSetup({
   loadingSession = false,
   startingSession = false,
 }: SessionSetupProps) {
-  const [feature, setFeature] = useState('');
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [branchName, setBranchName] = useState('');
+
+  // Rich text editor for feature description
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Link,
+      Placeholder.configure({
+        placeholder: 'Describe the feature you want to build...\n\nYou can use formatting like:\n• Bold for emphasis\n• Bullet lists for requirements\n• Code blocks for technical details',
+      }),
+    ],
+    content: '',
+  });
 
   // Check if any selected project has git enabled
   const hasGitEnabledProject = selectedProjects.some(
     p => projectConfigs[p]?.gitEnabled
   );
 
+  // Get plain text from editor (strips HTML but preserves structure)
+  const getFeatureText = () => {
+    if (!editor) return '';
+    // Get text content, preserving newlines
+    return editor.getText();
+  };
+
+  // Check if editor has content
+  const hasContent = editor ? !editor.isEmpty : false;
+
   const handleStart = () => {
-    if (feature.trim() && selectedProjects.length > 0) {
+    const featureText = getFeatureText();
+    if (featureText.trim() && selectedProjects.length > 0) {
       onStartSession(
-        feature.trim(),
+        featureText.trim(),
         selectedProjects,
         hasGitEnabledProject ? branchName.trim() || undefined : undefined
       );
+      // Clear editor after starting
+      editor?.commands.clearContent();
     }
   };
 
@@ -177,13 +206,58 @@ export function SessionSetup({
             The Planning Agent will create an implementation plan for review.
           </Text>
 
-          <TextInput
-            label="Feature Description"
-            placeholder="e.g., Add user authentication with Google OAuth"
-            value={feature}
-            onChange={(e) => setFeature(e.target.value)}
-            size="md"
-          />
+          <Box>
+            <Text size="sm" fw={500} mb={4}>Feature Description</Text>
+            <RichTextEditor editor={editor} styles={{
+              root: {
+                minHeight: 150,
+              },
+              content: {
+                minHeight: 120,
+                '& .ProseMirror': {
+                  minHeight: 100,
+                },
+              },
+            }}>
+              <RichTextEditor.Toolbar sticky stickyOffset={60}>
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Bold />
+                  <RichTextEditor.Italic />
+                  <RichTextEditor.Strikethrough />
+                  <RichTextEditor.Code />
+                </RichTextEditor.ControlsGroup>
+
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.H1 />
+                  <RichTextEditor.H2 />
+                  <RichTextEditor.H3 />
+                </RichTextEditor.ControlsGroup>
+
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.BulletList />
+                  <RichTextEditor.OrderedList />
+                </RichTextEditor.ControlsGroup>
+
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Blockquote />
+                  <RichTextEditor.CodeBlock />
+                  <RichTextEditor.Hr />
+                </RichTextEditor.ControlsGroup>
+
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Link />
+                  <RichTextEditor.Unlink />
+                </RichTextEditor.ControlsGroup>
+
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Undo />
+                  <RichTextEditor.Redo />
+                </RichTextEditor.ControlsGroup>
+              </RichTextEditor.Toolbar>
+
+              <RichTextEditor.Content />
+            </RichTextEditor>
+          </Box>
 
           <MultiSelect
             label="Projects"
@@ -211,7 +285,7 @@ export function SessionSetup({
             leftSection={startingSession ? <Loader size={18} /> : <IconRocket size={18} />}
             size="md"
             onClick={handleStart}
-            disabled={!connected || !feature.trim() || selectedProjects.length === 0 || startingSession}
+            disabled={!connected || !hasContent || selectedProjects.length === 0 || startingSession}
             loading={startingSession}
           >
             {startingSession ? 'Starting...' : 'Start Planning'}

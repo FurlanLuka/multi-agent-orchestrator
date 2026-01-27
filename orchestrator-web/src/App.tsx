@@ -24,6 +24,7 @@ import {
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
+import '@mantine/tiptap/styles.css';
 import {
   IconRocket,
   IconMessageCircle,
@@ -41,6 +42,8 @@ import {
   IconSettings,
   IconPlayerPlay,
   IconPower,
+  IconBrandGithub,
+  IconGitPullRequest,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -102,6 +105,11 @@ function App() {
     mergingBranch,
     mergeResults,
     mergeBranch,
+    creatingPR,
+    prResults,
+    gitHubInfo,
+    getGitHubInfo,
+    createPR,
     recheckDependencies,
     permissionPrompt,
     respondToPermission,
@@ -158,6 +166,18 @@ function App() {
       window.removeEventListener('unload', handleUnload);
     };
   }, [shutdownOnClose, session, shutdownServer]);
+
+  // Fetch GitHub info when session completes with git branches
+  useEffect(() => {
+    if (allComplete && session?.gitBranches) {
+      Object.keys(session.gitBranches).forEach(project => {
+        // Only fetch if we don't already have the info
+        if (!gitHubInfo[project]) {
+          getGitHubInfo(project);
+        }
+      });
+    }
+  }, [allComplete, session?.gitBranches, gitHubInfo, getGitHubInfo]);
 
   // Determine if we're in read-only mode (viewing a session that's not active)
   const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
@@ -311,12 +331,12 @@ function App() {
                 {/* Controls Card - Git Operations + Dev Server */}
                 <Paper shadow="sm" radius="md" p="md" withBorder>
                   <Stack gap="md">
-                    {/* Row 1: Git Operations */}
+                    {/* Section 1: Git Operations */}
                     {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
-                      <Group gap="sm" align="center">
+                      <Stack gap="xs">
                         <Group gap="xs">
                           <IconGitBranch size={16} color="var(--mantine-color-violet-6)" />
-                          <Text size="sm" fw={500} c="dimmed">Git:</Text>
+                          <Text size="sm" fw={600}>Git Operations</Text>
                         </Group>
                         {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
                           const isPushing = pushingBranch[projectName];
@@ -325,79 +345,145 @@ function App() {
                           const mergeResult = mergeResults[projectName];
                           const mainBranch = projects[projectName]?.mainBranch || 'main';
 
-                          // If merge succeeded, show merged badge
-                          if (mergeResult?.success) {
-                            return (
-                              <Badge
-                                key={projectName}
-                                color="green"
-                                variant="light"
-                                leftSection={<IconGitMerge size={12} />}
-                              >
-                                {projectName}: Merged to {mainBranch}
+                          return (
+                            <Group key={projectName} gap="xs" wrap="wrap">
+                              <Badge variant="light" color="violet" leftSection={<IconGitBranch size={12} />}>
+                                {projectName}: {branchName}
                               </Badge>
+
+                              {/* If merge succeeded, show merged badge */}
+                              {mergeResult?.success ? (
+                                <Badge color="green" variant="filled" leftSection={<IconGitMerge size={12} />}>
+                                  Merged to {mainBranch}
+                                </Badge>
+                              ) : pushResult?.success ? (
+                                // Push succeeded - show merge option
+                                <>
+                                  <Badge color="green" variant="light" leftSection={<IconCheck size={12} />}>
+                                    Pushed
+                                  </Badge>
+                                  <Button
+                                    variant="light"
+                                    color="teal"
+                                    size="xs"
+                                    leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
+                                    loading={isMerging}
+                                    onClick={() => mergeBranch(projectName, branchName)}
+                                    disabled={isMerging}
+                                  >
+                                    Merge to {mainBranch}
+                                  </Button>
+                                  {mergeResult && !mergeResult.success && (
+                                    <Text size="xs" c="red">{mergeResult.message}</Text>
+                                  )}
+                                </>
+                              ) : (
+                                // Show push button with clear text
+                                <>
+                                  <Button
+                                    variant="filled"
+                                    color="violet"
+                                    size="xs"
+                                    leftSection={isPushing ? undefined : <IconUpload size={14} />}
+                                    loading={isPushing}
+                                    onClick={() => pushBranch(projectName, branchName)}
+                                    disabled={isPushing}
+                                  >
+                                    Push to Remote
+                                  </Button>
+                                  {pushResult && !pushResult.success && (
+                                    <Text size="xs" c="red">{pushResult.message}</Text>
+                                  )}
+                                </>
+                              )}
+                            </Group>
+                          );
+                        })}
+                      </Stack>
+                    )}
+
+                    {/* Section 2: GitHub Integration (if gh CLI available) */}
+                    {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && dependencyCheck?.gh?.available && (
+                      <Stack gap="xs">
+                        <Group gap="xs">
+                          <IconBrandGithub size={16} color="var(--mantine-color-gray-6)" />
+                          <Text size="sm" fw={600}>GitHub Integration</Text>
+                        </Group>
+                        {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
+                          const ghInfo = gitHubInfo[projectName];
+                          const isCreating = creatingPR[projectName];
+                          const prResult = prResults[projectName];
+                          const pushResult = pushResults[projectName];
+                          const mainBranch = projects[projectName]?.mainBranch || 'main';
+
+                          // Only show PR option if:
+                          // 1. Project is on GitHub
+                          // 2. Branch has been pushed
+                          if (!ghInfo?.isGitHub) {
+                            return null;
+                          }
+
+                          if (!pushResult?.success) {
+                            return (
+                              <Group key={projectName} gap="xs">
+                                <Text size="xs" c="dimmed">{projectName}: Push branch first to create PR</Text>
+                              </Group>
                             );
                           }
 
-                          // If push succeeded, show merge button
-                          if (pushResult?.success) {
+                          if (prResult?.success) {
                             return (
                               <Group key={projectName} gap="xs">
-                                <Badge
-                                  color="green"
-                                  variant="light"
-                                  leftSection={<IconCheck size={12} />}
-                                >
-                                  {projectName}: Pushed
+                                <Badge color="green" variant="light" leftSection={<IconGitPullRequest size={12} />}>
+                                  {projectName}: PR Created
                                 </Badge>
-                                <Button
-                                  variant="light"
-                                  color="teal"
-                                  size="xs"
-                                  leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
-                                  loading={isMerging}
-                                  onClick={() => mergeBranch(projectName, branchName)}
-                                  disabled={isMerging}
-                                >
-                                  Merge to {mainBranch}
-                                </Button>
-                                {mergeResult && !mergeResult.success && (
-                                  <Text size="xs" c="red">{mergeResult.message}</Text>
+                                {prResult.prUrl && (
+                                  <Button
+                                    component="a"
+                                    href={prResult.prUrl}
+                                    target="_blank"
+                                    variant="subtle"
+                                    color="blue"
+                                    size="xs"
+                                    leftSection={<IconExternalLink size={14} />}
+                                  >
+                                    View PR
+                                  </Button>
                                 )}
                               </Group>
                             );
                           }
 
-                          // Show push button
                           return (
                             <Group key={projectName} gap="xs">
+                              <Text size="xs" c="dimmed">{projectName}:</Text>
                               <Button
                                 variant="light"
-                                color="violet"
+                                color="gray"
                                 size="xs"
-                                leftSection={isPushing ? undefined : <IconUpload size={14} />}
-                                loading={isPushing}
-                                onClick={() => pushBranch(projectName, branchName)}
-                                disabled={isPushing}
+                                leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
+                                loading={isCreating}
+                                onClick={() => createPR(projectName, branchName, mainBranch)}
+                                disabled={isCreating}
                               >
-                                <IconGitBranch size={12} style={{ marginRight: 4 }} />
-                                {projectName}: {branchName}
+                                Create Pull Request
                               </Button>
-                              {pushResult && !pushResult.success && (
-                                <Text size="xs" c="red">{pushResult.message}</Text>
+                              {prResult && !prResult.success && (
+                                <Text size="xs" c="red">{prResult.message}</Text>
                               )}
                             </Group>
                           );
                         })}
-                      </Group>
+                      </Stack>
                     )}
 
-                    {/* Row 2: Dev Server Controls */}
-                    <Group gap="sm" align="center">
+                    {/* Section 3: Dev Server Controls */}
+                    <Stack gap="xs">
                       <Group gap="xs">
                         <IconExternalLink size={16} color="var(--mantine-color-blue-6)" />
-                        <Text size="sm" fw={500} c="dimmed">Dev Servers:</Text>
+                        <Text size="sm" fw={600}>Dev Servers</Text>
                       </Group>
+                      <Group gap="sm" align="center">
                       {session?.projects.map(projectName => {
                         const config = projects[projectName];
                         if (!config) return null;
@@ -426,7 +512,8 @@ function App() {
                       >
                         Stop Dev Servers
                       </Button>
-                    </Group>
+                      </Group>
+                    </Stack>
                   </Stack>
                 </Paper>
               </Stack>

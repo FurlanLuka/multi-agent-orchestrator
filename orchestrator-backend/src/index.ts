@@ -1606,6 +1606,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // Transform to the expected format for backward compatibility
         const claudeDep = result.dependencies.find((d) => d.name === 'Claude Code');
         const gitDep = result.dependencies.find((d) => d.name === 'Git');
+        const ghDep = result.dependencies.find((d) => d.name === 'GitHub CLI');
 
         socket.emit('dependencyCheck', {
           claude: {
@@ -1621,6 +1622,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             error: gitDep?.error ?? null,
             installGuide: gitDep?.installGuide,
           },
+          gh: {
+            available: ghDep?.available ?? false,
+            version: ghDep?.version ?? null,
+            error: ghDep?.error ?? null,
+          },
           // Include full result for enhanced UI
           fullResult: result,
         });
@@ -1635,6 +1641,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         socket.emit('dependencyCheck', {
           claude: { available: false, version: null, error: 'Check failed' },
           git: { available: false, version: null, error: 'Check failed' },
+          gh: { available: false, version: null, error: 'Check failed' },
         });
       }
     });
@@ -2192,6 +2199,134 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         const error = err instanceof Error ? err.message : String(err);
         console.error(`[Orchestrator] Merge failed for ${project}:`, error);
         socket.emit('mergeBranchError', { project, error });
+      }
+    });
+
+    // Handle GitHub info request (check if project is a GitHub project)
+    socket.on('getGitHubInfo', async ({ project }: { project: string }) => {
+      console.log(`[Orchestrator] GitHub info requested for ${project}`);
+      const projectConfig = config.projects[project];
+
+      if (!projectConfig || !projectConfig.gitEnabled) {
+        socket.emit('gitHubInfo', { project, isGitHub: false });
+        return;
+      }
+
+      try {
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        const result = await gitManager.isGitHubProject(projectPath);
+        socket.emit('gitHubInfo', { project, ...result });
+      } catch (err) {
+        console.error(`[Orchestrator] Failed to get GitHub info for ${project}:`, err);
+        socket.emit('gitHubInfo', { project, isGitHub: false });
+      }
+    });
+
+    // Handle create PR request
+    socket.on('createPR', async ({
+      project,
+      branchName,
+      baseBranch,
+      title,
+      body
+    }: {
+      project: string;
+      branchName: string;
+      baseBranch?: string;
+      title?: string;
+      body?: string;
+    }) => {
+      console.log(`[Orchestrator] Create PR requested for ${project}, branch '${branchName}'`);
+      const projectConfig = config.projects[project];
+
+      if (!projectConfig) {
+        socket.emit('createPRError', { project, error: 'Project not found' });
+        return;
+      }
+
+      if (!projectConfig.gitEnabled) {
+        socket.emit('createPRError', { project, error: 'Git is not enabled for this project' });
+        return;
+      }
+
+      try {
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        // Check if it's a GitHub project
+        const ghInfo = await gitManager.isGitHubProject(projectPath);
+        if (!ghInfo.isGitHub) {
+          socket.emit('createPRError', { project, error: 'Project is not hosted on GitHub' });
+          return;
+        }
+
+        // Get session info for PR description
+        const session = sessionManager.getCurrentSession();
+        const targetBranch = baseBranch || projectConfig.mainBranch || 'main';
+
+        // Generate PR title and body if not provided
+        const prTitle = title || `${session?.feature || 'Feature update'}`;
+
+        // Build PR body with feature summary and task summaries
+        let prBody = body;
+        if (!prBody) {
+          const bodyParts: string[] = [];
+
+          // Feature description
+          if (session?.feature) {
+            bodyParts.push(`## Summary\n${session.feature}`);
+          }
+
+          // Task summaries from taskExecutor
+          if (taskExecutor) {
+            const summaries = taskExecutor.getTaskSummaries(project);
+            if (summaries.length > 0) {
+              bodyParts.push('\n## Changes');
+              summaries.forEach(({ taskName, summary }) => {
+                bodyParts.push(`- **${taskName}**: ${summary}`);
+              });
+            }
+          }
+
+          // Commit log
+          const commits = await gitManager.getCommitLog(projectPath, targetBranch, branchName);
+          if (commits.length > 0) {
+            bodyParts.push('\n## Commits');
+            commits.slice(0, 10).forEach(commit => {
+              bodyParts.push(`- ${commit}`);
+            });
+            if (commits.length > 10) {
+              bodyParts.push(`- ... and ${commits.length - 10} more commits`);
+            }
+          }
+
+          bodyParts.push('\n---\n*Created by Orchestrator*');
+          prBody = bodyParts.join('\n');
+        }
+
+        const result = await gitManager.createPullRequest(projectPath, {
+          title: prTitle,
+          body: prBody,
+          baseBranch: targetBranch,
+          headBranch: branchName,
+        });
+
+        if (result.success) {
+          socket.emit('createPRSuccess', { project, message: result.message, prUrl: result.prUrl });
+          chatHandler.systemMessage(`Pull request created: ${result.prUrl}`);
+        } else {
+          socket.emit('createPRError', { project, error: result.message });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Create PR failed for ${project}:`, error);
+        socket.emit('createPRError', { project, error });
       }
     });
 
