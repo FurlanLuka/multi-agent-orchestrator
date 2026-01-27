@@ -162,12 +162,14 @@ export type PlanningPhase =
   | 'exploring'      // "Exploring codebase..."
   | 'analyzing'      // "Analyzing requirements..."
   | 'generating'     // "Generating plan..."
-  | 'complete';      // Done
+  | 'complete'       // Done
+  | 'error';         // Planning failed
 
 export interface PlanningStatusEvent {
   phase: PlanningPhase;
   message: string;    // Human-readable status
   project?: string;   // If analyzing specific project
+  errorDetails?: string;  // Full error for error phase
 }
 
 // Analysis result types (for task verification and E2E)

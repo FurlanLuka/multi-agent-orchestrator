@@ -799,6 +799,20 @@ After fixing, the E2E tests will be re-run automatically.`;
       }
     }
     planningAgent.setProjectStatuses(allStatuses);
+
+    // When entering FATAL_DEBUGGING or FAILED, complete any active E2E flow as failed
+    if (status === 'FATAL_DEBUGGING' || status === 'FAILED') {
+      const flowId = activeE2EFlows.get(project);
+      if (flowId) {
+        console.log(`[Orchestrator] Completing E2E flow ${flowId} as failed due to ${status}`);
+        (ui.io as any).emitFlowComplete(flowId, 'failed', {
+          passed: false,
+          summary: `E2E: ${status}`,
+          details: message
+        });
+        activeE2EFlows.delete(project);
+      }
+    }
   });
 
   // Forward task status changes to UI
@@ -2009,6 +2023,89 @@ Output these markers on their own line, not inside code blocks.`;
       }
 
       pendingPermissions.delete(key);
+    });
+
+    // Handle project retry request (FATAL_DEBUGGING or FAILED status)
+    socket.on('retryProject', async ({ project }: { project: string }) => {
+      const projectStatus = statusMonitor.getStatus(project);
+      const status = projectStatus?.status;
+
+      // Only allow retry for FATAL_DEBUGGING or FAILED
+      if (status !== 'FATAL_DEBUGGING' && status !== 'FAILED') {
+        chatHandler.systemMessage(
+          `Cannot retry ${project} - status is ${status}. Retry only for FATAL_DEBUGGING or FAILED.`
+        );
+        return;
+      }
+
+      console.log(`[Orchestrator] User requested retry for ${project}`);
+      chatHandler.systemMessage(`Retrying ${project}...`);
+
+      // 1. Kill any lingering worker process
+      try {
+        await processManager.stopAgent(project);
+      } catch (err) {
+        console.error(`[Orchestrator] Error stopping agent:`, err);
+      }
+
+      // 2. Restart dev server
+      try {
+        await processManager.restartDevServer(project);
+      } catch (err) {
+        console.error(`[Orchestrator] Dev server restart failed:`, err);
+      }
+
+      // 3. Get the failed task index
+      const failedIdx = failedTaskIndex.get(project);
+      if (failedIdx === undefined) {
+        chatHandler.systemMessage(`No failed task found for ${project}`);
+        return;
+      }
+
+      const session = sessionManager.getCurrentSession();
+      const task = session?.plan?.tasks[failedIdx];
+      if (!task) {
+        chatHandler.systemMessage(`Task not found for retry`);
+        return;
+      }
+
+      // 4. Reset task status to working (triggers UI update showing "in progress")
+      statusMonitor.updateTaskStatus(failedIdx, 'working', 'Retrying...');
+      statusMonitor.updateStatus(project, 'WORKING', `Retrying task: ${task.name}`);
+
+      // 5. Re-execute the task
+      try {
+        const result = await taskExecutor!.executeTask(task, failedIdx);
+
+        if (!result.success) {
+          chatHandler.systemMessage(`Retry failed for ${task.name}: ${result.message}`);
+          return;
+        }
+
+        // Continue with remaining tasks (same logic as user fix continuation)
+        const allTasks = session?.plan?.tasks || [];
+        const remainingTasks = allTasks
+          .map((t, idx) => ({ task: t, taskIndex: idx }))
+          .filter(({ task: t, taskIndex }) =>
+            t.project === project && taskIndex > failedIdx
+          );
+
+        for (const { task: t, taskIndex } of remainingTasks) {
+          statusMonitor.updateTaskStatus(taskIndex, 'pending', 'Starting...');
+          const res = await taskExecutor!.executeTask(t, taskIndex);
+          if (!res.success) {
+            chatHandler.systemMessage(`Task "${t.name}" failed. Please provide a fix.`);
+            return;
+          }
+        }
+
+        // All tasks for this project completed, set to READY
+        statusMonitor.updateStatus(project, 'READY', 'All tasks completed after retry');
+        chatHandler.systemMessage(`Retry successful for ${project}. All tasks completed.`);
+      } catch (err) {
+        console.error(`[Orchestrator] Retry failed:`, err);
+        chatHandler.systemMessage(`Retry failed: ${err}`);
+      }
     });
 
     // Handle git push branch request

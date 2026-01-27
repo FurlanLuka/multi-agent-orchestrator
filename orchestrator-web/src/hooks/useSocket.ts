@@ -1025,6 +1025,23 @@ export function useSocket() {
     }
   }, [permissionPrompt]);
 
+  // Retry a failed project task (FATAL_DEBUGGING or FAILED status)
+  const retryProject = useCallback((project: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('retryProject', { project });
+    }
+  }, []);
+
+  // Retry plan generation after failure
+  const retryPlan = useCallback((feature: string) => {
+    // Clear the error status first
+    setPlanningStatus(null);
+    // Re-send the chat message to trigger plan generation
+    if (socketRef.current) {
+      socketRef.current.emit('chat', { message: feature });
+    }
+  }, []);
+
   // Derived state: separate active flows from completed flows
   const { activeFlows, completedFlows } = useMemo(() => ({
     activeFlows: flows.filter(f => f.status === 'in_progress'),
@@ -1091,5 +1108,7 @@ export function useSocket() {
     mergeBranch,
     recheckDependencies,
     respondToPermission,
+    retryProject,
+    retryPlan,
   };
 }

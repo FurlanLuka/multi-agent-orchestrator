@@ -297,6 +297,12 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
       io.emit('userActionResponse', response);  // Forward to orchestrator
     });
 
+    // Handle project retry request (forwarded to orchestrator)
+    socket.on('retryProject', ({ project }: { project: string }) => {
+      console.log(`[UIServer] Retry requested for ${project}`);
+      io.emit('retryProject', { project });
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });

@@ -200,6 +200,7 @@ export class TaskExecutor extends EventEmitter {
         // Handle escalation (pre-existing issues the agent can't fix)
         if (analysis.suggestedAction === 'escalate') {
           console.error(`[TaskExecutor] Task #${taskIndex} escalated - pre-existing issues require user intervention`);
+          // 1. Complete flow as failed
           const taskFlowId = this.activeTaskFlows.get(taskIndex);
           if (this.io && taskFlowId) {
             (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
@@ -209,7 +210,11 @@ export class TaskExecutor extends EventEmitter {
             });
             this.activeTaskFlows.delete(taskIndex);
           }
+          // 2. Update task status to failed
           this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
+          // 3. Kill any running worker for this project
+          await this.processManager.stopAgent(task.project);
+          // 4. Update project status to FAILED
           this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
           this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis, requiresUserAction: true });
           return {
@@ -224,6 +229,7 @@ export class TaskExecutor extends EventEmitter {
         fixAttempts++;
         if (fixAttempts >= this.MAX_FIX_ATTEMPTS) {
           console.error(`[TaskExecutor] Task #${taskIndex} failed after ${fixAttempts} fix attempts - requires user intervention`);
+          // 1. Complete flow as failed
           const taskFlowId = this.activeTaskFlows.get(taskIndex);
           if (this.io && taskFlowId) {
             (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
@@ -233,7 +239,11 @@ export class TaskExecutor extends EventEmitter {
             });
             this.activeTaskFlows.delete(taskIndex);
           }
+          // 2. Update task status to failed
           this.statusMonitor.updateTaskStatus(taskIndex, 'failed', analysis.analysis);
+          // 3. Kill any running worker for this project
+          await this.processManager.stopAgent(task.project);
+          // 4. Update project status to FAILED
           this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${analysis.analysis}. User intervention required.`);
           this.emit('taskFailed', { taskIndex, project: task.project, error: analysis.analysis, requiresUserAction: true });
           return {
@@ -317,7 +327,7 @@ export class TaskExecutor extends EventEmitter {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[TaskExecutor] Task #${taskIndex} (${task.project}) failed:`, err);
-      // Complete flow as failed on error
+      // 1. Complete flow as failed
       const taskFlowId = this.activeTaskFlows.get(taskIndex);
       if (this.io && taskFlowId) {
         (this.io as any).emitFlowComplete(taskFlowId, 'failed', {
@@ -327,8 +337,15 @@ export class TaskExecutor extends EventEmitter {
         });
         this.activeTaskFlows.delete(taskIndex);
       }
+      // 2. Update task status to failed
       this.statusMonitor.updateTaskStatus(taskIndex, 'failed', `Task failed: ${errorMsg}`);
-      // Use FAILED status to indicate user intervention required
+      // 3. Kill any running worker for this project
+      try {
+        await this.processManager.stopAgent(task.project);
+      } catch (stopErr) {
+        console.error(`[TaskExecutor] Error stopping agent:`, stopErr);
+      }
+      // 4. Update project status to FAILED
       this.statusMonitor.updateStatus(task.project, 'FAILED', `Task failed: ${errorMsg}. User intervention required.`);
       this.emit('taskFailed', { taskIndex, project: task.project, error: errorMsg, requiresUserAction: true });
       return {

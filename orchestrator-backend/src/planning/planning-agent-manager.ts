@@ -695,6 +695,19 @@ User: ${newMessage}`;
       return result;
     } catch (err) {
       console.error('[PlanningAgent] Error in sendChat:', err);
+
+      // Emit error status if this was a planning request
+      if (this.isPlanningRequest) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorStatus: PlanningStatusEvent = {
+          phase: 'error',
+          message: 'Planning failed',
+          errorDetails: errorMessage
+        };
+        this.emit('planningStatus', errorStatus);
+        this.isPlanningRequest = false;
+      }
+
       throw err;
     }
   }

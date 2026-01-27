@@ -105,6 +105,8 @@ function App() {
     recheckDependencies,
     permissionPrompt,
     respondToPermission,
+    retryProject,
+    retryPlan,
   } = useSocket();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -186,6 +188,18 @@ function App() {
     // Refresh sessions list
     getSessions();
   };
+
+  // Handler for retrying plan generation after failure
+  const handleRetryPlan = useCallback(() => {
+    if (session?.feature) {
+      retryPlan(session.feature);
+    }
+  }, [session, retryPlan]);
+
+  // Handler for retrying a failed project
+  const handleRetryProject = useCallback((project: string) => {
+    retryProject(project);
+  }, [retryProject]);
 
   // Show splash screen while checking dependencies, if Claude is not available, or if there's a backend error
   if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
@@ -602,6 +616,7 @@ function App() {
                         completedFlows={completedFlows}
                         onSendMessage={sendChat}
                         onApprovePlan={approvePlan}
+                        onRetryPlan={handleRetryPlan}
                         sessionActive={!!session}
                         readOnly={isReadOnly}
                         permissionPrompt={permissionPrompt}
@@ -679,22 +694,30 @@ function App() {
                       </Paper>
 
                       {/* Project Cards */}
-                      {sessionProjects.map(project => (
-                        <ProjectCard
-                          key={project}
-                          project={project}
-                          status={statuses[project]?.status || 'PENDING'}
-                          message={statuses[project]?.message || ''}
-                          updatedAt={statuses[project]?.updatedAt || 0}
-                          logs={logsByProject[project] || []}
-                          testState={testStates[project]}
-                          permissionPrompt={permissionPrompt?.project === project ? {
-                            toolName: permissionPrompt.toolName,
-                            toolInput: permissionPrompt.toolInput
-                          } : null}
-                          onPermissionResponse={respondToPermission}
-                        />
-                      ))}
+                      {sessionProjects.map(project => {
+                        const projectStatus = statuses[project]?.status || 'PENDING';
+                        return (
+                          <ProjectCard
+                            key={project}
+                            project={project}
+                            status={projectStatus}
+                            message={statuses[project]?.message || ''}
+                            updatedAt={statuses[project]?.updatedAt || 0}
+                            logs={logsByProject[project] || []}
+                            testState={testStates[project]}
+                            permissionPrompt={permissionPrompt?.project === project ? {
+                              toolName: permissionPrompt.toolName,
+                              toolInput: permissionPrompt.toolInput
+                            } : null}
+                            onPermissionResponse={respondToPermission}
+                            onRetry={
+                              (projectStatus === 'FATAL_DEBUGGING' || projectStatus === 'FAILED')
+                                ? () => handleRetryProject(project)
+                                : undefined
+                            }
+                          />
+                        );
+                      })}
                     </Stack>
                   </ScrollArea>
                 </Grid.Col>

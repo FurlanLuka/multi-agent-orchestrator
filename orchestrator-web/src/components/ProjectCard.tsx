@@ -12,7 +12,7 @@ import {
   Stack,
   Button,
 } from '@mantine/core';
-import { IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
+import { IconShield, IconCheck, IconShieldCheck, IconRefresh } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '@aio/types';
 
 interface ProjectCardProps {
@@ -27,6 +27,7 @@ interface ProjectCardProps {
     toolInput: Record<string, unknown>;
   } | null;
   onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
+  onRetry?: () => void;
 }
 
 // Status configuration for colors and labels
@@ -60,7 +61,7 @@ const getStatusProgress = (status: AgentStatus): number => {
   }
 };
 
-function ProjectCardInner({ project, status, message, updatedAt, logs, testState, permissionPrompt, onPermissionResponse }: ProjectCardProps) {
+function ProjectCardInner({ project, status, message, updatedAt, logs, testState, permissionPrompt, onPermissionResponse, onRetry }: ProjectCardProps) {
   const [logType, setLogType] = useState<string>('agent');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -119,15 +120,28 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
 
   return (
     <Paper shadow="sm" radius="lg" p="md" withBorder style={{ position: 'relative' }}>
-      {/* Header: Project name + Status badge */}
+      {/* Header: Project name + Status badge + Retry button */}
       <Group justify="space-between" mb="xs">
         <Group gap="sm">
           <Text fw={700} size="lg" tt="uppercase">{project.replace(/_/g, ' ')}</Text>
           <Text size="xs" c="dimmed">{getRelativeTime()}</Text>
         </Group>
-        <Badge color={config.color} variant="filled" size="lg">
-          {getStatusLabel()}
-        </Badge>
+        <Group gap="xs">
+          <Badge color={config.color} variant="filled" size="lg">
+            {getStatusLabel()}
+          </Badge>
+          {(status === 'FATAL_DEBUGGING' || status === 'FAILED') && onRetry && (
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              leftSection={<IconRefresh size={14} />}
+              onClick={onRetry}
+            >
+              Retry
+            </Button>
+          )}
+        </Group>
       </Group>
 
       {/* Progress bar */}

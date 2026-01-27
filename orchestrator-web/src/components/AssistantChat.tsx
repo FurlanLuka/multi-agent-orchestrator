@@ -37,6 +37,7 @@ interface AssistantChatProps {
   completedFlows: RequestFlow[];
   onSendMessage: (message: string) => void;
   onApprovePlan: (plan: Plan) => void;
+  onRetryPlan?: () => void;
   sessionActive: boolean;
   readOnly?: boolean;
   permissionPrompt?: PermissionPrompt | null;
@@ -394,6 +395,7 @@ function ChatThread({
   completedFlows,
   onSendMessage,
   onApprovePlan,
+  onRetryPlan,
   sessionActive,
   readOnly = false,
   permissionPrompt,
@@ -488,7 +490,7 @@ function ChatThread({
               <Stack gap="md" p="xs">
                 {/* Planning Status Indicator - shown when generating plan */}
                 {planningStatus && (
-                  <PlanningStatusIndicator status={planningStatus} />
+                  <PlanningStatusIndicator status={planningStatus} onRetry={onRetryPlan} />
                 )}
 
                 {/* Unified timeline - hide during planning for cleaner UX */}
