@@ -473,25 +473,11 @@ export class GitManager {
   }
 
   /**
-   * Checks if a remote branch exists using GitHub CLI
+   * Checks if a remote branch exists
+   * Uses git ls-remote which is the most reliable method
    */
   async remoteBranchExists(projectPath: string, branchName: string): Promise<boolean> {
-    const expandedPath = this.expandPath(projectPath);
-
-    try {
-      // URL encode branch name for API (handles slashes like feature/my-branch)
-      const encodedBranch = encodeURIComponent(branchName);
-      // Use gh api to check branch exists - more reliable
-      const result = await execWithShellEnv(
-        `gh api "repos/{owner}/{repo}/branches/${encodedBranch}" --jq '.name'`,
-        { cwd: expandedPath, timeout: 15000 }
-      );
-
-      return result.exitCode === 0 && result.stdout.trim().length > 0;
-    } catch {
-      // Fallback to git ls-remote
-    }
-
+    // Use git ls-remote which queries the remote directly - most reliable
     const result = await this.runGitCommand(projectPath, [
       'ls-remote',
       '--heads',
@@ -595,7 +581,9 @@ ${options.commits.length > 0
 
 The JSON must include:
 - "title": A concise, descriptive PR title (max 72 characters)
-- "body": Markdown formatted body with Summary, Changes, and Testing sections`;
+- "body": Markdown formatted body with Summary, Changes, and Testing sections
+
+**DO NOT** add any footer text like "Generated with Claude Code" or similar. The orchestrator will add its own footer.`;
 
     try {
       // Use spawnWithShellEnv with args array for safe prompt passing
