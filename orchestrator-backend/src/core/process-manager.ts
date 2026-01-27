@@ -644,33 +644,31 @@ export class ProcessManager extends EventEmitter {
     const port = projectConfig?.devServer?.port || 3000;
 
     if (info) {
-      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${info.process.pid}, port: ${port})`);
-
-      // Kill the entire process tree (npm spawns child processes)
       const pid = info.process.pid;
-      if (pid) {
-        try {
-          // Use negative PID to kill process group on Unix
-          process.kill(-pid, 'SIGTERM');
-        } catch {
-          // Fallback to regular kill if process group kill fails
-          info.process.kill('SIGTERM');
-        }
-      } else {
-        info.process.kill('SIGTERM');
-      }
+      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${pid}, port: ${port})`);
 
-      // Wait for process to exit
-      await new Promise<void>((resolve) => {
+      // Wait for actual 'exit' event OR timeout
+      const exitPromise = new Promise<void>((resolve) => {
+        // Listen for the actual exit event
+        const onExit = () => {
+          info.process.removeListener('exit', onExit);
+          resolve();
+        };
+        info.process.once('exit', onExit);
+
+        // Also resolve if process is already gone from our map
         const checkInterval = setInterval(() => {
           if (!this.processes.has(key)) {
             clearInterval(checkInterval);
+            info.process.removeListener('exit', onExit);
             resolve();
           }
         }, 100);
 
         // Force kill after 3 seconds
         setTimeout(() => {
+          clearInterval(checkInterval);
+          info.process.removeListener('exit', onExit);
           if (this.processes.has(key)) {
             console.log(`[ProcessManager] Force killing dev server for ${project}`);
             if (pid) {
@@ -683,11 +681,30 @@ export class ProcessManager extends EventEmitter {
               info.process.kill('SIGKILL');
             }
             this.processes.delete(key);
-            clearInterval(checkInterval);
-            resolve();
           }
+          resolve();
         }, 3000);
       });
+
+      // Kill the entire process tree (npm spawns child processes)
+      if (pid) {
+        try {
+          // Use negative PID to kill process group on Unix
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          // Fallback to regular kill if process group kill fails
+          info.process.kill('SIGTERM');
+        }
+      } else {
+        info.process.kill('SIGTERM');
+      }
+
+      // Wait for process to fully exit
+      await exitPromise;
+
+      // Give OS time to release resources after process exit
+      console.log(`[ProcessManager] Process exited, waiting for OS cleanup...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     // Kill any lingering processes on the port
@@ -700,7 +717,14 @@ export class ProcessManager extends EventEmitter {
     if (!portFree) {
       console.error(`[ProcessManager] Port ${port} still in use after 10s, forcing kill`);
       await this.killProcessOnPort(port);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait longer after force kill
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Final check
+      const finalCheck = await this.waitForPortFree(port, 3000);
+      if (!finalCheck) {
+        console.error(`[ProcessManager] WARNING: Port ${port} may still be in use, proceeding anyway`);
+      }
     }
 
     // Reset crash count for clean restart
