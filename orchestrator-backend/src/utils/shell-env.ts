@@ -133,7 +133,8 @@ export async function getShellEnv(forceRefresh = false): Promise<Record<string, 
   console.log(`[shell-env] Capturing env from ${shell}...`);
 
   try {
-    const { stdout } = await execAsync(`${shell} -c '${command}'`, {
+    // Use -l (login) and -i (interactive) flags to ensure all shell configs load (especially nvm)
+    const { stdout } = await execAsync(`${shell} -l -i -c '${command}'`, {
       env: getMinimalEnv(),
       timeout: 15000,
       maxBuffer: 10 * 1024 * 1024,
