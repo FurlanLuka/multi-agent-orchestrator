@@ -3,6 +3,13 @@ import * as path from 'path';
 import { execWithShellEnv, spawnWithShellEnv } from '../utils/shell-env';
 import { parseMarkedResponse, MARKERS } from '../planning/response-parser';
 
+// Entries that should always be in .gitignore for orchestrator-managed projects
+const AIO_GITIGNORE_ENTRIES = [
+  '# AIO Orchestrator',
+  '.aio/',
+  '.claude/',
+];
+
 /**
  * GitManager handles git operations for project repositories.
  * Supports feature branches, auto-commits, and push operations.
@@ -16,6 +23,42 @@ export class GitManager {
       return p.replace('~', process.env.HOME || '');
     }
     return p;
+  }
+
+  /**
+   * Ensures AIO Orchestrator entries are in .gitignore
+   * Called before commits to prevent orchestrator files from being tracked
+   */
+  private ensureGitignore(projectPath: string): void {
+    const expandedPath = this.expandPath(projectPath);
+    const gitignorePath = path.join(expandedPath, '.gitignore');
+
+    let content = '';
+    if (fs.existsSync(gitignorePath)) {
+      content = fs.readFileSync(gitignorePath, 'utf-8');
+    }
+
+    const lines = content.split('\n').map(l => l.trim());
+    const entriesToAdd: string[] = [];
+
+    for (const entry of AIO_GITIGNORE_ENTRIES) {
+      if (!lines.includes(entry)) {
+        entriesToAdd.push(entry);
+      }
+    }
+
+    if (entriesToAdd.length === 0) {
+      return; // All entries already present
+    }
+
+    // Add a blank line before AIO section if content exists
+    const separator = content && !content.endsWith('\n\n') ? '\n' : '';
+    const newContent = content.endsWith('\n') || content === ''
+      ? `${content}${separator}${entriesToAdd.join('\n')}\n`
+      : `${content}\n${separator}${entriesToAdd.join('\n')}\n`;
+
+    fs.writeFileSync(gitignorePath, newContent);
+    console.log(`[GitManager] Added AIO entries to .gitignore at ${expandedPath}`);
   }
 
   /**
@@ -168,6 +211,9 @@ export class GitManager {
     projectPath: string,
     message: string
   ): Promise<{ success: boolean; message: string; commitHash?: string }> {
+    // Ensure .gitignore has AIO entries before committing
+    this.ensureGitignore(projectPath);
+
     // First, check if there are any changes to commit
     const statusResult = await this.runGitCommand(projectPath, ['status', '--porcelain']);
     if (statusResult.exitCode !== 0) {

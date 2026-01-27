@@ -2413,15 +2413,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    // Install dependencies for a project
+    // Install dependencies for a project - DEPRECATED: use installCommand in project config instead
+    // Kept for backwards compatibility but does nothing now
     socket.on('installDependencies', async ({ name }: { name: string }) => {
-      try {
-        await projectManager.installDependencies(name);
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] dependency install failed:`, error);
-        // Error event already emitted by projectManager
-      }
+      console.log(`[Orchestrator] installDependencies called for ${name} - use installCommand in project config instead`);
     });
 
     // Detect project type and get configuration suggestions
@@ -2483,10 +2478,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           name: `${appName}-${backendName}`,
           targetPath: `${targetPath}/${backendName}`,
           template: 'nestjs-backend',
-          dependencyInstall: true,
-          hasE2E: true,
-          gitEnabled: true,
-          mainBranch: 'main',
           permissions: {
             allow: TEMPLATE_PERMISSIONS['nestjs-backend'] || [],
           },
@@ -2497,11 +2488,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           name: `${appName}-${frontendName}`,
           targetPath: `${targetPath}/${frontendName}`,
           template: 'vite-frontend',
-          dependencyInstall: true,
-          hasE2E: true,
-          gitEnabled: true,
-          mainBranch: 'main',
-          dependsOn: [backendName],
+          dependsOn: [`${appName}-${backendName}`],
           permissions: {
             allow: TEMPLATE_PERMISSIONS['vite-frontend'] || [],
           },

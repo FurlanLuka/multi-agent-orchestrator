@@ -845,10 +845,7 @@ export function useSocket() {
     name: string;
     targetPath: string;
     template: ProjectTemplate;
-    dependencyInstall: boolean;
-    hasE2E: boolean;
-    gitEnabled: boolean;
-    mainBranch: string;
+    // Optional permissions override (otherwise uses template default)
     permissions?: {
       dangerouslyAllowAll?: boolean;
       allow: string[];
@@ -879,16 +876,20 @@ export function useSocket() {
   interface AddProjectOptions {
     name: string;
     path: string;
+    devServerEnabled?: boolean;
     devServer?: {
       command: string;
       readyPattern: string;
       env?: Record<string, string>;
       port?: number;
+      url?: string;
     };
+    buildEnabled?: boolean;
     buildCommand?: string;
+    installEnabled?: boolean;
+    installCommand?: string;
     hasE2E?: boolean;
     e2eInstructions?: string;
-    dependencyInstall?: boolean;
     gitEnabled?: boolean;
     mainBranch?: string;
     permissions?: {

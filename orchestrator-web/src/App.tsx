@@ -81,7 +81,6 @@ function App() {
     creatingProject,
     addingProject,
     startingSession,
-    sessions: _sessions,
     loadingSession,
     activeSessionId,
     viewingSessionId,
@@ -94,11 +93,8 @@ function App() {
     addProject,
     removeProject,
     updateProject,
-    deleteSession: _deleteSession,
-    viewSession: _viewSession,
     stopSession,
     getSessions,
-    clearSession: _clearSession,
     submitUserAction,
     pushingBranch,
     pushResults,
@@ -527,7 +523,7 @@ function App() {
                       <Group gap="sm" align="center">
                       {session?.projects.map(projectName => {
                         const config = projects[projectName];
-                        if (!config) return null;
+                        if (!config || !config.devServer) return null;
                         const url = config.devServer.url || `http://localhost:${config.devServer.port || 5173}`;
                         return (
                           <Button

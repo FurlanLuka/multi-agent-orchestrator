@@ -3,6 +3,8 @@ import { createServer, Server as HttpServer } from 'http';
 import { Server as SocketServer, Socket } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
@@ -132,6 +134,29 @@ export function createUIServer(port: number = 3456, deps?: Partial<UIServerDepen
       return;
     }
     res.json({ enabledGroups: getEnabledGroups(permissions) });
+  });
+
+  // Directory browsing endpoint for DirectoryPicker component
+  app.get('/api/directories', (req: Request, res: Response) => {
+    const basePath = (req.query.path as string) || os.homedir();
+    try {
+      const expanded = basePath.replace(/^~/, os.homedir());
+      const entries = fs.readdirSync(expanded, { withFileTypes: true });
+      const directories = entries
+        .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+        .map(e => ({
+          name: e.name,
+          path: path.join(expanded, e.name)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      res.json({
+        current: expanded,
+        parent: path.dirname(expanded),
+        directories
+      });
+    } catch (err) {
+      res.status(400).json({ error: 'Invalid path' });
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════

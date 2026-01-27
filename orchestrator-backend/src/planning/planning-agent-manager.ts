@@ -37,11 +37,16 @@ interface ConversationMessage {
 
 interface ProjectConfig {
   path: string;
-  devServer: {
+  devServerEnabled?: boolean;
+  devServer?: {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
   };
+  buildEnabled?: boolean;
+  buildCommand?: string;
+  installEnabled?: boolean;
+  installCommand?: string;
   hasE2E: boolean;
 }
 
@@ -1242,12 +1247,23 @@ Focus on:
     };
     this.emit('verificationStart', verificationStartEvent);
 
+    // Get project config to show which verification features are enabled
+    const projectConfig = this.projectConfig[context.project];
+    const installEnabled = projectConfig?.installEnabled ?? false;
+    const buildEnabled = projectConfig?.buildEnabled ?? !!projectConfig?.buildCommand;
+    const devServerEnabled = projectConfig?.devServerEnabled ?? true;
+
     const prompt = `## TASK VERIFICATION ANALYSIS
 
 You are analyzing whether a task completed successfully. Review ALL the context below and make an intelligent decision.
 
 **Project:** ${context.project}
 **Task:** ${context.taskName}
+
+**Verification Configuration:**
+- Install packages: ${installEnabled ? '✅ Enabled' : '❌ Disabled'}
+- Build: ${buildEnabled ? '✅ Enabled' : '❌ Disabled'}
+- Dev server: ${devServerEnabled ? '✅ Enabled' : '❌ Disabled'}
 
 **Task Description:**
 ${context.taskDescription}
@@ -1264,16 +1280,16 @@ ${context.buildOutput.stderr ? `- Stderr (last 2000 chars):
 \`\`\`
 ${context.buildOutput.stderr.slice(-2000)}
 \`\`\`` : ''}
-` : '**BUILD:** No build command configured'}
+` : '**BUILD:** Not configured or disabled'}
 
 ---
 **DEV SERVER LOGS (recent):**
 \`\`\`
-${context.devServerLogs ? context.devServerLogs.slice(-3000) : 'No logs available'}
+${context.devServerLogs ? context.devServerLogs.slice(-3000) : 'Dev server disabled or no logs available'}
 \`\`\`
 
 ---
-**HEALTH CHECK:** ${context.healthCheck?.healthy ? '✅ PASSED - Server responding' : `❌ FAILED: ${context.healthCheck?.error || 'Unknown error'}`}
+**HEALTH CHECK:** ${context.healthCheck?.healthy ? '✅ PASSED - Server responding' : context.healthCheck?.error ? `❌ FAILED: ${context.healthCheck.error}` : 'N/A - Dev server disabled'}
 
 ---
 

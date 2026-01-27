@@ -440,9 +440,11 @@ The following tasks have already been completed. Use this context to understand 
 1. DO NOT write any tests (unit tests, Jest tests, integration tests, etc.) - testing is handled separately by the orchestrator
 2. DO NOT start dev servers (npm start, npm run dev, etc.) - the orchestrator already manages dev servers
 3. DO NOT run npm install - the orchestrator handles dependency installation
-4. DO NOT use browser automation tools (Playwright, browser_*, mcp__playwright__*) to test or verify your work - the orchestrator handles all testing
-5. Focus ONLY on implementing the feature code - write the code and nothing else
-6. Trust the context above - if a previous task created something, it EXISTS. Don't re-check or validate it.`;
+4. DO NOT run full project builds (npm run build, tsc on whole project, etc.) - the orchestrator runs full builds for verification
+5. DO NOT use browser automation tools (Playwright, browser_*, mcp__playwright__*) to test or verify your work - the orchestrator handles all testing
+6. Focus ONLY on implementing the feature code - write the code and nothing else
+7. Trust the context above - if a previous task created something, it EXISTS. Don't re-check or validate it.
+8. If you need to verify your changes compile, only type-check the specific files you modified (e.g., \`tsc --noEmit path/to/file.ts\`), never the whole project`;
 
     // Add status reporting instructions
     prompt += `\n\n**STATUS REPORTING**:
@@ -459,13 +461,19 @@ Output a status marker before starting each significant step.`;
 
     // Add task summary instructions
     prompt += `\n\n**TASK SUMMARY (REQUIRED)**:
-When you complete the task, output a summary of what you did using this marker:
-[TASK_SUMMARY] {"summary": "Brief description of what was created/modified"}
+When you complete the task, output ONLY this marker with no additional text after it:
+[TASK_SUMMARY] {"summary": "Detailed summary including: files created/modified, key functions/classes added, important implementation details"}
+
+Include in your summary:
+- File paths that were created or modified
+- Names of key functions, classes, types, or exports added
+- Any important implementation details the next task might need to know
+- Dependencies or relationships with other parts of the codebase
 
 Example:
-[TASK_SUMMARY] {"summary": "Created User entity with id, email, password fields. Added UserRepository with findByEmail method. Created users table migration."}
+[TASK_SUMMARY] {"summary": "Added getLevelMetrics service function to src/modules/userDashboard/userDashboardMetrics.service.ts. The function takes userId and locale params, calls getCurrentUserLevel from userLevel module, calculates overall progress as average percentage across all requirements, and returns LevelMetricsResponse with currentLevel details (id, value, title, motivationalQuote, color, iconUrl, smallIconUrl), requirements array, overallProgress percentage, and isMaxLevel boolean. Added LevelMetricsResponse type import and getCurrentUserLevel import at top of file."}
 
-This summary will be provided to subsequent tasks as context.`;
+IMPORTANT: The [TASK_SUMMARY] marker must be your FINAL output. Do not add any explanation, confirmation, or additional text after it.`;
 
     return prompt;
   }
@@ -492,6 +500,7 @@ Please fix the issue and try again.`;
 
   /**
    * Collects all verification context for Planning Agent intelligent analysis.
+   * Only runs steps for features that are enabled in project config.
    */
   private async collectVerificationContext(
     project: string,
@@ -507,22 +516,29 @@ Please fix the issue and try again.`;
 
     const projectConfig = this.config.projects[project];
 
-    // Step 1: Install dependencies
-    console.log(`[TaskExecutor] [Context] Installing dependencies for ${project}...`);
-    this.statusMonitor.updateStatus(project, 'WORKING', 'Installing dependencies...');
-    if (this.io && flowId) {
-      (this.io as any).emitFlowStep(flowId, { id: 'deps', status: 'active', message: 'Installing dependencies', timestamp: Date.now() });
-    }
-    try {
-      await this.projectManager.installDependencies(project);
-    } catch (err) {
-      console.log(`[TaskExecutor] [Context] Dependency install failed: ${err}`);
-      // Continue to collect more context even if deps fail
+    // Step 1: Install packages (only if enabled)
+    const installEnabled = projectConfig?.installEnabled ?? false;
+    const installCommand = projectConfig?.installCommand;
+    if (installEnabled && installCommand) {
+      console.log(`[TaskExecutor] [Context] Running install command for ${project}: ${installCommand}...`);
+      this.statusMonitor.updateStatus(project, 'WORKING', 'Installing packages...');
+      if (this.io && flowId) {
+        (this.io as any).emitFlowStep(flowId, { id: 'deps', status: 'active', message: 'Installing packages', timestamp: Date.now() });
+      }
+      try {
+        await this.runInstallCommand(project, installCommand);
+      } catch (err) {
+        console.log(`[TaskExecutor] [Context] Install command failed: ${err}`);
+        // Continue to collect more context even if install fails
+      }
+    } else {
+      console.log(`[TaskExecutor] [Context] Install packages disabled for ${project}, skipping`);
     }
 
-    // Step 2: Run build and capture full output
+    // Step 2: Run build and capture full output (only if enabled)
+    const buildEnabled = projectConfig?.buildEnabled ?? !!projectConfig?.buildCommand;
     let buildFailed = false;
-    if (projectConfig?.buildCommand) {
+    if (buildEnabled && projectConfig?.buildCommand) {
       console.log(`[TaskExecutor] [Context] Running build for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Running build...');
       if (this.io && flowId) {
@@ -538,10 +554,13 @@ Please fix the issue and try again.`;
       if (buildFailed) {
         console.log(`[TaskExecutor] Build failed for ${project}, skipping dev server restart`);
       }
+    } else {
+      console.log(`[TaskExecutor] [Context] Build disabled for ${project}, skipping`);
     }
 
-    // Step 3: Restart dev server (skip if build failed - server won't start anyway)
-    if (!buildFailed) {
+    // Step 3: Restart dev server (only if enabled, and skip if build failed)
+    const devServerEnabled = projectConfig?.devServerEnabled ?? true;
+    if (devServerEnabled && !buildFailed) {
       console.log(`[TaskExecutor] [Context] Restarting dev server for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Restarting dev server...');
       if (this.io && flowId) {
@@ -552,14 +571,18 @@ Please fix the issue and try again.`;
       } catch (err) {
         console.log(`[TaskExecutor] [Context] Dev server restart failed: ${err}`);
       }
+    } else if (!devServerEnabled) {
+      console.log(`[TaskExecutor] [Context] Dev server disabled for ${project}, skipping restart`);
     }
 
-    // Step 4: Collect dev server logs (recent output)
-    const devLogs = this.logAggregator.getLogsByType(project, 'devServer', 100);
-    context.devServerLogs = devLogs.map(l => l.text).join('\n');
+    // Step 4: Collect dev server logs (only if dev server is enabled)
+    if (devServerEnabled) {
+      const devLogs = this.logAggregator.getLogsByType(project, 'devServer', 100);
+      context.devServerLogs = devLogs.map(l => l.text).join('\n');
+    }
 
-    // Step 5: Health check (skip if build failed)
-    if (!buildFailed) {
+    // Step 5: Health check (only if dev server is enabled and build didn't fail)
+    if (devServerEnabled && !buildFailed) {
       console.log(`[TaskExecutor] [Context] Health check for ${project}...`);
       this.statusMonitor.updateStatus(project, 'WORKING', 'Checking dev server health...');
       if (this.io && flowId) {
@@ -570,16 +593,74 @@ Please fix the issue and try again.`;
         healthy: health.healthy,
         error: health.error
       };
-    } else {
+    } else if (buildFailed) {
       console.log(`[TaskExecutor] [Context] Skipping health check (build failed)`);
       context.healthCheck = {
         healthy: false,
         error: 'Build failed - server not started'
       };
+    } else {
+      console.log(`[TaskExecutor] [Context] Skipping health check (dev server disabled)`);
     }
 
-    console.log(`[TaskExecutor] [Context] Collection complete for ${project}. Health: ${context.healthCheck?.healthy ? 'OK' : 'FAILED'}`);
+    console.log(`[TaskExecutor] [Context] Collection complete for ${project}. Health: ${context.healthCheck?.healthy ? 'OK' : 'N/A'}`);
     return context;
+  }
+
+  /**
+   * Runs an install command (e.g., npm install, pip install).
+   */
+  private async runInstallCommand(project: string, command: string): Promise<void> {
+    let projectPath = this.config.projects[project].path;
+    if (projectPath.startsWith('~')) {
+      projectPath = projectPath.replace('~', process.env.HOME || '');
+    }
+
+    console.log(`[TaskExecutor] Running install: ${command} in ${projectPath}`);
+
+    const child = await spawnWithShellEnv(command, {
+      cwd: projectPath,
+    });
+
+    return new Promise((resolve, reject) => {
+      let stderr = '';
+
+      child.stdout?.on('data', (data: Buffer) => {
+        this.logAggregator.addLog({
+          project,
+          type: 'agent',
+          stream: 'stdout',
+          text: data.toString(),
+          timestamp: Date.now()
+        });
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+        this.logAggregator.addLog({
+          project,
+          type: 'agent',
+          stream: 'stderr',
+          text: data.toString(),
+          timestamp: Date.now()
+        });
+      });
+
+      child.on('close', (code: number | null) => {
+        if (code === 0) {
+          console.log(`[TaskExecutor] Install succeeded for ${project}`);
+          resolve();
+        } else {
+          console.log(`[TaskExecutor] Install failed for ${project}: ${stderr}`);
+          reject(new Error(`Install command failed with code ${code}`));
+        }
+      });
+
+      child.on('error', (err: Error) => {
+        console.error(`[TaskExecutor] Install spawn error for ${project}:`, err);
+        reject(err);
+      });
+    });
   }
 
   /**

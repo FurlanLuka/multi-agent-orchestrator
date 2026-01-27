@@ -9,16 +9,21 @@ import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
 export interface AddProjectOptions {
   name: string;
   path: string;
+  devServerEnabled?: boolean;
   devServer?: {
     command: string;
     readyPattern: string;
     env?: Record<string, string>;
-    port?: number;
+    url?: string;
   };
+  buildEnabled?: boolean;
   buildCommand?: string;
+  installEnabled?: boolean;
+  installCommand?: string;
   setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   hasE2E?: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown)
+  dependsOn?: string[];  // Projects that must complete E2E before this one starts
   dependencyInstall?: boolean;
   gitEnabled?: boolean;      // Enable git features (feature branches, auto-commits)
   mainBranch?: string;       // Main branch name (default: 'main')
@@ -32,10 +37,7 @@ export interface CreateFromTemplateOptions {
   name: string;
   targetPath: string;
   template: ProjectTemplate;
-  dependencyInstall?: boolean;
-  hasE2E?: boolean;  // Whether to enable E2E testing (defaults to true for templates)
-  gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
-  mainBranch?: string;   // Main branch name (default: 'main')
+  // Optional overrides (otherwise uses template defaults)
   dependsOn?: string[];  // Projects that must complete E2E before this one starts
   permissions?: {
     dangerouslyAllowAll?: boolean;
@@ -43,30 +45,50 @@ export interface CreateFromTemplateOptions {
   };
 }
 
-// Template configurations
+// Template configurations - full ProjectConfig (minus path)
 const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
   'vite-frontend': {
     name: 'vite-frontend',
     displayName: 'Vite + React Frontend',
     description: 'React frontend with Vite, TypeScript, and Playwright MCP for E2E testing',
-    devServer: {
-      command: 'npm run dev',
-      readyPattern: 'Local:.*http|ready in'
-    },
-    buildCommand: 'npm run build',
-    setupCommand: 'claude mcp add playwright -- npx @playwright/mcp@latest',
-    defaultPort: 5173
+    config: {
+      devServerEnabled: true,
+      devServer: {
+        command: 'npm run dev',
+        readyPattern: 'Local:.*http|ready in',
+        env: {},
+        url: 'http://localhost:5173'
+      },
+      buildEnabled: true,
+      buildCommand: 'npm run build',
+      installEnabled: true,
+      installCommand: 'npm install',
+      setupCommand: 'claude mcp add playwright -- npx @playwright/mcp@latest',
+      hasE2E: true,
+      gitEnabled: true,
+      mainBranch: 'main'
+    }
   },
   'nestjs-backend': {
     name: 'nestjs-backend',
     displayName: 'NestJS Backend',
     description: 'NestJS backend with TypeScript and curl-based E2E testing',
-    devServer: {
-      command: 'npm run start:dev',
-      readyPattern: 'Nest application successfully started|listening on|Application is running'
-    },
-    buildCommand: 'npm run build',
-    defaultPort: 3000
+    config: {
+      devServerEnabled: true,
+      devServer: {
+        command: 'npm run start:dev',
+        readyPattern: 'Nest application successfully started|listening on|Application is running',
+        env: {},
+        url: 'http://localhost:3000'
+      },
+      buildEnabled: true,
+      buildCommand: 'npm run build',
+      installEnabled: true,
+      installCommand: 'npm install',
+      hasE2E: true,
+      gitEnabled: true,
+      mainBranch: 'main'
+    }
   }
 };
 
@@ -94,31 +116,6 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
-   * Ensures an entry exists in .gitignore (creates file if needed)
-   */
-  private ensureGitignoreEntry(projectPath: string, entry: string): void {
-    const gitignorePath = path.join(projectPath, '.gitignore');
-
-    let content = '';
-    if (fs.existsSync(gitignorePath)) {
-      content = fs.readFileSync(gitignorePath, 'utf-8');
-      // Check if entry already exists (as whole line)
-      const lines = content.split('\n').map(l => l.trim());
-      if (lines.includes(entry)) {
-        return; // Already present
-      }
-    }
-
-    // Append entry with newline
-    const newContent = content.endsWith('\n') || content === ''
-      ? `${content}${entry}\n`
-      : `${content}\n${entry}\n`;
-
-    fs.writeFileSync(gitignorePath, newContent);
-    console.log(`[ProjectManager] Added '${entry}' to .gitignore`);
-  }
-
-  /**
    * Ensures all AIO Orchestrator related entries are in .gitignore
    * This keeps the project repo clean from orchestrator artifacts
    */
@@ -126,7 +123,7 @@ export class ProjectManager extends EventEmitter {
     const aioEntries = [
       '# AIO Orchestrator',
       '.aio/',
-      '.claude/hooks/aio-*',
+      '.claude/',
     ];
 
     const gitignorePath = path.join(projectPath, '.gitignore');
@@ -177,7 +174,7 @@ export class ProjectManager extends EventEmitter {
    * Adds a new project to the configuration
    */
   async addProject(options: AddProjectOptions): Promise<void> {
-    const { name, path: projectPath, devServer, buildCommand, setupCommand, hasE2E, e2eInstructions, dependencyInstall, gitEnabled, mainBranch, permissions } = options;
+    const { name, path: projectPath, devServerEnabled, devServer, buildEnabled, buildCommand, installEnabled, installCommand, setupCommand, hasE2E, e2eInstructions, dependsOn, dependencyInstall, gitEnabled, mainBranch, permissions } = options;
 
     // Validate project name
     if (this.config.projects[name]) {
@@ -193,20 +190,28 @@ export class ProjectManager extends EventEmitter {
     // Create project config with defaults
     const projectConfig: ProjectConfig = {
       path: projectPath, // Keep original path format (with ~)
+      // Install packages (optional)
+      installEnabled: installEnabled ?? false,
+      installCommand: installCommand,
+      // Build (optional)
+      buildEnabled: buildEnabled ?? !!buildCommand,
+      buildCommand: buildCommand,
+      // Dev server (optional)
+      devServerEnabled: devServerEnabled ?? true,
       devServer: devServer ? {
         command: devServer.command,
         readyPattern: devServer.readyPattern,
         env: devServer.env || {},
-        port: devServer.port
+        url: devServer.url
       } : {
         command: 'npm run dev',
         readyPattern: 'ready|listening|started|compiled',
         env: {}
       },
-      buildCommand: buildCommand || 'npm run build',
       setupCommand: setupCommand,
       hasE2E: hasE2E ?? false,
       e2eInstructions: e2eInstructions,
+      dependsOn: dependsOn,
       gitEnabled: gitEnabled ?? false,
       mainBranch: mainBranch || 'main',
       permissions: permissions
@@ -527,7 +532,7 @@ ${fullCommand}
    * Creates a new project from a template
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<void> {
-    const { name, targetPath, template, dependencyInstall, hasE2E = true, gitEnabled = false, mainBranch = 'main', dependsOn, permissions } = options;
+    const { name, targetPath, template, dependsOn, permissions } = options;
 
     // Validate project name doesn't exist
     if (this.config.projects[name]) {
@@ -552,7 +557,7 @@ ${fullCommand}
       throw new Error(`Target path already exists: ${expandedPath}`);
     }
 
-    // Copy template to target
+    // Copy template files to target
     const templatePath = path.join(getProjectTemplatesDir(), template);
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Template directory not found: ${templatePath}`);
@@ -567,23 +572,12 @@ ${fullCommand}
     console.log(`[ProjectManager] Template copied to ${expandedPath}`);
     this.emit('templateCopyComplete', { name, template, targetPath: expandedPath });
 
-    // Create project config with port and url from template
+    // Copy full config from template, add path and optional overrides
     const projectConfig: ProjectConfig = {
+      ...templateConfig.config,
       path: targetPath,
-      devServer: {
-        command: templateConfig.devServer.command,
-        readyPattern: templateConfig.devServer.readyPattern,
-        env: {},
-        port: templateConfig.defaultPort,
-        url: `http://localhost:${templateConfig.defaultPort}`
-      },
-      buildCommand: templateConfig.buildCommand,
-      setupCommand: templateConfig.setupCommand,
-      hasE2E: hasE2E,
-      dependsOn: dependsOn,
-      gitEnabled: gitEnabled,
-      mainBranch: mainBranch,
-      permissions: permissions
+      dependsOn: dependsOn ?? templateConfig.config.dependsOn,
+      permissions: permissions ?? templateConfig.config.permissions
     };
 
     // Add to config
@@ -593,8 +587,8 @@ ${fullCommand}
     console.log(`[ProjectManager] Added project: ${name} at ${targetPath}`);
     this.emit('projectAdded', { name, config: projectConfig });
 
-    // Install dependencies if requested
-    if (dependencyInstall) {
+    // Install dependencies if enabled in template config
+    if (projectConfig.installEnabled) {
       await this.installDependencies(name);
     }
 
@@ -602,13 +596,14 @@ ${fullCommand}
     await this.setupProjectHooks(name);
 
     // Run setup command if configured (e.g., adding MCP servers)
-    if (templateConfig.setupCommand) {
+    if (projectConfig.setupCommand) {
       await this.runSetupCommand(name);
     }
 
     // Initialize git repo and commit all files (template + hooks) if git is enabled
-    if (gitEnabled) {
+    if (projectConfig.gitEnabled) {
       const gitManager = new GitManager();
+      const mainBranch = projectConfig.mainBranch || 'main';
       console.log(`[ProjectManager] Initializing git repository for ${name}...`);
 
       // Init repo (ensures main branch exists)

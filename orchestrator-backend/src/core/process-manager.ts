@@ -129,6 +129,10 @@ export class ProcessManager extends EventEmitter {
       throw new Error(`Unknown project: ${project}`);
     }
 
+    if (!projectConfig.devServer) {
+      throw new Error(`No dev server configured for project: ${project}`);
+    }
+
     const key = this.getKey(project, 'devServer');
     if (this.processes.has(key)) {
       console.log(`[ProcessManager] Dev server already running for ${project}`);
@@ -857,18 +861,25 @@ export class ProcessManager extends EventEmitter {
       return { healthy: false, error: 'Project not configured' };
     }
 
-    // Determine port - use configured port or infer from project type
-    let port = projectConfig.devServer.port;
-    if (!port) {
+    if (!projectConfig.devServer) {
+      return { healthy: false, error: 'No dev server configured' };
+    }
+
+    // Determine URL - use configured URL, or fall back to port, or infer from project type
+    let url = projectConfig.devServer.url;
+    if (!url && projectConfig.devServer.port) {
+      url = `http://localhost:${projectConfig.devServer.port}`;
+    }
+    if (!url) {
       const isFrontend = project.toLowerCase().includes('frontend');
-      port = isFrontend ? 5173 : 3000;
+      url = isFrontend ? 'http://localhost:5173' : 'http://localhost:3000';
     }
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`http://localhost:${port}`, {
+      const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal
       });

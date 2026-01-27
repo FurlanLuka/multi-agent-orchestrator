@@ -7,14 +7,25 @@ export interface ProjectPermissions {
 // Project configuration
 export interface ProjectConfig {
   path: string;
-  devServer: {
+
+  // Dev server (optional)
+  devServerEnabled?: boolean;  // Whether dev server is enabled (defaults to true for backwards compat)
+  devServer?: {
     command: string;
     readyPattern: string;
     env: Record<string, string>;
     port?: number;  // Dev server port (used to construct URL as http://localhost:{port})
     url?: string;   // Full dev server URL (e.g., "http://localhost:3000"). If set, takes precedence over port
   };
+
+  // Build (optional)
+  buildEnabled?: boolean;  // Whether build is enabled (defaults to true if buildCommand exists)
   buildCommand?: string;  // Command to build the project (e.g., "npm run build")
+
+  // Install packages (optional)
+  installEnabled?: boolean;  // Whether install command is enabled
+  installCommand?: string;  // e.g., "npm install", "yarn", "pip install -r requirements.txt"
+
   setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
@@ -586,14 +597,8 @@ export interface ProjectTemplateConfig {
   name: ProjectTemplate;
   displayName: string;
   description: string;
-  devServer: {
-    command: string;
-    readyPattern: string;
-  };
-  buildCommand?: string;
-  setupCommand?: string;  // Command to run on project setup (e.g., "claude mcp add playwright -- npx @playwright/mcp@latest")
-  defaultPort: number;
-  dependencyInstall?: boolean;  // Whether to install dependencies when creating from template
+  // Full project config (minus path, which is user-provided)
+  config: Omit<ProjectConfig, 'path'>;
 }
 
 // Streaming message for assistant-ui (persisted in chat history)
