@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Config } from '@aio/types';
-import { writeProjectPermissions } from '../utils/permissions-writer';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
 import { spawnWithShellEnv } from '../utils/shell-env';
 
@@ -319,21 +318,14 @@ export class ProcessManager extends EventEmitter {
       throw new Error(`Project path does not exist: ${projectPath} (for project "${project}")`);
     }
 
-    // Handle permissions
+    // Handle permissions - MCP handles live permission prompts, no need for settings.json
     const useDangerousMode = projectConfig.permissions?.dangerouslyAllowAll === true;
-
-    if (!useDangerousMode) {
-      // Always write permissions to project's settings.json
-      // If no permissions configured, writes empty allow list (Claude will prompt for everything)
-      const permissions = projectConfig.permissions || { allow: [] };
-      await writeProjectPermissions(projectPath, permissions);
-    }
 
     console.log(`[ProcessManager] Sending to project "${project}" at path: ${projectPath}`);
     console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
-    console.log(`[ProcessManager] Permissions mode: ${useDangerousMode ? 'DANGEROUS (skip all)' : 'allowlist'}`);
+    console.log(`[ProcessManager] Permissions mode: ${useDangerousMode ? 'DANGEROUS (skip all)' : 'MCP prompts'}`);
 
-    // Build args - add dangerous flag only if explicitly enabled
+    // Build args
     const args = [
       '-p', prompt,
       '--output-format', 'stream-json',
@@ -344,10 +336,7 @@ export class ProcessManager extends EventEmitter {
     if (useDangerousMode) {
       args.push('--dangerously-skip-permissions');
     } else {
-      // Use acceptEdits mode to respect the settings.json allow list
-      args.push('--permission-mode', 'acceptEdits');
-
-      // Add MCP permission tool for live permission approval
+      // Use MCP permission tool for live permission approval via UI
       const mcpConfigPath = this.generateMcpConfig();
       args.push('--mcp-config', mcpConfigPath);
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');

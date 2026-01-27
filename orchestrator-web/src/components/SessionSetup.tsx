@@ -87,7 +87,7 @@ export function SessionSetup({
       StarterKit,
       Link,
       Placeholder.configure({
-        placeholder: 'Describe the feature you want to build...\n\nYou can use formatting like:\n• Bold for emphasis\n• Bullet lists for requirements\n• Code blocks for technical details',
+        placeholder: 'Describe the feature you want to build...',
       }),
     ],
     content: '',
@@ -105,8 +105,8 @@ export function SessionSetup({
     return editor.getText();
   };
 
-  // Check if editor has content
-  const hasContent = editor ? !editor.isEmpty : false;
+  // Check if editor has content - use getText() for more robust check
+  const hasContent = editor ? editor.getText().trim().length > 0 : false;
 
   const handleStart = () => {
     const featureText = getFeatureText();

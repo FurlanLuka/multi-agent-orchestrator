@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execWithShellEnv } from '../utils/shell-env';
+import { execWithShellEnv, spawnWithShellEnv } from '../utils/shell-env';
+import { parseMarkedResponse, MARKERS } from '../planning/response-parser';
 
 /**
  * GitManager handles git operations for project repositories.
@@ -421,5 +422,289 @@ export class GitManager {
     }
 
     return result.stdout.trim().split('\n').filter(line => line.trim());
+  }
+
+  /**
+   * Gets the number of commits between two branches using GitHub CLI
+   * Used to validate PR creation (ensure there are commits to merge)
+   */
+  async getCommitCount(
+    projectPath: string,
+    baseRef: string,
+    headRef: string
+  ): Promise<number> {
+    const expandedPath = this.expandPath(projectPath);
+
+    // Remove 'origin/' prefix if present for gh api
+    const baseBranch = baseRef.replace('origin/', '');
+    const headBranch = headRef.replace('origin/', '');
+
+    try {
+      // URL encode branch names for API (handles slashes like feature/my-branch)
+      const encodedBase = encodeURIComponent(baseBranch);
+      const encodedHead = encodeURIComponent(headBranch);
+      // Use gh api to compare branches - more reliable than local refs
+      const result = await execWithShellEnv(
+        `gh api "repos/{owner}/{repo}/compare/${encodedBase}...${encodedHead}" --jq '.ahead_by'`,
+        { cwd: expandedPath, timeout: 30000 }
+      );
+
+      if (result.exitCode === 0) {
+        return parseInt(result.stdout.trim(), 10) || 0;
+      }
+    } catch {
+      // Fallback to git command
+    }
+
+    // Fallback: fetch and use git rev-list
+    await this.runGitCommand(projectPath, ['fetch', 'origin', baseBranch, headBranch]);
+
+    const result = await this.runGitCommand(projectPath, [
+      'rev-list',
+      '--count',
+      `origin/${baseBranch}..${headBranch}`
+    ]);
+
+    if (result.exitCode !== 0) {
+      return 0;
+    }
+
+    return parseInt(result.stdout.trim(), 10) || 0;
+  }
+
+  /**
+   * Checks if a remote branch exists using GitHub CLI
+   */
+  async remoteBranchExists(projectPath: string, branchName: string): Promise<boolean> {
+    const expandedPath = this.expandPath(projectPath);
+
+    try {
+      // URL encode branch name for API (handles slashes like feature/my-branch)
+      const encodedBranch = encodeURIComponent(branchName);
+      // Use gh api to check branch exists - more reliable
+      const result = await execWithShellEnv(
+        `gh api "repos/{owner}/{repo}/branches/${encodedBranch}" --jq '.name'`,
+        { cwd: expandedPath, timeout: 15000 }
+      );
+
+      return result.exitCode === 0 && result.stdout.trim().length > 0;
+    } catch {
+      // Fallback to git ls-remote
+    }
+
+    const result = await this.runGitCommand(projectPath, [
+      'ls-remote',
+      '--heads',
+      'origin',
+      branchName
+    ]);
+
+    return result.exitCode === 0 && result.stdout.trim().length > 0;
+  }
+
+  /**
+   * Gets list of remote branches using GitHub CLI (for PR base branch selection)
+   */
+  async getRemoteBranches(projectPath: string): Promise<string[]> {
+    const expandedPath = this.expandPath(projectPath);
+
+    try {
+      // Use gh api to get branches - more reliable than git commands
+      const result = await execWithShellEnv(
+        'gh api repos/{owner}/{repo}/branches --paginate --jq ".[].name"',
+        { cwd: expandedPath, timeout: 30000 }
+      );
+
+      if (result.exitCode !== 0) {
+        // Fallback to git command if gh fails
+        return this.getRemoteBranchesViaGit(projectPath);
+      }
+
+      return result.stdout
+        .trim()
+        .split('\n')
+        .filter(line => line.trim())
+        .sort();
+    } catch {
+      // Fallback to git command
+      return this.getRemoteBranchesViaGit(projectPath);
+    }
+  }
+
+  /**
+   * Fallback: Gets list of remote branches using git command
+   */
+  private async getRemoteBranchesViaGit(projectPath: string): Promise<string[]> {
+    // First fetch to ensure we have latest remote info
+    await this.runGitCommand(projectPath, ['fetch', '--prune']);
+
+    const result = await this.runGitCommand(projectPath, [
+      'branch',
+      '-r',
+      '--format=%(refname:short)'
+    ]);
+
+    if (result.exitCode !== 0) {
+      return [];
+    }
+
+    // Parse branches, removing 'origin/' prefix and filtering out HEAD
+    return result.stdout
+      .trim()
+      .split('\n')
+      .filter(line => line.trim() && !line.includes('HEAD'))
+      .map(line => line.replace('origin/', '').trim())
+      .filter(Boolean)
+      .sort();
+  }
+
+  /**
+   * Generates PR title and body using Claude AI
+   * Uses the MARK pattern for reliable response parsing
+   */
+  async generatePRContent(
+    projectPath: string,
+    options: {
+      featureDescription: string;
+      taskSummaries: Array<{ taskName: string; summary: string }>;
+      commits: string[];
+      baseBranch: string;
+      headBranch: string;
+    }
+  ): Promise<{ title: string; body: string }> {
+    const expandedPath = this.expandPath(projectPath);
+
+    const prompt = `Generate a pull request title and description based on the following information.
+
+## Feature Description
+${options.featureDescription}
+
+## Completed Tasks
+${options.taskSummaries.length > 0
+  ? options.taskSummaries.map(t => `- **${t.taskName}**: ${t.summary}`).join('\n')
+  : 'No task summaries available'}
+
+## Commits (${options.baseBranch} → ${options.headBranch})
+${options.commits.length > 0
+  ? options.commits.slice(0, 15).map(c => `- ${c}`).join('\n')
+  : 'No commits available'}
+
+**IMPORTANT**: You MUST output your response using this exact marker format:
+
+[${MARKERS.PR_CONTENT}] {"title": "Brief PR title (max 72 chars)", "body": "## Summary\\n...\\n\\n## Changes\\n..."}
+
+The JSON must include:
+- "title": A concise, descriptive PR title (max 72 characters)
+- "body": Markdown formatted body with Summary, Changes, and Testing sections`;
+
+    try {
+      // Use spawnWithShellEnv with args array for safe prompt passing
+      const proc = await spawnWithShellEnv('claude', {
+        cwd: expandedPath,
+        args: ['-p', prompt, '--output-format', 'text', '--verbose'],
+      });
+
+      // Collect output
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      // Wait for process to complete with timeout
+      const exitCode = await new Promise<number>((resolve) => {
+        const timeout = setTimeout(() => {
+          proc.kill();
+          resolve(-1);
+        }, 60000);
+
+        proc.on('close', (code) => {
+          clearTimeout(timeout);
+          resolve(code ?? 0);
+        });
+
+        proc.on('error', () => {
+          clearTimeout(timeout);
+          resolve(-1);
+        });
+      });
+
+      if (exitCode !== 0) {
+        console.warn('[GitManager] Claude CLI failed, using fallback PR content');
+        console.warn('[GitManager] stderr:', stderr);
+        return this.generateFallbackPRContent(options);
+      }
+
+      // Parse using the MARK pattern
+      const parsed = parseMarkedResponse<{ title: string; body: string }>(
+        stdout,
+        MARKERS.PR_CONTENT,
+        ['title', 'body']
+      );
+
+      if (!parsed.success || !parsed.data) {
+        console.warn('[GitManager] Could not parse PR_CONTENT marker, using fallback');
+        console.warn('[GitManager] Parse error:', parsed.error);
+        return this.generateFallbackPRContent(options);
+      }
+
+      // Add footer to body
+      const bodyWithFooter = `${parsed.data.body}\n\n---\n*Generated by AIO Orchestrator*`;
+
+      return {
+        title: parsed.data.title.slice(0, 72), // Ensure title isn't too long
+        body: bodyWithFooter
+      };
+    } catch (err) {
+      console.warn('[GitManager] Error generating PR content with Claude:', err);
+      return this.generateFallbackPRContent(options);
+    }
+  }
+
+  /**
+   * Fallback PR content generation when Claude is unavailable
+   */
+  private generateFallbackPRContent(options: {
+    featureDescription: string;
+    taskSummaries: Array<{ taskName: string; summary: string }>;
+    commits: string[];
+  }): { title: string; body: string } {
+    // Generate title from feature description (first line, truncated)
+    const titleBase = options.featureDescription.split('\n')[0].trim();
+    const title = titleBase.length > 72 ? titleBase.slice(0, 69) + '...' : titleBase;
+
+    // Build body
+    const bodyParts: string[] = [];
+
+    bodyParts.push(`## Summary\n${options.featureDescription}`);
+
+    if (options.taskSummaries.length > 0) {
+      bodyParts.push('\n## Changes');
+      options.taskSummaries.forEach(({ taskName, summary }) => {
+        bodyParts.push(`- **${taskName}**: ${summary}`);
+      });
+    }
+
+    if (options.commits.length > 0) {
+      bodyParts.push('\n## Commits');
+      options.commits.slice(0, 10).forEach(commit => {
+        bodyParts.push(`- ${commit}`);
+      });
+      if (options.commits.length > 10) {
+        bodyParts.push(`- ... and ${options.commits.length - 10} more commits`);
+      }
+    }
+
+    bodyParts.push('\n---\n*Generated by AIO Orchestrator*');
+
+    return {
+      title: title || 'Feature update',
+      body: bodyParts.join('\n')
+    };
   }
 }

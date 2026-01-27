@@ -226,6 +226,7 @@ export const MARKERS = {
   ACTION: 'ACTION',
   TEST_STATUS: 'TEST_STATUS',
   WORKER_STATUS: 'WORKER_STATUS',
+  PR_CONTENT: 'PR_CONTENT',        // Used to generate PR title and body
 } as const;
 
 export type MarkerName = typeof MARKERS[keyof typeof MARKERS];

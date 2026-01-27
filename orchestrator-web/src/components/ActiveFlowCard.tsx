@@ -34,26 +34,26 @@ export function ActiveFlowCard({ flow }: ActiveFlowCardProps) {
     >
       {/* Current active step with spinner */}
       {activeStep && (
-        <Group gap="sm" justify="space-between" wrap="nowrap">
-          <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-            <Loader size={16} color={color} />
-            <Text size="sm" c={`${color}.7`}>
-              {activeStep.message}
-            </Text>
-          </Group>
-          <Group gap="xs" wrap="nowrap">
-            {flow.taskName && (
-              <Text size="xs" c="dimmed" lineClamp={1} style={{ maxWidth: 150 }}>
-                {flow.taskName}
+        <Stack gap={4}>
+          <Group gap="sm" justify="space-between" wrap="nowrap">
+            <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+              <Loader size={16} color={color} />
+              <Text size="sm" c={`${color}.7`}>
+                {activeStep.message}
               </Text>
-            )}
+            </Group>
             {flow.project && (
               <Badge size="xs" variant="light" color={color}>
                 {flow.project}
               </Badge>
             )}
           </Group>
-        </Group>
+          {flow.taskName && (
+            <Text size="xs" c="dimmed" ml={28}>
+              {flow.taskName}
+            </Text>
+          )}
+        </Stack>
       )}
 
       {/* Show completed steps if any */}

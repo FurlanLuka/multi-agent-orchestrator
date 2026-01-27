@@ -131,6 +131,9 @@ export function useSocket() {
   const [creatingPR, setCreatingPR] = useState<Record<string, boolean>>({});
   const [prResults, setPRResults] = useState<Record<string, { success: boolean; message: string; prUrl?: string }>>({});
   const [gitHubInfo, setGitHubInfo] = useState<Record<string, { isGitHub: boolean; repoUrl?: string }>>({});
+  // Branch list for PR base branch selection
+  const [availableBranches, setAvailableBranches] = useState<Record<string, string[]>>({});
+  const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
 
   // Permission prompt state (for live permission approval via MCP)
   const [permissionPrompt, setPermissionPrompt] = useState<PermissionPrompt | null>(null);
@@ -724,6 +727,13 @@ export function useSocket() {
       console.error(`Create PR error for ${project}: ${error}`);
     });
 
+    // Branch list events (for PR base branch selection)
+    socket.on('branches', ({ project, branches }: { project: string; branches: string[] }) => {
+      setLoadingBranches(prev => ({ ...prev, [project]: false }));
+      setAvailableBranches(prev => ({ ...prev, [project]: branches }));
+      console.log(`Branches for ${project}:`, branches);
+    });
+
     // Permission prompt events (for live permission approval via MCP)
     socket.on('permissionPrompt', (event: PermissionPrompt) => {
       console.log(`Permission prompt for ${event.project}: ${event.toolName}`);
@@ -1053,6 +1063,14 @@ export function useSocket() {
     }
   }, []);
 
+  // Get available branches for a project (for PR base branch selection)
+  const getBranches = useCallback((project: string) => {
+    if (socketRef.current) {
+      setLoadingBranches(prev => ({ ...prev, [project]: true }));
+      socketRef.current.emit('getBranches', { project });
+    }
+  }, []);
+
   // Respond to permission prompt (for live permission approval via MCP)
   const respondToPermission = useCallback((approved: boolean, allowAll?: boolean) => {
     if (socketRef.current && permissionPrompt) {
@@ -1126,6 +1144,8 @@ export function useSocket() {
     creatingPR,
     prResults,
     gitHubInfo,
+    availableBranches,
+    loadingBranches,
     permissionPrompt,
     sendChat,
     startSession,
@@ -1153,6 +1173,7 @@ export function useSocket() {
     mergeBranch,
     getGitHubInfo,
     createPR,
+    getBranches,
     recheckDependencies,
     respondToPermission,
     retryProject,

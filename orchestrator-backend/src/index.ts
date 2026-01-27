@@ -2226,6 +2226,30 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Handle get branches request (for PR base branch selection)
+    socket.on('getBranches', async ({ project }: { project: string }) => {
+      console.log(`[Orchestrator] Branches requested for ${project}`);
+      const projectConfig = config.projects[project];
+
+      if (!projectConfig || !projectConfig.gitEnabled) {
+        socket.emit('branches', { project, branches: [] });
+        return;
+      }
+
+      try {
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        const branches = await gitManager.getRemoteBranches(projectPath);
+        socket.emit('branches', { project, branches });
+      } catch (err) {
+        console.error(`[Orchestrator] Failed to get branches for ${project}:`, err);
+        socket.emit('branches', { project, branches: [] });
+      }
+    });
+
     // Handle create PR request
     socket.on('createPR', async ({
       project,
@@ -2270,44 +2294,57 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         const session = sessionManager.getCurrentSession();
         const targetBranch = baseBranch || projectConfig.mainBranch || 'main';
 
-        // Generate PR title and body if not provided
-        const prTitle = title || `${session?.feature || 'Feature update'}`;
+        // Validate: Check if head branch exists on remote (was pushed)
+        const headBranchExists = await gitManager.remoteBranchExists(projectPath, branchName);
+        if (!headBranchExists) {
+          socket.emit('createPRError', {
+            project,
+            error: `Branch '${branchName}' hasn't been pushed to remote. Push the branch first.`
+          });
+          return;
+        }
 
-        // Build PR body with feature summary and task summaries
+        // Validate: Check if base branch exists on remote
+        const baseBranchExists = await gitManager.remoteBranchExists(projectPath, targetBranch);
+        if (!baseBranchExists) {
+          socket.emit('createPRError', {
+            project,
+            error: `Target branch '${targetBranch}' doesn't exist on remote.`
+          });
+          return;
+        }
+
+        // Validate: Check if there are commits to merge
+        const commitCount = await gitManager.getCommitCount(projectPath, `origin/${targetBranch}`, branchName);
+        if (commitCount === 0) {
+          socket.emit('createPRError', {
+            project,
+            error: `No commits between '${targetBranch}' and '${branchName}'. Make sure you have changes to merge.`
+          });
+          return;
+        }
+
+        // Generate PR title and body using Claude AI (or fallback if not provided)
+        let prTitle = title;
         let prBody = body;
-        if (!prBody) {
-          const bodyParts: string[] = [];
 
-          // Feature description
-          if (session?.feature) {
-            bodyParts.push(`## Summary\n${session.feature}`);
-          }
-
-          // Task summaries from taskExecutor
-          if (taskExecutor) {
-            const summaries = taskExecutor.getTaskSummaries(project);
-            if (summaries.length > 0) {
-              bodyParts.push('\n## Changes');
-              summaries.forEach(({ taskName, summary }) => {
-                bodyParts.push(`- **${taskName}**: ${summary}`);
-              });
-            }
-          }
-
-          // Commit log
+        if (!prTitle || !prBody) {
+          // Gather data for PR generation
+          const taskSummaries = taskExecutor?.getTaskSummaries(project) || [];
           const commits = await gitManager.getCommitLog(projectPath, targetBranch, branchName);
-          if (commits.length > 0) {
-            bodyParts.push('\n## Commits');
-            commits.slice(0, 10).forEach(commit => {
-              bodyParts.push(`- ${commit}`);
-            });
-            if (commits.length > 10) {
-              bodyParts.push(`- ... and ${commits.length - 10} more commits`);
-            }
-          }
 
-          bodyParts.push('\n---\n*Created by Orchestrator*');
-          prBody = bodyParts.join('\n');
+          console.log(`[Orchestrator] Generating PR content with Claude for ${project}...`);
+
+          const generated = await gitManager.generatePRContent(projectPath, {
+            featureDescription: session?.feature || 'Feature update',
+            taskSummaries,
+            commits,
+            baseBranch: targetBranch,
+            headBranch: branchName,
+          });
+
+          prTitle = prTitle || generated.title;
+          prBody = prBody || generated.body;
         }
 
         const result = await gitManager.createPullRequest(projectPath, {

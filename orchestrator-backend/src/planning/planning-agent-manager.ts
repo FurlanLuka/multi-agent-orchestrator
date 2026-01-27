@@ -201,11 +201,11 @@ IMPORTANT: The user might ask about features like "comments", "authentication", 
 ## USER ACTION REQUESTS
 
 Users may ask you to perform actions like:
-- "restart backend server"
-- "send a prompt to frontend agent"
-- "run e2e tests on backend"
-- "skip e2e tests for backend" / "mark backend as complete"
-- "retry e2e tests for frontend"
+- "restart <project> server"
+- "send a prompt to <project> agent"
+- "run e2e tests on <project>"
+- "skip e2e tests for <project>" / "mark <project> as complete"
+- "retry e2e tests for <project>"
 
 ### Available Actions
 - {"type": "restart_server", "project": "projectName"} - Always allowed
@@ -245,9 +245,9 @@ If user asks to send a prompt during automatic execution, explain:
 When executing an action, respond with BOTH:
 1. A brief explanation of what you're doing
 2. The action JSON on its own line with the [ACTION] marker:
-   [ACTION] {"type": "restart_server", "project": "backend"}
-   [ACTION] {"type": "skip_e2e", "project": "backend", "reason": "E2E tests too complex to automate"}
-   [ACTION] {"type": "retry_e2e", "project": "frontend"}
+   [ACTION] {"type": "restart_server", "project": "<project-name>"}
+   [ACTION] {"type": "skip_e2e", "project": "<project-name>", "reason": "E2E tests too complex to automate"}
+   [ACTION] {"type": "retry_e2e", "project": "<project-name>"}
 
 When NOT executing (refusing):
 - Explain why based on the current project status
@@ -270,7 +270,7 @@ Status options:
 Examples:
 
 **Answering a question:**
-[RESPONSE] {"message": "The backend uses NestJS with TypeORM for database access", "status": "info", "details": "Key files:\\n- src/app.module.ts - Main module\\n- src/entities/ - Database entities"}
+[RESPONSE] {"message": "The backend uses a modular architecture with database access through an ORM", "status": "info", "details": "Key files:\\n- src/app.module.ts - Main module\\n- src/entities/ - Database entities"}
 
 **Confirming an action:**
 [RESPONSE] {"message": "Restarting backend server", "status": "success"}
@@ -794,22 +794,29 @@ For multi-project features, spawn multiple Task agents simultaneously to explore
 
 **What to explore:**
 
-1. **Understand Project Structure**
-   - Use Glob to find key files: "**/{package.json,tsconfig.json}"
-   - Read each project's package.json for dependencies and scripts
-   - Map out the directory structure with Glob: "src/**/*"
+1. **Read Project Guidelines FIRST**
+   - Check for CLAUDE.md or .claude/development.md - these contain project-specific instructions
+   - Check .claude/skills/ directory for specialized skills (e.g., e2e-testing.md)
+   - These files tell you HOW to work with each project
 
-2. **Analyze Existing Code Patterns**
+2. **Understand Project Structure**
+   - Use Glob to find key files: "**/{package.json,tsconfig.json,*.config.*}"
+   - Read package.json for dependencies, scripts, and technology stack
+   - Map out the directory structure to understand conventions
+
+3. **Analyze Existing Code Patterns**
    - Read existing source files to understand conventions
    - Look for: API patterns, component structure, state management, styling
    - Check for existing similar features you can follow as examples
+   - Identify the framework/libraries used and their patterns
 
-3. **Identify Integration Points**
-   - How does frontend communicate with backend? (REST, GraphQL, etc.)
+4. **Identify Integration Points**
+   - How do projects communicate? (REST, GraphQL, gRPC, etc.)
    - What authentication/authorization exists?
    - What shared types or contracts exist?
 
 DO NOT SKIP EXPLORATION. Poor plans come from not understanding the codebase.
+DO NOT ASSUME TECHNOLOGIES. Every project may use different frameworks - discover them.
 
 ## PHASE 2: ANALYSIS
 
@@ -870,14 +877,15 @@ Only after completing exploration and analysis, create the plan.
 
 CRITICAL RULES:
 - Tasks = IMPLEMENTATION ONLY (write feature code)
-- NO unit tests, Jest tests, or test files in tasks
+- NO unit tests or test files in tasks - testing is handled separately
 - NO "write tests" or "add test coverage" instructions
 - NO starting dev servers (orchestrator manages these)
 - Testing is handled via E2E after implementation
-- "testPlan" is for E2E scenarios only (Playwright/curl)
+- "testPlan" is for E2E scenarios only (automatable tests)
 - Exclude hasE2E: false projects from testPlan
-- Tests MUST be automatable: HTTP requests (curl) or browser interactions (Playwright) ONLY
+- Tests MUST be automatable: HTTP requests or browser interactions ONLY
 - DO NOT include WebSocket, Socket.IO, or real-time event tests - these require client libraries and cannot be automated
+- IMPORTANT: Adapt your file paths, patterns, and conventions to match each project's actual technology stack (discovered during exploration)
 
 DATABASE DEFAULTS:
 - If the project already has a database configured, use that existing database
@@ -886,36 +894,38 @@ DATABASE DEFAULTS:
 
 ## OUTPUT FORMAT
 
+IMPORTANT: The example below shows the STRUCTURE. You MUST adapt file paths, patterns, and technology-specific details to match what you discovered during exploration of each project.
+
 \`\`\`json
 {
   "feature": "User Authentication System",
   "description": "Allow users to register, login, and access protected resources with JWT tokens",
-  "overview": "We will implement JWT-based authentication with bcrypt password hashing. The backend will expose /auth endpoints for login/register, with a JwtAuthGuard middleware protecting routes. The frontend will have login/register forms that store the JWT token in localStorage and include it in API requests via an axios interceptor. User state will be managed through React Context.",
-  "architecture": "ASCII diagram showing components, endpoints, and data flow (see guidelines below)",
+  "overview": "Brief description of the implementation approach. Describe the high-level architecture: what each project will do, how they communicate, and the key components involved. Adapt to the actual frameworks/libraries used in each project.",
+  "architecture": "Mermaid diagram showing components, endpoints, and data flow (see guidelines below)",
   "tasks": [
     {
-      "project": "backend",
-      "name": "Create Auth Module",
-      "task": "## Auth Module Setup\\n\\n**Files to create:**\\n- \`src/auth/auth.module.ts\`\\n- \`src/auth/auth.controller.ts\`\\n- \`src/auth/auth.service.ts\`\\n- \`src/auth/dto/login.dto.ts\`\\n- \`src/auth/dto/register.dto.ts\`\\n\\n**Endpoints:**\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success 201: \`{ token: string, user: { id, email, name } }\`\\n- Email exists 409: \`{ message: 'Email already exists' }\`\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success 200: \`{ token: string, user: { id, email, name } }\`\\n- Invalid 401: \`{ message: 'Invalid credentials' }\`\\n\\n**Implementation:**\\n- Use bcrypt (cost 10) for password hashing\\n- JWT expires in 7 days\\n- Validate: email format, password min 8 chars"
+      "project": "api-server",
+      "name": "Create Auth Endpoints",
+      "task": "## Auth API Setup\\n\\n**Files to create:** (use patterns matching the project's existing structure)\\n- Auth controller/router\\n- Auth service/handler\\n- DTOs/validation schemas\\n\\n**Endpoints:**\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success 201: \`{ token: string, user: { id, email, name } }\`\\n- Email exists 409: \`{ message: 'Email already exists' }\`\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success 200: \`{ token: string, user: { id, email, name } }\`\\n- Invalid 401: \`{ message: 'Invalid credentials' }\`\\n\\n**Implementation:**\\n- Use bcrypt for password hashing\\n- JWT for token generation\\n- Follow the project's existing patterns for controllers/services"
     },
     {
-      "project": "backend",
-      "name": "Add JWT Guard",
-      "task": "## JWT Authentication Guard\\n\\n**Files to create:**\\n- \`src/auth/guards/jwt-auth.guard.ts\`\\n- \`src/auth/strategies/jwt.strategy.ts\`\\n\\n**Implementation:**\\n- Extract token from Authorization: Bearer header\\n- Verify token signature and expiration\\n- Attach user object to request\\n- Return 401 if token invalid/missing\\n\\n**Usage:** Apply @UseGuards(JwtAuthGuard) to protected routes"
+      "project": "api-server",
+      "name": "Add Auth Middleware",
+      "task": "## Authentication Middleware\\n\\n**Files to create:** (follow project conventions)\\n- Auth middleware/guard\\n- Token validation utility\\n\\n**Implementation:**\\n- Extract token from Authorization: Bearer header\\n- Verify token signature and expiration\\n- Attach user to request context\\n- Return 401 if token invalid/missing"
     },
     {
-      "project": "frontend",
-      "name": "Create Auth Context",
-      "task": "## Auth Context Provider\\n\\n**Files to create:**\\n- \`src/contexts/AuthContext.tsx\`\\n- \`src/hooks/useAuth.ts\`\\n\\n**Context State:**\\n- user: { id, email, name } | null\\n- token: string | null\\n- isLoading: boolean\\n\\n**Context Methods:**\\n- login(email, password): Promise<void>\\n- register(email, password, name): Promise<void>\\n- logout(): void\\n\\n**Implementation:**\\n- Store token in localStorage\\n- On mount, check localStorage for existing token\\n- Configure axios interceptor to add Authorization header"
+      "project": "web-app",
+      "name": "Create Auth State Management",
+      "task": "## Auth State Management\\n\\n**Files to create:** (use patterns matching the project's state management approach)\\n- Auth state/context/store\\n- Auth hooks or utilities\\n\\n**State:**\\n- user: { id, email, name } | null\\n- token: string | null\\n- isLoading: boolean\\n\\n**Methods:**\\n- login(email, password)\\n- register(email, password, name)\\n- logout()\\n\\n**Implementation:**\\n- Store token in localStorage/cookies\\n- Configure API client to include auth header\\n- Follow project's existing state management patterns"
     },
     {
-      "project": "frontend",
-      "name": "Create Auth Pages",
-      "task": "## Login and Register Pages\\n\\n**Files to create:**\\n- \`src/pages/LoginPage.tsx\`\\n- \`src/pages/RegisterPage.tsx\`\\n- \`src/components/AuthForm.tsx\` (shared form component)\\n\\n**LoginPage:**\\n- Fields: email, password\\n- Submit calls auth.login()\\n- On success, redirect to /dashboard\\n- Show error message on failure\\n\\n**RegisterPage:**\\n- Fields: name, email, password, confirm password\\n- Validate passwords match\\n- Submit calls auth.register()\\n- On success, redirect to /dashboard\\n\\n**Styling:** Use existing UI component library"
+      "project": "web-app",
+      "name": "Create Auth UI",
+      "task": "## Login and Register UI\\n\\n**Files to create:** (follow project's component/page structure)\\n- Login page/component\\n- Register page/component\\n- Shared form component (if applicable)\\n\\n**LoginPage:**\\n- Fields: email, password\\n- On success, redirect to main page\\n- Show error message on failure\\n\\n**RegisterPage:**\\n- Fields: name, email, password, confirm password\\n- Validate passwords match\\n- On success, redirect to main page\\n\\n**Styling:** Use the project's existing UI components/styling approach"
     }
   ],
   "testPlan": {
-    "backend": [
+    "api-server": [
       "Register with valid data returns 201 and JWT token",
       "Register with existing email returns 409",
       "Login with valid credentials returns 200 and JWT token",
@@ -923,7 +933,7 @@ DATABASE DEFAULTS:
       "Protected route without token returns 401",
       "Protected route with valid token returns 200"
     ],
-    "frontend": [
+    "web-app": [
       "User can register with valid form data",
       "User sees error when registering with existing email",
       "User can login with valid credentials",
@@ -933,31 +943,32 @@ DATABASE DEFAULTS:
     ]
   },
   "e2eDependencies": {
-    "frontend": ["backend"]
+    "web-app": ["api-server"]
   }
 }
 \`\`\`
 
+NOTE: Replace "api-server" and "web-app" with the actual project names from the session. The task file paths should follow each project's existing conventions discovered during exploration.
+
 ## ARCHITECTURE DIAGRAM
 
-Create a Mermaid flowchart showing component interactions:
+Create a Mermaid flowchart showing component interactions (use actual project names):
 
 \`\`\`mermaid
 flowchart LR
-    subgraph Frontend
-        LP[LoginPage] --> AC[AuthContext]
-        RP[RegisterPage] --> AC
-        AC --> AX[axios config]
+    subgraph WebApp[Web Application]
+        UI[Auth UI] --> State[Auth State]
+        State --> Client[API Client]
     end
 
-    subgraph Backend
-        CTRL[AuthController] --> SVC[AuthService]
-        SVC --> DB[(Database)]
+    subgraph APIServer[API Server]
+        Routes[Auth Routes] --> Service[Auth Service]
+        Service --> DB[(Database)]
     end
 
-    AX -->|POST /auth/login| CTRL
-    AX -->|POST /auth/register| CTRL
-    CTRL -->|JWT token| AX
+    Client -->|POST /auth/login| Routes
+    Client -->|POST /auth/register| Routes
+    Routes -->|JWT token| Client
 \`\`\`
 
 Guidelines:
@@ -979,7 +990,7 @@ If secrets are required, generate a \`user_action\` task as the FIRST task befor
 
 \`\`\`json
 {
-  "project": "backend",
+  "project": "<project-name>",
   "name": "Configure [Service] Credentials",
   "task": "User must provide required credentials before implementation can proceed.",
   "type": "user_action",
@@ -1004,7 +1015,7 @@ If secrets are required, generate a \`user_action\` task as the FIRST task befor
 **Google OAuth:**
 \`\`\`json
 {
-  "project": "backend",
+  "project": "<project-name>",
   "name": "Configure Google OAuth Credentials",
   "task": "User must provide Google OAuth credentials.",
   "type": "user_action",
@@ -1047,25 +1058,25 @@ IMPORTANT: Always use "type": "user_action" for credential collection tasks. The
 Each task MUST be detailed enough for an AI agent to implement without asking questions:
 
 **Required in each task description:**
-1. **Files to create/modify** - exact paths like \`src/auth/auth.service.ts\`
+1. **Files to create/modify** - use paths matching project's existing conventions
 2. **Implementation details** - what functions, classes, or components to create
 3. **For APIs:** endpoints, request body, response format, status codes
-4. **For Frontend:** component props, state, UI behavior
+4. **For UIs:** component props, state, UI behavior
 5. **Dependencies:** what to import or install
 
 GOOD task example:
 \`\`\`json
 {
-  "project": "backend",
+  "project": "api-server",
   "name": "Create Auth Controller",
-  "task": "## Auth Controller\\n\\n**Files to create:**\\n- \`src/auth/auth.controller.ts\`\\n- \`src/auth/auth.service.ts\`\\n- \`src/auth/dto/login.dto.ts\`\\n\\n**Endpoints:**\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success (200): \`{ token: string, user: { id, email, name } }\`\\n- Invalid credentials (401): \`{ message: 'Invalid credentials' }\`\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success (201): \`{ token: string, user: { id, email, name } }\`\\n- Email exists (409): \`{ message: 'Email already registered' }\`\\n\\n**Implementation notes:**\\n- Use bcrypt for password hashing (cost factor 10)\\n- JWT token expires in 7 days\\n- Validate email format and password min 8 chars"
+  "task": "## Auth Controller\\n\\n**Files to create:** (use project's existing conventions)\\n- Auth controller/router file\\n- Auth service/handler file\\n- DTOs/validation schemas\\n\\n**Endpoints:**\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success (200): \`{ token: string, user: { id, email, name } }\`\\n- Invalid credentials (401): \`{ message: 'Invalid credentials' }\`\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success (201): \`{ token: string, user: { id, email, name } }\`\\n- Email exists (409): \`{ message: 'Email already registered' }\`\\n\\n**Implementation notes:**\\n- Use bcrypt for password hashing (cost factor 10)\\n- JWT token expires in 7 days\\n- Validate email format and password min 8 chars"
 }
 \`\`\`
 
 BAD task (too vague - DO NOT do this):
 \`\`\`json
 {
-  "project": "backend",
+  "project": "api-server",
   "name": "Add auth",
   "task": "Create authentication endpoints"
 }
@@ -1079,7 +1090,7 @@ BAD task (too vague - DO NOT do this):
 - NO starting dev servers - orchestrator handles this
 
 ## TEST PLAN
-- testPlan contains E2E scenarios only (Playwright/curl tests)
+- testPlan contains E2E scenarios only (automated tests)
 - Each scenario = user-facing behavior to verify
 - Only include projects with hasE2E: true
 - E2E runs AFTER all tasks complete
@@ -1147,9 +1158,12 @@ Generate an E2E test prompt that instructs the agent to:
 - The agent's ONLY job is to run E2E tests and report results
 - **FAIL FAST**: Stop immediately after the FIRST test failure - do not continue to other tests
 
-1. READ the project's E2E testing skill at: ~/${request.project}/.claude/skills/e2e-testing.md
-   - This skill contains project-specific testing instructions (Playwright MCP for frontend, curl for backend, etc.)
-   - Follow the testing methodology described in that skill file
+1. READ the project's E2E testing skill if it exists: Check for .claude/skills/e2e-testing.md in the project directory
+   - If the skill file exists, follow its testing methodology exactly
+   - If no skill file exists, determine the appropriate testing approach based on the project type:
+     * For web UIs: Use browser automation (Playwright MCP tools) to interact with the UI
+     * For APIs/backends: Use HTTP requests (curl or similar) to test endpoints
+   - The skill file takes precedence over generic approaches
 
 2. OUTPUT TEST STATUS MARKERS for real-time UI tracking. For EACH test scenario:
    - Before running: [TEST_STATUS] {"scenario": "exact scenario text from list above", "status": "running"}
@@ -1179,7 +1193,7 @@ Generate an E2E test prompt that instructs the agent to:
 
 7. Return a structured response at the END using the [E2E_RESULTS] marker on a SINGLE LINE:
 
-[E2E_RESULTS] {"allPassed": true/false, "failures": [{"test": "name", "error": "msg", "codeAnalysis": "analysis", "suspectedProject": "frontend|backend|both|this"}], "overallAnalysis": "summary"}
+[E2E_RESULTS] {"allPassed": true/false, "failures": [{"test": "name", "error": "msg", "codeAnalysis": "analysis", "suspectedProject": "<project-name>|this|unknown"}], "overallAnalysis": "summary"}
 
 IMPORTANT: The [E2E_RESULTS] marker and JSON MUST be on ONE LINE. This marker is REQUIRED - the orchestrator uses it to parse results.
 
@@ -1187,7 +1201,7 @@ Example success:
 [E2E_RESULTS] {"allPassed": true, "failures": [], "overallAnalysis": "All tests passed"}
 
 Example failure:
-[E2E_RESULTS] {"allPassed": false, "failures": [{"test": "Create post", "error": "Failed to fetch", "codeAnalysis": "CORS error when calling backend API", "suspectedProject": "backend"}], "overallAnalysis": "Backend needs CORS configuration"}
+[E2E_RESULTS] {"allPassed": false, "failures": [{"test": "Create post", "error": "Failed to fetch", "codeAnalysis": "CORS error when calling API", "suspectedProject": "api-server"}], "overallAnalysis": "API server needs CORS configuration"}
 
 Output the E2E prompt that should be sent to the agent.`;
 
@@ -1533,9 +1547,9 @@ Analyze the output and determine:
 3. If tests failed, use the agent's codeAnalysis and suspectedProject fields to understand the root cause.
 4. Check the dev server logs for runtime errors (500s, exceptions, missing routes).
 5. IMPORTANT: Based on the agent's analysis (especially "suspectedProject" field), determine which project(s) need fixes:
-   - "backend" or "this" (if this is backend) → send fix to backend
-   - "frontend" or "this" (if this is frontend) → send fix to frontend
-   - "both" → send coordinated fixes to both
+   - If suspectedProject matches a project name → send fix to that project
+   - If "this" → send fix to the project being tested
+   - If "both" or multiple projects → send coordinated fixes to affected projects
 ${projectList}
 
 ## RESPONSE FORMAT (REQUIRED)

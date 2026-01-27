@@ -21,6 +21,7 @@ import {
   TextInput,
   Switch,
   Tooltip,
+  Select,
 } from '@mantine/core';
 // Note: ProjectStatus and AgentOutputPanel removed - replaced by unified ProjectCard
 import '@mantine/core/styles.css';
@@ -108,8 +109,11 @@ function App() {
     creatingPR,
     prResults,
     gitHubInfo,
+    availableBranches,
+    loadingBranches,
     getGitHubInfo,
     createPR,
+    getBranches,
     recheckDependencies,
     permissionPrompt,
     respondToPermission,
@@ -122,6 +126,8 @@ function App() {
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
   const [showNewSession, setShowNewSession] = useState(false);
   const [quickStartName, setQuickStartName] = useState('');
+  // Selected base branch for PR creation per project
+  const [prBaseBranch, setPrBaseBranch] = useState<Record<string, string>>({});
 
   // Shutdown on close preference (persisted to localStorage)
   const [shutdownOnClose, setShutdownOnClose] = useState(() => {
@@ -344,6 +350,8 @@ function App() {
                           const isMerging = mergingBranch[projectName];
                           const mergeResult = mergeResults[projectName];
                           const mainBranch = projects[projectName]?.mainBranch || 'main';
+                          const ghInfo = gitHubInfo[projectName];
+                          const isGitHubProject = ghInfo?.isGitHub && dependencyCheck?.gh?.available;
 
                           return (
                             <Group key={projectName} gap="xs" wrap="wrap">
@@ -357,24 +365,29 @@ function App() {
                                   Merged to {mainBranch}
                                 </Badge>
                               ) : pushResult?.success ? (
-                                // Push succeeded - show merge option
+                                // Push succeeded - show status and merge option (only for non-GitHub projects)
                                 <>
                                   <Badge color="green" variant="light" leftSection={<IconCheck size={12} />}>
                                     Pushed
                                   </Badge>
-                                  <Button
-                                    variant="light"
-                                    color="teal"
-                                    size="xs"
-                                    leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
-                                    loading={isMerging}
-                                    onClick={() => mergeBranch(projectName, branchName)}
-                                    disabled={isMerging}
-                                  >
-                                    Merge to {mainBranch}
-                                  </Button>
-                                  {mergeResult && !mergeResult.success && (
-                                    <Text size="xs" c="red">{mergeResult.message}</Text>
+                                  {/* Only show merge button for non-GitHub projects - enforce PR workflow for GitHub */}
+                                  {!isGitHubProject && (
+                                    <>
+                                      <Button
+                                        variant="light"
+                                        color="teal"
+                                        size="xs"
+                                        leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
+                                        loading={isMerging}
+                                        onClick={() => mergeBranch(projectName, branchName)}
+                                        disabled={isMerging}
+                                      >
+                                        Merge to {mainBranch}
+                                      </Button>
+                                      {mergeResult && !mergeResult.success && (
+                                        <Text size="xs" c="red">{mergeResult.message}</Text>
+                                      )}
+                                    </>
                                   )}
                                 </>
                               ) : (
@@ -415,6 +428,9 @@ function App() {
                           const prResult = prResults[projectName];
                           const pushResult = pushResults[projectName];
                           const mainBranch = projects[projectName]?.mainBranch || 'main';
+                          const branches = availableBranches[projectName] || [];
+                          const isLoadingBranches = loadingBranches[projectName];
+                          const selectedBaseBranch = prBaseBranch[projectName] || mainBranch;
 
                           // Only show PR option if:
                           // 1. Project is on GitHub
@@ -454,24 +470,49 @@ function App() {
                             );
                           }
 
+                          // Build branch options: use fetched branches or fall back to mainBranch
+                          const branchOptions = branches.length > 0
+                            ? branches.map(b => ({ value: b, label: b }))
+                            : [{ value: mainBranch, label: mainBranch }];
+
                           return (
-                            <Group key={projectName} gap="xs">
-                              <Text size="xs" c="dimmed">{projectName}:</Text>
-                              <Button
-                                variant="light"
-                                color="gray"
-                                size="xs"
-                                leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
-                                loading={isCreating}
-                                onClick={() => createPR(projectName, branchName, mainBranch)}
-                                disabled={isCreating}
-                              >
-                                Create Pull Request
-                              </Button>
+                            <Stack key={projectName} gap={4}>
+                              <Group gap="xs" align="center">
+                                <Badge variant="light" color="gray" size="sm">{projectName}</Badge>
+                                <Text size="xs" c="dimmed">→</Text>
+                                <Select
+                                  size="xs"
+                                  w={160}
+                                  value={selectedBaseBranch}
+                                  onChange={(val) => setPrBaseBranch(prev => ({ ...prev, [projectName]: val || mainBranch }))}
+                                  data={branchOptions}
+                                  placeholder="Target branch"
+                                  searchable
+                                  nothingFoundMessage="No branches found"
+                                  onDropdownOpen={() => {
+                                    // Fetch branches when dropdown opens (if not already loaded)
+                                    if (branches.length === 0 && !isLoadingBranches) {
+                                      getBranches(projectName);
+                                    }
+                                  }}
+                                  rightSection={isLoadingBranches ? <Badge size="xs" variant="dot" color="blue">...</Badge> : undefined}
+                                />
+                                <Button
+                                  variant="filled"
+                                  color="green"
+                                  size="xs"
+                                  leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
+                                  loading={isCreating}
+                                  onClick={() => createPR(projectName, branchName, selectedBaseBranch)}
+                                  disabled={isCreating}
+                                >
+                                  Open PR
+                                </Button>
+                              </Group>
                               {prResult && !prResult.success && (
-                                <Text size="xs" c="red">{prResult.message}</Text>
+                                <Text size="xs" c="red" ml="xs">{prResult.message}</Text>
                               )}
-                            </Group>
+                            </Stack>
                           );
                         })}
                       </Stack>
