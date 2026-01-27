@@ -60,6 +60,33 @@ export class TaskExecutor extends EventEmitter {
     reject: (reason: Error) => void;
   }> = new Map();
 
+  // Task summaries per project - provides context for subsequent tasks
+  // Key: project name, Value: array of completed task summaries
+  private taskSummaries: Map<string, Array<{ taskName: string; summary: string }>> = new Map();
+
+  /**
+   * Clears task summaries for all projects (call when starting a new session)
+   */
+  clearTaskSummaries(): void {
+    this.taskSummaries.clear();
+    console.log(`[TaskExecutor] Cleared task summaries for new session`);
+  }
+
+  /**
+   * Clears task summaries for a specific project
+   */
+  clearProjectSummaries(project: string): void {
+    this.taskSummaries.delete(project);
+    console.log(`[TaskExecutor] Cleared task summaries for ${project}`);
+  }
+
+  /**
+   * Gets task summaries for a project (useful for debugging/display)
+   */
+  getTaskSummaries(project: string): Array<{ taskName: string; summary: string }> {
+    return this.taskSummaries.get(project) || [];
+  }
+
   constructor(deps: TaskExecutorConfig) {
     super();
     this.processManager = deps.processManager;
@@ -100,7 +127,7 @@ export class TaskExecutor extends EventEmitter {
     let fixAttempts = 0;
     let taskCompleted = false;
 
-    let currentPrompt = this.buildTaskPrompt(task.task, devServerUrl);
+    let currentPrompt = this.buildTaskPrompt(task.task, devServerUrl, task.project, task.name);
     const originalTaskDescription = task.task;
 
     this.statusMonitor.updateStatus(task.project, 'WORKING', 'Starting agent task...');
@@ -143,12 +170,34 @@ export class TaskExecutor extends EventEmitter {
           }
         }
 
-        // Run the agent
+        // Run the agent and capture output
+        let agentOutput = '';
         try {
-          await this.processManager.startAgent(task.project, sessionDir, currentPrompt);
+          agentOutput = await this.processManager.startAgent(task.project, sessionDir, currentPrompt);
         } catch (agentErr) {
           console.error(`[TaskExecutor] Agent error for task #${taskIndex}:`, agentErr);
           throw agentErr;
+        }
+
+        // Extract task summary from agent output (if present)
+        const summaryMatch = agentOutput.match(/\[TASK_SUMMARY\]\s*(\{[^}]+\})/);
+        if (summaryMatch) {
+          try {
+            const summaryJson = JSON.parse(summaryMatch[1]);
+            if (summaryJson.summary) {
+              // Store summary for context in subsequent tasks
+              if (!this.taskSummaries.has(task.project)) {
+                this.taskSummaries.set(task.project, []);
+              }
+              this.taskSummaries.get(task.project)!.push({
+                taskName: task.name,
+                summary: summaryJson.summary
+              });
+              console.log(`[TaskExecutor] Captured task summary for ${task.project}: ${summaryJson.summary.substring(0, 100)}...`);
+            }
+          } catch (parseErr) {
+            console.warn(`[TaskExecutor] Failed to parse task summary:`, parseErr);
+          }
         }
 
         // Agent completed - collect verification context and let Planning Agent analyze
@@ -362,8 +411,24 @@ export class TaskExecutor extends EventEmitter {
   /**
    * Builds the initial task prompt with critical instructions.
    */
-  private buildTaskPrompt(taskDescription: string, devServerUrl: string | null): string {
-    let prompt = taskDescription;
+  private buildTaskPrompt(taskDescription: string, devServerUrl: string | null, project: string, taskName: string): string {
+    let prompt = '';
+
+    // Add context from previous completed tasks on this project
+    const previousSummaries = this.taskSummaries.get(project) || [];
+    if (previousSummaries.length > 0) {
+      prompt += `**CONTEXT FROM PREVIOUS TASKS ON THIS PROJECT:**
+The following tasks have already been completed. Use this context to understand what exists and avoid re-checking or re-doing work.
+
+`;
+      for (const { taskName: prevTaskName, summary } of previousSummaries) {
+        prompt += `✓ **${prevTaskName}**: ${summary}\n`;
+      }
+      prompt += `\n---\n\n`;
+    }
+
+    // Add current task
+    prompt += `**CURRENT TASK: ${taskName}**\n\n${taskDescription}`;
 
     // Add dev server URL info (only if configured)
     if (devServerUrl) {
@@ -376,7 +441,8 @@ export class TaskExecutor extends EventEmitter {
 2. DO NOT start dev servers (npm start, npm run dev, etc.) - the orchestrator already manages dev servers
 3. DO NOT run npm install - the orchestrator handles dependency installation
 4. DO NOT use browser automation tools (Playwright, browser_*, mcp__playwright__*) to test or verify your work - the orchestrator handles all testing
-5. Focus ONLY on implementing the feature code - write the code and nothing else`;
+5. Focus ONLY on implementing the feature code - write the code and nothing else
+6. Trust the context above - if a previous task created something, it EXISTS. Don't re-check or validate it.`;
 
     // Add status reporting instructions
     prompt += `\n\n**STATUS REPORTING**:
@@ -390,6 +456,16 @@ Examples:
 [WORKER_STATUS] {"message": "Writing DTO classes"}
 
 Output a status marker before starting each significant step.`;
+
+    // Add task summary instructions
+    prompt += `\n\n**TASK SUMMARY (REQUIRED)**:
+When you complete the task, output a summary of what you did using this marker:
+[TASK_SUMMARY] {"summary": "Brief description of what was created/modified"}
+
+Example:
+[TASK_SUMMARY] {"summary": "Created User entity with id, email, password fields. Added UserRepository with findByEmail method. Created users table migration."}
+
+This summary will be provided to subsequent tasks as context.`;
 
     return prompt;
   }

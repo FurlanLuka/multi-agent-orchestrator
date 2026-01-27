@@ -279,8 +279,9 @@ export class ProcessManager extends EventEmitter {
   /**
    * Starts a Claude Code agent for a project (no-op in one-shot mode)
    * Agents are started on-demand when sendToAgent is called
+   * @returns The agent's response output (for parsing task summaries, etc.)
    */
-  async startAgent(project: string, _sessionDir: string, initialTask?: string): Promise<void> {
+  async startAgent(project: string, _sessionDir: string, initialTask?: string): Promise<string> {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) {
       throw new Error(`Unknown project: ${project}`);
@@ -291,8 +292,10 @@ export class ProcessManager extends EventEmitter {
 
     // Send initial task if provided
     if (initialTask) {
-      await this.sendToAgent(project, initialTask);
+      return await this.sendToAgent(project, initialTask);
     }
+
+    return '';
   }
 
   /**

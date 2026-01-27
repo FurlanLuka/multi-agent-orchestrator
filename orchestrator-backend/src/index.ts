@@ -1859,6 +1859,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         io: ui.io,  // For flow events during task verification
       });
 
+      // Clear task summaries from any previous session
+      taskExecutor.clearTaskSummaries();
+
       // Track failed tasks for user fix continuation
       taskExecutor.on('taskFailed', ({ taskIndex, project }: { taskIndex: number; project: string }) => {
         console.log(`[Orchestrator] Tracking failed task #${taskIndex} for ${project}`);

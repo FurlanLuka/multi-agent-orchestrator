@@ -218,6 +218,7 @@ export function extractE2EResult(response: string): { allPassed: boolean; failur
 // Standard marker names used across the orchestrator
 export const MARKERS = {
   TASK_RESULT: 'TASK_RESULT',
+  TASK_SUMMARY: 'TASK_SUMMARY',    // Used by task agents to summarize what they did
   E2E_RESULT: 'E2E_RESULT',        // Used by Planning Agent when analyzing E2E results
   E2E_RESULTS: 'E2E_RESULTS',      // Used by E2E testing agent to report test results
   EVENT_ACTION: 'EVENT_ACTION',
