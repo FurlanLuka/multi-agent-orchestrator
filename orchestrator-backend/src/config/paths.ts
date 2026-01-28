@@ -455,6 +455,10 @@ export function getProjectsConfigPath(): string {
   return getPaths().getProjectsConfigPath();
 }
 
+export function getWorkspacesConfigPath(): string {
+  return path.join(getPaths().configDir, 'workspaces.json');
+}
+
 export function getWebDistPath(): string {
   return getPaths().getWebDistPath();
 }

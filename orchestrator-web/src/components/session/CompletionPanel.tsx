@@ -21,7 +21,11 @@ import {
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 
-export function CompletionPanel() {
+interface CompletionPanelProps {
+  onBackToHome?: () => void;
+}
+
+export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   const {
     session,
     projects,
@@ -60,14 +64,26 @@ export function CompletionPanel() {
               <Text size="sm" c="dimmed">All projects have completed their tasks successfully.</Text>
             </div>
           </Group>
-          <Button
-            variant="filled"
-            color="blue"
-            leftSection={<IconRefresh size={16} />}
-            onClick={startNewSession}
-          >
-            Start New Session
-          </Button>
+          <Group gap="sm">
+            {onBackToHome && (
+              <Button
+                variant="light"
+                color="gray"
+                leftSection={<IconRefresh size={16} />}
+                onClick={onBackToHome}
+              >
+                Back to Home
+              </Button>
+            )}
+            <Button
+              variant="filled"
+              color="blue"
+              leftSection={<IconRefresh size={16} />}
+              onClick={startNewSession}
+            >
+              Start New Session
+            </Button>
+          </Group>
         </Group>
       </Paper>
 

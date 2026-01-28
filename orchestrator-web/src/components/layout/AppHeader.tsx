@@ -5,24 +5,33 @@ import {
   Badge,
   Switch,
   Tooltip,
+  ActionIcon,
 } from '@mantine/core';
-import { IconRocket, IconSparkles, IconPower } from '@tabler/icons-react';
+import { IconRocket, IconSparkles, IconPower, IconHome } from '@tabler/icons-react';
 
 interface AppHeaderProps {
   activeSessionId: string | null;
   shutdownOnClose: boolean;
   onShutdownOnCloseChange: (checked: boolean) => void;
+  onBackToHome?: () => void;
 }
 
-export function AppHeader({ activeSessionId, shutdownOnClose, onShutdownOnCloseChange }: AppHeaderProps) {
+export function AppHeader({ activeSessionId, shutdownOnClose, onShutdownOnCloseChange, onBackToHome }: AppHeaderProps) {
   return (
     <Group justify="space-between" h="100%">
       <Group gap="sm">
+        {onBackToHome && (
+          <Tooltip label="Back to Home">
+            <ActionIcon variant="subtle" color="gray" size="lg" onClick={onBackToHome}>
+              <IconHome size={20} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         <ThemeIcon size="lg" radius="md" variant="gradient" gradient={{ from: 'blue', to: 'cyan' }}>
           <IconRocket size={20} />
         </ThemeIcon>
         <Title order={3} style={{ fontWeight: 700 }}>
-          Multi-Agent Orchestrator
+          AIO Orchestrator
         </Title>
       </Group>
       <Group gap="md">

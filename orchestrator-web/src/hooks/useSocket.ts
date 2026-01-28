@@ -28,6 +28,7 @@ import type {
   FlowStatus,
   PermissionPrompt,
   PlanningQuestion,
+  WorkspaceConfig,
 } from '@aio/types';
 
 // Default port for standalone mode (fallback only)
@@ -91,6 +92,9 @@ export function useSocket() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [addingProject, setAddingProject] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
+
+  // Workspaces
+  const [workspaces, setWorkspaces] = useState<Record<string, WorkspaceConfig>>({});
 
   // Streaming messages for agentic UI
   const [streamingMessages, setStreamingMessages] = useState<StreamingMessage[]>([]);
@@ -512,6 +516,11 @@ export function useSocket() {
       });
     });
 
+    // Workspace events
+    socket.on('workspaces', (w: Record<string, WorkspaceConfig>) => {
+      setWorkspaces(w);
+    });
+
     // Project management events
     socket.on('projects', (p: Record<string, ProjectConfig>) => {
       setProjects(p);
@@ -705,6 +714,7 @@ export function useSocket() {
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
+    socket.emit('getWorkspaces');
 
     return () => {
       // Cancel any pending animation frame
@@ -759,10 +769,10 @@ export function useSocket() {
     }
   }, []);
 
-  const startSession = useCallback((feature: string, projects: string[], branchName?: string) => {
+  const startSession = useCallback((feature: string, projects: string[], branchName?: string, workspaceId?: string) => {
     if (socketRef.current) {
       setStartingSession(true);
-      socketRef.current.emit('startSession', { feature, projects, branchName });
+      socketRef.current.emit('startSession', { feature, projects, branchName, workspaceId });
       // Clear cached messages for new session
       activeSessionMessagesRef.current = [];
     }
@@ -819,6 +829,24 @@ export function useSocket() {
   const refreshProjects = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.emit('getProjects');
+    }
+  }, []);
+
+  const createWorkspace = useCallback((name: string, projects: string[], context?: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('createWorkspace', { name, projects, context });
+    }
+  }, []);
+
+  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: string[]; context?: string }) => {
+    if (socketRef.current) {
+      socketRef.current.emit('updateWorkspace', { id, updates });
+    }
+  }, []);
+
+  const deleteWorkspace = useCallback((id: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('deleteWorkspace', { id });
     }
   }, []);
 
@@ -1091,6 +1119,7 @@ export function useSocket() {
     allComplete,
     projects,
     templates,
+    workspaces,
     creatingProject,
     addingProject,
     startingSession,
@@ -1138,5 +1167,8 @@ export function useSocket() {
     refinePlan,
     retryProject,
     retryPlan,
+    createWorkspace,
+    updateWorkspace,
+    deleteWorkspace,
   };
 }

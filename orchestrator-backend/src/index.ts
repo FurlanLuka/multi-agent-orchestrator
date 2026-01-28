@@ -111,6 +111,7 @@ import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
 import { ProjectManager, AddProjectOptions, CreateFromTemplateOptions } from './core/project-manager';
+import { WorkspaceManager } from './core/workspace-manager';
 import { EventWatcher } from './core/event-watcher';
 import { StatusMonitor } from './core/status-monitor';
 import { ApprovalQueue } from './core/approval-queue';
@@ -124,7 +125,7 @@ import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
 import { TEMPLATE_PERMISSIONS } from '@aio/types';
-import { getPaths, getProjectsConfigPath, initializeConfigIfNeeded, ensureSetupExtracted } from './config/paths';
+import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
 
 // Get orchestrator directory using centralized path resolver
@@ -320,6 +321,7 @@ async function main() {
   const sessionManager = new SessionManager(config, sessionStore);
   const processManager = new ProcessManager(config);
   const projectManager = new ProjectManager(configPath, config);
+  const workspaceManager = new WorkspaceManager(getWorkspacesConfigPath(), projectManager);
   const eventWatcher = new EventWatcher();
   const statusMonitor = new StatusMonitor();
   const approvalQueue = new ApprovalQueue(true); // UI mode
@@ -1680,14 +1682,36 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Handle session creation request
-    socket.on('startSession', async ({ feature, projects, branchName }: { feature: string; projects: string[]; branchName?: string }) => {
+    socket.on('startSession', async ({ feature, projects, branchName, workspaceId }: { feature: string; projects: string[]; branchName?: string; workspaceId?: string }) => {
       try {
+        // If workspaceId provided, look up workspace and prepend context
+        let resolvedFeature = feature;
+        let resolvedProjects = projects;
+        if (workspaceId) {
+          const workspace = workspaceManager.getWorkspace(workspaceId);
+          if (workspace) {
+            // Use workspace projects if none explicitly provided
+            if (!resolvedProjects || resolvedProjects.length === 0) {
+              resolvedProjects = workspace.projects;
+            }
+            // Prepend workspace context to feature
+            if (workspace.context) {
+              resolvedFeature = `## Workspace Context\n${workspace.context}\n\n## Feature\n${feature}`;
+            }
+          }
+        }
+
         // Create session
-        const session = sessionManager.createSession(feature, projects);
+        const session = sessionManager.createSession(resolvedFeature, resolvedProjects);
+
+        // Store workspaceId on session
+        if (workspaceId) {
+          session.workspaceId = workspaceId;
+        }
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
-        for (const project of projects) {
+        for (const project of resolvedProjects) {
           const projectConfig = config.projects[project];
           if (projectConfig?.gitEnabled) {
             try {
@@ -1702,7 +1726,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               await gitManager.initRepo(projectPath, mainBranchForProject);
 
               // Generate branch name if not provided
-              const actualBranchName = branchName?.trim() || gitManager.generateBranchName(feature);
+              const actualBranchName = branchName?.trim() || gitManager.generateBranchName(resolvedFeature);
 
               // Create and checkout branch
               const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
@@ -1730,10 +1754,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Create session logger for debugging
         sessionLogger = new SessionLogger(session.id);
-        sessionLogger.log('SESSION_CREATE', { feature, projects });
+        sessionLogger.log('SESSION_CREATE', { feature: resolvedFeature, projects: resolvedProjects });
 
         // Initialize status for each project
-        for (const project of projects) {
+        for (const project of resolvedProjects) {
           statusMonitor.initializeProject(project);
           const sessionDir = sessionManager.getSessionDir(project);
           if (sessionDir) {
@@ -1748,7 +1772,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Get project paths for Planning Agent to explore
         const projectPaths: Record<string, string> = {};
-        for (const project of projects) {
+        for (const project of resolvedProjects) {
           const projectConfig = projectManager.getProject(project);
           if (projectConfig) {
             projectPaths[project] = projectConfig.path;
@@ -1756,8 +1780,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         }
 
         // Request plan from Planning Agent with project paths
-        sessionLogger.chat('user', `Create a plan for: ${feature}`);
-        chatHandler.requestPlan(feature, projects, projectPaths);
+        sessionLogger.chat('user', `Create a plan for: ${resolvedFeature}`);
+        chatHandler.requestPlan(resolvedFeature, resolvedProjects, projectPaths);
       } catch (err) {
         console.error('[Orchestrator] Failed to create session:', err);
         chatHandler.systemMessage(`Failed to create session: ${err}`);
@@ -2487,6 +2511,47 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         socket.emit('createFromTemplateError', { name: appName, error });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Workspace Management Socket Events
+    // ═══════════════════════════════════════════════════════════════
+
+    socket.on('getWorkspaces', () => {
+      socket.emit('workspaces', workspaceManager.getWorkspaces());
+    });
+
+    socket.on('createWorkspace', ({ name, projects, context }: { name: string; projects: string[]; context?: string }) => {
+      try {
+        workspaceManager.createWorkspace({ name, projects, context });
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to create workspace:', error);
+        socket.emit('workspaceError', { error });
+      }
+    });
+
+    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: string[]; context?: string } }) => {
+      try {
+        workspaceManager.updateWorkspace(id, updates);
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to update workspace:', error);
+        socket.emit('workspaceError', { error });
+      }
+    });
+
+    socket.on('deleteWorkspace', ({ id }: { id: string }) => {
+      try {
+        workspaceManager.deleteWorkspace(id);
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to delete workspace:', error);
+        socket.emit('workspaceError', { error });
       }
     });
 

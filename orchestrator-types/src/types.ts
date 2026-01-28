@@ -43,6 +43,16 @@ export interface Config {
   };
 }
 
+// Workspace configuration (stored in workspaces.json)
+export interface WorkspaceConfig {
+  id: string;              // slug, e.g. "blog"
+  name: string;            // "Blog"
+  projects: string[];      // project name references
+  context?: string;        // planning context/rules (markdown)
+  createdAt: number;
+  updatedAt: number;
+}
+
 // Agent status states
 export type AgentStatus =
   | 'PENDING'       // Initialized but execution not started
@@ -130,6 +140,7 @@ export interface Session {
   projects: string[];
   plan?: Plan;
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
+  workspaceId?: string;  // which workspace started this session
 }
 
 // User input request (MCP tool: request_user_input)

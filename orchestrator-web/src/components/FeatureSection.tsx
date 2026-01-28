@@ -18,8 +18,8 @@ interface FeatureSectionProps {
 
 export function FeatureSection({ label, description, icon, enabled, onToggle, children }: FeatureSectionProps) {
   return (
-    <Card padding="sm" withBorder radius="md" bg={enabled ? undefined : 'gray.0'}>
-      <Group justify="space-between" mb={enabled ? 'sm' : 0}>
+    <Card padding={0} withBorder radius="md">
+      <Group justify="space-between" p="sm" bg="gray.0" style={enabled ? { borderBottom: '1px solid var(--mantine-color-gray-2)' } : undefined}>
         <Group gap="xs">
           {icon}
           <div>
@@ -30,7 +30,7 @@ export function FeatureSection({ label, description, icon, enabled, onToggle, ch
         <Switch checked={enabled} onChange={(e) => onToggle(e.currentTarget.checked)} />
       </Group>
       <Collapse in={enabled}>
-        <Stack gap="xs" pt="xs">
+        <Stack gap="xs" p="sm">
           {children}
         </Stack>
       </Collapse>
