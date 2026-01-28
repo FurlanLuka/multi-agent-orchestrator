@@ -44,6 +44,22 @@ console.warn = (...args: any[]) => {
   logStream.write(formatLog('WARN', args));
 };
 
+// Memory monitoring utility
+function logMemoryUsage(label?: string) {
+  const used = process.memoryUsage();
+  const formatMB = (bytes: number) => (bytes / 1024 / 1024).toFixed(2);
+  console.log(`[Memory${label ? ` - ${label}` : ''}] RSS: ${formatMB(used.rss)}MB | Heap: ${formatMB(used.heapUsed)}/${formatMB(used.heapTotal)}MB | External: ${formatMB(used.external)}MB`);
+}
+
+// Log memory every 60 seconds (set to 0 to disable)
+const MEMORY_LOG_INTERVAL = 60000;
+if (MEMORY_LOG_INTERVAL > 0) {
+  setInterval(() => logMemoryUsage('periodic'), MEMORY_LOG_INTERVAL);
+}
+
+// Export for use elsewhere
+(global as any).logMemoryUsage = logMemoryUsage;
+
 // Catch uncaught exceptions and unhandled rejections
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);

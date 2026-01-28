@@ -887,6 +887,7 @@ User: ${newMessage}`;
   }
 
   private emitFlowComplete(flowId: string, status: 'completed' | 'failed', result?: { passed: boolean; summary?: string; details?: string }): void {
+    console.log(`[PlanningAgent] Emitting flowComplete: flowId=${flowId}, status=${status}`);
     this.emit('flowComplete', {
       flowId,
       status,
@@ -1287,7 +1288,17 @@ flowchart LR
     State -->|POST /api| API
 \`\`\`
 
-Generate the Plan JSON now:`;
+## IMPORTANT: Plan Approval Flow
+
+After generating the plan, you MUST call the \`submit_plan_for_approval\` tool with the complete plan JSON.
+
+The tool will block until the user responds:
+- If response is \`{ "status": "approved" }\`: Output "[PLAN_APPROVED]" and stop - execution will start
+- If response is \`{ "status": "refine", "feedback": "..." }\`: Read the feedback, revise the plan accordingly, and call \`submit_plan_for_approval\` again with the updated plan
+
+Continue iterating until the user approves the plan.
+
+Generate the Plan JSON now and then call \`submit_plan_for_approval\`:`;
   }
 
   /**

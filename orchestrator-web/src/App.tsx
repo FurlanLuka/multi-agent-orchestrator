@@ -115,6 +115,9 @@ function App() {
     respondToPermission,
     planningQuestion,
     answerPlanningQuestion,
+    pendingPlanApproval,
+    approvePlanViaChat,
+    refinePlan,
     retryProject,
     retryPlan,
   } = useSocket();
@@ -748,6 +751,9 @@ function App() {
                         onPermissionResponse={respondToPermission}
                         planningQuestion={planningQuestion}
                         onAnswerPlanningQuestion={answerPlanningQuestion}
+                        pendingPlanApproval={pendingPlanApproval}
+                        onApprovePlanViaChat={approvePlanViaChat}
+                        onRefinePlan={refinePlan}
                       />
                     </Box>
                   </Paper>

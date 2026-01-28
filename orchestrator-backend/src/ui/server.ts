@@ -9,7 +9,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@aio/types';
 import { getWebDistPath } from '../config/paths';
 
@@ -30,6 +30,8 @@ export interface UIServerDependencies {
   onTaskComplete?: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>;
   // Callback for exploration completion (set after PlanningAgent is created)
   onExplorationComplete?: (summary: string) => Promise<string>;
+  // Callback for plan approval (set after PlanningAgent is created)
+  onPlanApproval?: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>;
 }
 
 export interface UIServer {
@@ -40,6 +42,7 @@ export interface UIServer {
   stop: () => void;
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
   setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => void;
+  setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
 }
 
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
@@ -244,6 +247,48 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       res.send(`Error generating Phase 2 prompt: ${errorMsg}. Please generate a plan based on your exploration.`);
     }
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Plan Approval Handling (for interactive plan approval via MCP)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Store pending plan approvals (key -> resolver)
+  const pendingPlanApprovals = new Map<string, {
+    resolve: (result: { status: 'approved' } | { status: 'refine'; feedback: string }) => void;
+    plan: Plan;
+  }>();
+
+  // HTTP endpoint for MCP server to call when agent submits plan for approval
+  app.post('/api/plan-approval', async (req: Request, res: Response) => {
+    const { plan } = req.body;
+
+    // Generate unique approval ID
+    const approvalId = `approval_${Date.now()}`;
+
+    console.log(`[UIServer] Plan submitted for approval: ${approvalId}`);
+
+    // Emit planning status - awaiting approval (chat unlocks)
+    io.emit('planningStatus', { phase: 'awaiting_approval', message: 'Plan ready for review' });
+
+    // Emit plan approval event to frontend
+    io.emit('planApproval', { approvalId, plan } as PlanApprovalEvent);
+
+    // Create promise that will resolve when user responds
+    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+      pendingPlanApprovals.set(approvalId, { resolve, plan });
+    });
+
+    // Clean up
+    pendingPlanApprovals.delete(approvalId);
+
+    console.log(`[UIServer] Plan approval response: ${response.status}`);
+
+    // Return response to MCP server (which returns to agent)
+    res.json(response);
+  });
+
+  // Expose pendingPlanApprovals for socket handler
+  (io as any).pendingPlanApprovals = pendingPlanApprovals;
 
   // ═══════════════════════════════════════════════════════════════
   // Planning Question Handling (for interactive Q&A during planning)
@@ -481,6 +526,30 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       }
     });
 
+    // Handle plan approval via chat (user approves the plan)
+    socket.on('approvePlanViaChat', ({ approvalId }: { approvalId: string }) => {
+      console.log(`[UIServer] Plan approved via chat: ${approvalId}`);
+      const pending = (io as any).pendingPlanApprovals?.get(approvalId);
+      if (pending?.resolve) {
+        // Emit status BEFORE resolving
+        io.emit('planningStatus', { phase: 'complete', message: 'Plan approved!' });
+        pending.resolve({ status: 'approved' });
+        (io as any).pendingPlanApprovals.delete(approvalId);
+      }
+    });
+
+    // Handle plan refinement request (user types feedback in chat)
+    socket.on('refinePlan', ({ approvalId, feedback }: { approvalId: string; feedback: string }) => {
+      console.log(`[UIServer] Plan refinement requested: ${approvalId}`);
+      const pending = (io as any).pendingPlanApprovals?.get(approvalId);
+      if (pending?.resolve) {
+        // Emit status BEFORE resolving - go back to in-progress
+        io.emit('planningStatus', { phase: 'refining', message: 'Refining plan based on feedback...' });
+        pending.resolve({ status: 'refine', feedback });
+        (io as any).pendingPlanApprovals.delete(approvalId);
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });
@@ -618,6 +687,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     },
     setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => {
       deps.onExplorationComplete = handler;
+    },
+    setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => {
+      deps.onPlanApproval = handler;
     }
   };
 }

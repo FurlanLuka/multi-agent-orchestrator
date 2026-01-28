@@ -23,6 +23,7 @@ import type {
   TaskState,
   TaskStatusEvent,
   PlanningStatusEvent,
+  PlanApprovalEvent,
   UserActionRequiredEvent,
   DependencyCheckResult,
   RequestFlow,
@@ -142,6 +143,12 @@ export function useSocket() {
 
   // Planning question state (for interactive Q&A during planning via MCP)
   const [planningQuestion, setPlanningQuestion] = useState<PlanningQuestion | null>(null);
+
+  // Plan approval state (for interactive plan approval via MCP)
+  const [pendingPlanApproval, setPendingPlanApproval] = useState<{
+    approvalId: string;
+    plan: Plan;
+  } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -758,6 +765,15 @@ export function useSocket() {
       setPlanningQuestion(null);
     });
 
+    // Plan approval events (for interactive plan approval via MCP)
+    socket.on('planApproval', (event: PlanApprovalEvent) => {
+      console.log(`Plan submitted for approval: ${event.approvalId}`);
+      setPendingPlanApproval({
+        approvalId: event.approvalId,
+        plan: event.plan
+      });
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
@@ -1118,6 +1134,40 @@ export function useSocket() {
     }
   }, []);
 
+  // Approve plan via chat (for interactive plan approval via MCP)
+  const approvePlanViaChat = useCallback(() => {
+    if (socketRef.current && pendingPlanApproval) {
+      // Signal approval to MCP (resolves the blocking call)
+      socketRef.current.emit('approvePlanViaChat', { approvalId: pendingPlanApproval.approvalId });
+      // Store the plan in the session (same as old approvePlan)
+      socketRef.current.emit('approvePlan', pendingPlanApproval.plan);
+      // Start execution (same as old approvePlan)
+      socketRef.current.emit('startExecution');
+      setPendingPlanApproval(null);
+    }
+  }, [pendingPlanApproval]);
+
+  // Request plan refinement (user types feedback in chat)
+  const refinePlan = useCallback((feedback: string) => {
+    if (socketRef.current && pendingPlanApproval) {
+      socketRef.current.emit('refinePlan', {
+        approvalId: pendingPlanApproval.approvalId,
+        feedback
+      });
+      // Add user message to streaming messages
+      const userMessage: StreamingMessage = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: [{ type: 'text', text: feedback }],
+        status: 'complete',
+        createdAt: Date.now(),
+      };
+      activeSessionMessagesRef.current = [...activeSessionMessagesRef.current, userMessage];
+      setStreamingMessages(prev => [...prev, userMessage]);
+      setPendingPlanApproval(null);
+    }
+  }, [pendingPlanApproval]);
+
   // Retry a failed project task (FATAL_DEBUGGING or FAILED status)
   const retryProject = useCallback((project: string) => {
     if (socketRef.current) {
@@ -1181,6 +1231,7 @@ export function useSocket() {
     loadingBranches,
     permissionPrompt,
     planningQuestion,
+    pendingPlanApproval,
     sendChat,
     startSession,
     approvePlan,
@@ -1211,6 +1262,8 @@ export function useSocket() {
     recheckDependencies,
     respondToPermission,
     answerPlanningQuestion,
+    approvePlanViaChat,
+    refinePlan,
     retryProject,
     retryPlan,
   };

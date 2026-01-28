@@ -28,6 +28,7 @@ import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatus
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
 import { PlanReadyFlowCard } from './PlanReadyFlowCard';
+import { PlanApprovalCard } from './PlanApprovalCard';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
@@ -44,6 +45,10 @@ interface AssistantChatProps {
   onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
   planningQuestion?: PlanningQuestion | null;
   onAnswerPlanningQuestion?: (questionId: string, answer: string) => void;
+  // Interactive plan approval (MCP-based)
+  pendingPlanApproval?: { approvalId: string; plan: Plan } | null;
+  onApprovePlanViaChat?: () => void;
+  onRefinePlan?: (feedback: string) => void;
 }
 
 // Types for markdown components
@@ -403,6 +408,9 @@ function ChatThread({
   onPermissionResponse,
   planningQuestion,
   onAnswerPlanningQuestion,
+  pendingPlanApproval,
+  onApprovePlanViaChat,
+  onRefinePlan,
 }: AssistantChatProps) {
   // Check if this permission is for the planner
   const isPlannerPermission = permissionPrompt?.project === 'planner';
@@ -463,10 +471,20 @@ function ChatThread({
   const handleSend = () => {
     const input = inputRef.current;
     if (input && input.value.trim()) {
-      onSendMessage(input.value.trim());
+      const message = input.value.trim();
+      // If we're in plan approval mode, send as refinement feedback
+      if (pendingPlanApproval && onRefinePlan) {
+        onRefinePlan(message);
+      } else {
+        onSendMessage(message);
+      }
       input.value = '';
     }
   };
+
+  // Check if chat should be enabled during plan approval
+  const isAwaitingApproval = planningStatus?.phase === 'awaiting_approval' || !!pendingPlanApproval;
+  const chatEnabled = sessionActive && !readOnly && (!planningStatus || isAwaitingApproval || planningStatus.phase === 'complete');
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -510,10 +528,18 @@ function ChatThread({
                 })}
 
                 {/* Pending Plan - green flow card with full plan view */}
-                {pendingPlan && (
+                {pendingPlan && !pendingPlanApproval && (
                   <PlanReadyFlowCard
                     pendingPlan={pendingPlan}
                     onApprovePlan={onApprovePlan}
+                  />
+                )}
+
+                {/* Interactive Plan Approval (MCP-based) */}
+                {pendingPlanApproval && onApprovePlanViaChat && pendingPlanApproval.plan?.tasks && (
+                  <PlanApprovalCard
+                    plan={pendingPlanApproval.plan}
+                    onApprove={onApprovePlanViaChat}
                   />
                 )}
               </Stack>
@@ -557,12 +583,14 @@ function ChatThread({
                   placeholder={
                     readOnly
                       ? 'Read-only view - activate session to chat'
+                      : pendingPlanApproval
+                      ? 'Type feedback to refine the plan...'
                       : sessionActive
                       ? 'Chat with Planning Agent...'
                       : 'Start a session first...'
                   }
                   style={{ flex: 1 }}
-                  disabled={!sessionActive || readOnly}
+                  disabled={!chatEnabled}
                   onKeyDown={handleKeyDown}
                   radius="md"
                   size="md"
@@ -570,10 +598,10 @@ function ChatThread({
                 <ActionIcon
                   size="xl"
                   variant="filled"
-                  color="blue"
+                  color={pendingPlanApproval ? 'orange' : 'blue'}
                   radius="md"
                   onClick={handleSend}
-                  disabled={!sessionActive || readOnly}
+                  disabled={!chatEnabled}
                 >
                   <IconSend size={20} />
                 </ActionIcon>

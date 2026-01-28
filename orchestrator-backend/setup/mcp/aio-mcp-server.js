@@ -115,6 +115,20 @@ async function handleMessage(msg) {
             },
             required: ['summary']
           }
+        },
+        {
+          name: 'submit_plan_for_approval',
+          description: 'Submit the generated plan for user approval. Blocks until user approves or requests changes. Returns { status: "approved" } or { status: "refine", feedback: "..." }. If refinement is requested, revise the plan based on feedback and submit again.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              plan: {
+                type: 'object',
+                description: 'The complete plan JSON to submit for approval'
+              }
+            },
+            required: ['plan']
+          }
         }
       ]
     });
@@ -188,6 +202,16 @@ async function handleMessage(msg) {
     // Return Phase 2 prompt as tool result - agent continues with full context preserved
     respond(id, {
       content: [{ type: 'text', text: phase2Prompt }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'submit_plan_for_approval') {
+    const plan = params.arguments?.plan || {};
+
+    // Call orchestrator endpoint (blocks until user approves or requests changes)
+    const result = await submitPlanForApproval(plan);
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
     });
   }
   else if (method === 'notifications/initialized') {
@@ -354,6 +378,45 @@ function signalExplorationComplete(summary) {
     req.on('timeout', () => {
       req.destroy();
       resolve('Error: Timeout. Please generate a plan based on your exploration.');
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+function submitPlanForApproval(plan) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      project: PROJECT,
+      plan
+    });
+
+    const url = new URL(`${ORCHESTRATOR_URL}/api/plan-approval`);
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 600000  // 10 minute timeout for user approval
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        // Body contains JSON: { status: 'approved' } or { status: 'refine', feedback: '...' }
+        resolve(body || JSON.stringify({ status: 'approved' }));
+      });
+    });
+
+    req.on('error', () => resolve(JSON.stringify({ status: 'approved', note: 'Could not reach orchestrator - auto-approving' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ status: 'approved', note: 'Approval timeout - auto-approving' }));
     });
 
     req.write(postData);

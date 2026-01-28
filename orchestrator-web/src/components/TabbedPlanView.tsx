@@ -156,7 +156,8 @@ function getProjectE2EStatus(project: string, taskStates?: TaskState[], testStat
 }
 
 export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval, onSubmitUserAction }: Props) {
-  const projectsRaw = useMemo(() => [...new Set(plan.tasks.map(t => t.project))], [plan.tasks]);
+  const tasks = plan?.tasks || [];
+  const projectsRaw = useMemo(() => [...new Set(tasks.map(t => t.project))], [tasks]);
 
   // Track completion order for stable sorting (completed projects stay in place)
   const [completionOrder, setCompletionOrder] = useState<Map<string, number>>(new Map());
@@ -237,12 +238,13 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
 
   // Get tasks and tests for active project - memoized
   const projectTasks = useMemo(
-    () => plan.tasks.map((task, idx) => ({ task, idx })).filter(({ task }) => task.project === activeTab),
-    [plan.tasks, activeTab]
+    () => tasks.map((task, idx) => ({ task, idx })).filter(({ task }) => task.project === activeTab),
+    [tasks, activeTab]
   );
+  const testPlan = plan?.testPlan || {};
   const projectTests = useMemo(
-    () => activeTab ? (plan.testPlan[activeTab] || []) : [],
-    [plan.testPlan, activeTab]
+    () => activeTab ? (testPlan[activeTab] || []) : [],
+    [testPlan, activeTab]
   );
 
   return (

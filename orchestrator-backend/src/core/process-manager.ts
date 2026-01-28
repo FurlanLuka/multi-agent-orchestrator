@@ -142,6 +142,13 @@ export class ProcessManager extends EventEmitter {
       throw new Error(`Unknown project: ${project}`);
     }
 
+    // Check if dev server is enabled (defaults to true for backwards compatibility)
+    const devServerEnabled = projectConfig.devServerEnabled ?? true;
+    if (!devServerEnabled) {
+      console.log(`[ProcessManager] Dev server disabled for ${project}, skipping`);
+      return;
+    }
+
     if (!projectConfig.devServer) {
       throw new Error(`No dev server configured for project: ${project}`);
     }
@@ -710,6 +717,41 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
+   * Kills a process and ALL its child processes (tree kill)
+   */
+  private async killProcessTree(pid: number, signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
+    const { exec } = require('child_process');
+
+    return new Promise((resolve) => {
+      // Use pgrep to find all child processes recursively
+      exec(`pgrep -P ${pid}`, (error: Error | null, stdout: string) => {
+        const childPids = stdout?.trim().split('\n').filter(Boolean).map(p => parseInt(p, 10)) || [];
+
+        // Recursively kill children first
+        const killChildren = async () => {
+          for (const childPid of childPids) {
+            await this.killProcessTree(childPid, signal);
+          }
+        };
+
+        killChildren().then(() => {
+          // Then kill the parent
+          try {
+            console.log(`[ProcessManager] Killing PID ${pid} with ${signal}`);
+            process.kill(pid, signal);
+          } catch {
+            // Process may already be dead
+          }
+          resolve();
+        });
+      });
+
+      // Safety timeout
+      setTimeout(resolve, 3000);
+    });
+  }
+
+  /**
    * Safely kills node/npm processes using a specific port
    * Only kills processes that look like dev servers (node, npm, tsx, ts-node, nest)
    */
@@ -795,73 +837,45 @@ export class ProcessManager extends EventEmitter {
    * Restarts a dev server
    */
   async restartDevServer(project: string): Promise<void> {
+    const projectConfig = this.config.projects[project];
+
+    // Check if dev server is enabled
+    const devServerEnabled = projectConfig?.devServerEnabled ?? true;
+    if (!devServerEnabled) {
+      console.log(`[ProcessManager] Dev server disabled for ${project}, skipping restart`);
+      return;
+    }
+
     const key = this.getKey(project, 'devServer');
     const info = this.processes.get(key);
-    const projectConfig = this.config.projects[project];
     const port = this.getPortFromUrl(projectConfig?.devServer?.url);
 
     if (info) {
       const pid = info.process.pid;
       console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${pid}${port ? `, port: ${port}` : ''})`);
 
-      // Wait for actual 'exit' event OR timeout
-      const exitPromise = new Promise<void>((resolve) => {
-        // Listen for the actual exit event
-        const onExit = () => {
-          info.process.removeListener('exit', onExit);
-          resolve();
-        };
-        info.process.once('exit', onExit);
-
-        // Also resolve if process is already gone from our map
-        const checkInterval = setInterval(() => {
-          if (!this.processes.has(key)) {
-            clearInterval(checkInterval);
-            info.process.removeListener('exit', onExit);
-            resolve();
-          }
-        }, 100);
-
-        // Force kill after 3 seconds
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          info.process.removeListener('exit', onExit);
-          if (this.processes.has(key)) {
-            console.log(`[ProcessManager] Force killing dev server for ${project}`);
-            if (pid) {
-              try {
-                process.kill(-pid, 'SIGKILL');
-              } catch {
-                info.process.kill('SIGKILL');
-              }
-            } else {
-              info.process.kill('SIGKILL');
-            }
-            this.processes.delete(key);
-          }
-          resolve();
-        }, 3000);
-      });
-
-      // Kill the entire process tree (npm spawns child processes)
       if (pid) {
-        try {
-          // Use negative PID to kill process group on Unix
-          process.kill(-pid, 'SIGTERM');
-        } catch {
-          // Fallback to regular kill if process group kill fails
-          info.process.kill('SIGTERM');
+        // Kill the entire process tree (npm spawns vite as child)
+        await this.killProcessTree(pid, 'SIGTERM');
+
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Force kill if still running
+        if (this.processes.has(key)) {
+          console.log(`[ProcessManager] Force killing dev server tree for ${project}`);
+          await this.killProcessTree(pid, 'SIGKILL');
         }
       } else {
         info.process.kill('SIGTERM');
       }
 
-      // Wait for process to fully exit
-      await exitPromise;
+      // Remove from our tracking
+      this.processes.delete(key);
 
-      // Give OS time to release resources after process exit
-      console.log(`[ProcessManager] Process exited, waiting for OS cleanup...`);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Give OS time to release resources
+      console.log(`[ProcessManager] Process tree killed, waiting for OS cleanup...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // Port-based cleanup (only if we know the port from URL)
@@ -897,71 +911,54 @@ export class ProcessManager extends EventEmitter {
   /**
    * Stops all processes
    */
-  stopAll(): void {
+  async stopAll(): Promise<void> {
     console.log(`[ProcessManager] Stopping all processes`);
 
-    // Collect ports to clean up (extract from URLs)
-    const portsToClean: number[] = [];
-    for (const project of Object.keys(this.config.projects)) {
-      const port = this.getPortFromUrl(this.config.projects[project]?.devServer?.url);
-      if (port) portsToClean.push(port);
-    }
+    // Kill all tracked dev server processes using tree kill
+    const killPromises: Promise<void>[] = [];
 
-    // Kill all tracked processes
     for (const [key, info] of this.processes) {
-      console.log(`[ProcessManager] Stopping ${key} (PID: ${info.process.pid})`);
       const pid = info.process.pid;
+      console.log(`[ProcessManager] Stopping ${key} (PID: ${pid})`);
       if (pid) {
-        try {
-          process.kill(-pid, 'SIGTERM');
-        } catch {
-          info.process.kill('SIGTERM');
-        }
+        killPromises.push(this.killProcessTree(pid, 'SIGTERM'));
       } else {
         info.process.kill('SIGTERM');
       }
     }
 
     for (const [project, proc] of this.currentAgentProcess) {
-      console.log(`[ProcessManager] Stopping agent ${project}`);
-      proc.kill('SIGTERM');
+      const pid = proc.pid;
+      console.log(`[ProcessManager] Stopping agent ${project} (PID: ${pid})`);
+      if (pid) {
+        killPromises.push(this.killProcessTree(pid, 'SIGTERM'));
+      } else {
+        proc.kill('SIGTERM');
+      }
     }
 
-    // Force kill and clean up ports after 3 seconds
-    setTimeout(async () => {
-      for (const [key, info] of this.processes) {
-        try {
-          const pid = info.process.pid;
-          if (pid) {
-            try {
-              process.kill(-pid, 'SIGKILL');
-            } catch {
-              info.process.kill('SIGKILL');
-            }
-          } else {
-            info.process.kill('SIGKILL');
-          }
-        } catch {
-          // Process may already be dead
-        }
-      }
-      for (const [, proc] of this.currentAgentProcess) {
-        try {
-          proc.kill('SIGKILL');
-        } catch {
-          // Process may already be dead
-        }
-      }
+    // Wait for graceful kills
+    await Promise.all(killPromises);
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Clean up any processes still holding ports
-      for (const port of portsToClean) {
-        await this.killProcessOnPort(port);
+    // Force kill anything remaining
+    for (const [, info] of this.processes) {
+      const pid = info.process.pid;
+      if (pid) {
+        await this.killProcessTree(pid, 'SIGKILL');
       }
+    }
 
-      // Clear maps
-      this.processes.clear();
-      this.currentAgentProcess.clear();
-    }, 3000);
+    for (const [, proc] of this.currentAgentProcess) {
+      const pid = proc.pid;
+      if (pid) {
+        await this.killProcessTree(pid, 'SIGKILL');
+      }
+    }
+
+    // Clear maps
+    this.processes.clear();
+    this.currentAgentProcess.clear();
   }
 
   /**

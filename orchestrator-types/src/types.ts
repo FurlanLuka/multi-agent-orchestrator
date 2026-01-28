@@ -169,17 +169,25 @@ export interface Plan {
 
 // Planning status phases for UX feedback
 export type PlanningPhase =
-  | 'exploring'      // "Exploring codebase..."
-  | 'analyzing'      // "Analyzing requirements..."
-  | 'generating'     // "Generating plan..."
-  | 'complete'       // Done
-  | 'error';         // Planning failed
+  | 'exploring'          // "Exploring codebase..."
+  | 'analyzing'          // "Analyzing requirements..."
+  | 'generating'         // "Generating plan..."
+  | 'awaiting_approval'  // Plan submitted, waiting for user (chat unlocked)
+  | 'refining'           // User requested changes, agent is revising (chat locked)
+  | 'complete'           // Done
+  | 'error';             // Planning failed
 
 export interface PlanningStatusEvent {
   phase: PlanningPhase;
   message: string;    // Human-readable status
   project?: string;   // If analyzing specific project
   errorDetails?: string;  // Full error for error phase
+}
+
+// Plan approval event (sent to frontend when agent submits plan for approval)
+export interface PlanApprovalEvent {
+  approvalId: string;
+  plan: Plan;
 }
 
 // Analysis result types (for task verification and E2E)
