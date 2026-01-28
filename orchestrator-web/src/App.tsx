@@ -53,6 +53,7 @@ import { ProjectCard } from './components/ProjectCard';
 import { TabbedPlanView } from './components/TabbedPlanView';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { SplashScreen } from './components/SplashScreen';
+import { UserInputOverlay } from './components/UserInputOverlay';
 
 function App() {
   const {
@@ -88,7 +89,8 @@ function App() {
     updateProject,
     stopSession,
     startNewSession,
-    submitUserAction,
+    submitUserInput,
+    userInputRequest,
     pushingBranch,
     pushResults,
     pushBranch,
@@ -670,6 +672,7 @@ function App() {
                         onSendMessage={sendChat}
                         onRetryPlan={handleRetryPlan}
                         sessionActive={!!session}
+                        executionStarted={!!session?.plan}
                         permissionPrompt={permissionPrompt}
                         onPermissionResponse={respondToPermission}
                         planningQuestion={planningQuestion}
@@ -776,7 +779,6 @@ function App() {
                                 taskStates={taskStates}
                                 testStates={testStates}
                                 isApproval={false}
-                                onSubmitUserAction={submitUserAction}
                               />
                             </Box>
                           </Collapse>
@@ -823,6 +825,25 @@ function App() {
         approval={currentApproval}
         onRespond={respondToApproval}
       />
+
+      {/* User Input Overlay (for request_user_input MCP tool) */}
+      {userInputRequest && (
+        <Box
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1000,
+          }}
+        >
+          <UserInputOverlay
+            request={userInputRequest}
+            onSubmit={submitUserInput}
+          />
+        </Box>
+      )}
     </MantineProvider>
   );
 }

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, UserActionRequiredEvent, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
@@ -49,12 +49,6 @@ export class TaskExecutor extends EventEmitter {
   private io?: any;  // Socket.io instance for flow events
   private sessionLogger?: SessionLogger;  // Optional session logger for debugging
   private activeTaskFlows: Map<number, string> = new Map(); // taskIndex -> flowId
-
-  // Pending user input promises - resolved when user submits values
-  private pendingUserInputs: Map<number, {
-    resolve: (values: Record<string, string>) => void;
-    reject: (reason: Error) => void;
-  }> = new Map();
 
   // Persistent session state - tracks fix attempts per task
   private fixAttemptsPerTask: Map<number, number> = new Map();
@@ -359,41 +353,6 @@ Please fix the issue and try again.`;
         resolve({ success: false, stdout, stderr, exitCode: 1, error: String(err) });
       });
     });
-  }
-
-  // TODO: user_action tasks need to be implemented for persistent sessions
-  // The mechanism would be:
-  // 1. Agent encounters user_action task in the prompt
-  // 2. Agent calls task_complete with a special "needs_input" status
-  // 3. handleTaskCompleteRequest returns a "wait_for_user" response
-  // 4. Agent waits for user input
-  // 5. User submits values via handleUserActionResponse
-  // 6. We send the values to the agent or restart the task with the values
-
-  /**
-   * Creates a promise that waits for user input for a specific task.
-   * The promise is resolved when handleUserActionResponse is called with matching taskIndex.
-   */
-  private waitForUserInput(taskIndex: number): Promise<Record<string, string>> {
-    return new Promise((resolve, reject) => {
-      // Store the resolve/reject callbacks so they can be called when response arrives
-      this.pendingUserInputs.set(taskIndex, { resolve, reject });
-    });
-  }
-
-  /**
-   * Called by the orchestrator when user submits values for a user_action task.
-   * Resolves the pending promise and allows the task to continue.
-   */
-  handleUserActionResponse(taskIndex: number, values: Record<string, string>): void {
-    const pending = this.pendingUserInputs.get(taskIndex);
-    if (pending) {
-      console.log(`[TaskExecutor] Received user action response for task #${taskIndex}`);
-      this.pendingUserInputs.delete(taskIndex);
-      pending.resolve(values);
-    } else {
-      console.warn(`[TaskExecutor] Received user action response for unknown task #${taskIndex}`);
-    }
   }
 
   /**
@@ -829,9 +788,8 @@ ${task.task}
 2. **DO NOT start the next task** until you receive a \`next_task\` response
 3. **DO NOT write tests** - testing is handled separately
 4. **DO NOT start dev servers** - the orchestrator manages dev servers
-5. **DO NOT run npm install** - the orchestrator handles dependencies
-6. **DO NOT use browser automation tools** to test your work
-7. Focus ONLY on implementing the feature code
+5. **DO NOT use browser automation tools** to test your work
+6. Focus ONLY on implementing the feature code
 
 ## Status Reporting
 

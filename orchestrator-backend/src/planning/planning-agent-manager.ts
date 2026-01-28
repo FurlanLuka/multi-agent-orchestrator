@@ -1221,19 +1221,7 @@ Each task MUST include:
 
 ## Secret/Credential Detection
 
-If the feature requires credentials (OAuth, API keys, etc.), create a "user_action" task FIRST:
-\`\`\`json
-{
-  "project": "project-name",
-  "name": "Configure Credentials",
-  "task": "User must provide credentials.",
-  "type": "user_action",
-  "userAction": {
-    "prompt": "Instructions for user",
-    "inputs": [{ "name": "API_KEY", "label": "Label", "sensitive": true, "required": true }]
-  }
-}
-\`\`\`
+If the feature requires credentials (OAuth, API keys, etc.), the implementing agent should use the \`request_user_input\` MCP tool during implementation to request values from the user. Do NOT create special tasks for credentials - include instructions in the regular implementation task about which credentials are needed and the agent will request them at runtime.
 
 ## Rules
 - Tasks for DIFFERENT projects run IN PARALLEL
@@ -1246,17 +1234,21 @@ If the feature requires credentials (OAuth, API keys, etc.), create a "user_acti
 
 ## Architecture Diagram
 
-Include a Mermaid flowchart showing component interactions:
-\`\`\`mermaid
-flowchart LR
-    subgraph Frontend
-        UI --> State
-    end
-    subgraph Backend
-        API --> DB[(Database)]
-    end
-    State -->|POST /api| API
-\`\`\`
+The "architecture" field must contain ONLY raw Mermaid syntax (no \`\`\` fences, no "mermaid" prefix).
+It goes into a JSON string — use \\n for newlines.
+
+STRICT RULES (Mermaid v11 compatible):
+- Use ONLY: flowchart LR (left-to-right) or flowchart TD (top-down)
+- Node IDs: alphanumeric and underscores ONLY (e.g., user_service, NOT user-service)
+- Node labels: ALWAYS use bracket syntax: NodeID["Label Text"]
+- Database nodes: DB[("Database Name")]
+- Edge labels: -->|"label text"| (always quote edge labels)
+- Subgraph: subgraph id["Display Name"] ... end
+- NO classDef, style, click, :::, or HTML tags
+- Keep it simple: max 15 nodes, focus on data flow between key components
+
+Example:
+flowchart LR\\n    subgraph FE["Frontend"]\\n        Pages["Pages"] --> Store["State Store"]\\n    end\\n    subgraph BE["Backend"]\\n        API["REST API"] --> SVC["Service Layer"]\\n        SVC --> DB[("PostgreSQL")]\\n    end\\n    Store -->|"HTTP requests"| API
 
 ## IMPORTANT: Plan Approval Flow
 

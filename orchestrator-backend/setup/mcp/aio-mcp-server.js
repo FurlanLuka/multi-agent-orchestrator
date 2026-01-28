@@ -124,6 +124,31 @@ async function handleMessage(msg) {
             },
             required: ['plan']
           }
+        },
+        {
+          name: 'request_user_input',
+          description: 'Request input from user (credentials, env vars, config values). Blocks until user provides values. Use this when you need API keys, secrets, or configuration that only the user can provide.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              inputs: {
+                type: 'array',
+                description: 'Array of inputs to request from the user',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'Variable name (e.g., GOOGLE_CLIENT_ID)' },
+                    label: { type: 'string', description: 'Display label for the input field' },
+                    description: { type: 'string', description: 'Help text explaining what this value is for' },
+                    sensitive: { type: 'boolean', description: 'If true, mask input (for passwords/secrets)' },
+                    required: { type: 'boolean', description: 'If true, user must provide a value' }
+                  },
+                  required: ['name', 'label']
+                }
+              }
+            },
+            required: ['inputs']
+          }
         }
       ]
     });
@@ -197,6 +222,23 @@ async function handleMessage(msg) {
 
     // Call orchestrator endpoint (blocks until user approves or requests changes)
     const result = await submitPlanForApproval(plan);
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'request_user_input') {
+    const inputs = params.arguments?.inputs || [];
+
+    if (inputs.length === 0) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'No inputs specified' }) }]
+      });
+      return;
+    }
+
+    // Call orchestrator endpoint (blocks until user provides values)
+    const result = await requestUserInput(inputs);
 
     respond(id, {
       content: [{ type: 'text', text: result }]
@@ -403,6 +445,45 @@ function submitPlanForApproval(plan) {
     req.on('timeout', () => {
       req.destroy();
       resolve(JSON.stringify({ status: 'approved', note: 'Approval timeout - auto-approving' }));
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+function requestUserInput(inputs) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      project: PROJECT,
+      inputs
+    });
+
+    const url = new URL(`${ORCHESTRATOR_URL}/api/user-input`);
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 600000  // 10 minute timeout for user input
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        // Body contains JSON with user-provided values
+        resolve(body || JSON.stringify({ error: 'No response from user' }));
+      });
+    });
+
+    req.on('error', () => resolve(JSON.stringify({ error: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: 'User input timeout' }));
     });
 
     req.write(postData);

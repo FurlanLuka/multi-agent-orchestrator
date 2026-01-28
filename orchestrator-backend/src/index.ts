@@ -106,7 +106,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, UserActionRequiredEvent, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -1891,12 +1891,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         failedTaskIndex.set(project, taskIndex);
       });
 
-      // Forward userActionRequired events to UI
-      taskExecutor.on('userActionRequired', (event) => {
-        console.log(`[Orchestrator] User action required for task #${event.taskIndex}`);
-        (ui.io as any).emitUserActionRequired(event);
-      });
-
       // Run tasks using persistent sessions: one persistent agent per project
       // Projects run in parallel, tasks within each project are handled sequentially
       // via the task_complete MCP tool
@@ -1942,51 +1936,39 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    // Handle direct prompt to specific agent (bypasses queue)
-    socket.on('directPrompt', ({ project, prompt }: { project: string; prompt: string }) => {
-      console.log(`[Orchestrator] Direct prompt to ${project}`);
-      const success = actionExecutor.sendDirect(project, prompt);
-      if (!success) {
-        chatHandler.systemMessage(`Failed to send prompt to ${project}`);
-      }
-    });
-
     // Handle approval responses from UI
     socket.on('approve', ({ id, approved }: { id: string; approved: boolean }) => {
       approvalQueue.respond(id, approved);
     });
 
-    // Handle user action response (credentials/config submitted by user)
-    socket.on('userActionResponse', ({ taskIndex, values }: { taskIndex: number; values: Record<string, string> }) => {
-      console.log(`[Orchestrator] User action response received for task #${taskIndex}`);
-      if (taskExecutor) {
-        taskExecutor.handleUserActionResponse(taskIndex, values);
-      } else {
-        console.error(`[Orchestrator] TaskExecutor not available to handle user action response`);
-      }
-    });
-
     // Handle permission response from UI (for live permission approval via MCP)
-    socket.on('permissionResponse', async ({ project, taskIndex, approved, toolName, allowAll }: {
+    socket.on('permissionResponse', async ({ project, approved, toolName, allowAll }: {
       project: string;
-      taskIndex: number;
       approved: boolean;
       toolName: string;
       allowAll?: boolean;
     }) => {
-      const key = `${project}_${taskIndex}`;
       const pendingPermissions = (ui.io as any).pendingPermissions as Map<string, {
         resolve: (result: string) => void;
         project: string;
-        taskIndex: number;
         toolName: string;
         toolInput: Record<string, unknown>;
       }>;
 
-      const pending = pendingPermissions?.get(key);
+      // Find pending permission by project (keys are ${project}_${timestamp})
+      let key: string | undefined;
+      let pending: { resolve: (result: string) => void; project: string; toolName: string; toolInput: Record<string, unknown> } | undefined;
 
-      if (!pending) {
-        console.warn(`[Orchestrator] No pending permission for ${key}`);
+      for (const [k, v] of pendingPermissions?.entries() || []) {
+        if (v.project === project) {
+          key = k;
+          pending = v;
+          break;
+        }
+      }
+
+      if (!pending || !key) {
+        console.warn(`[Orchestrator] No pending permission for ${project}`);
         return;
       }
 

@@ -20,19 +20,16 @@ import {
   IconClock,
   IconChevronRight,
   IconChevronDown,
-  IconAlertCircle,
 } from '@tabler/icons-react';
 import type { Plan, TaskState, TaskStatus, ProjectTestState, TestScenarioStatus } from '@aio/types';
 import { MarkdownMessage } from './MarkdownMessage';
 import { MermaidDiagram } from './MermaidDiagram';
-import { UserActionCard } from './UserActionCard';
 
 interface Props {
   plan: Plan;
   taskStates?: TaskState[];           // For execution tracking
   testStates?: Record<string, ProjectTestState>; // For test tracking
   isApproval?: boolean;               // True when showing for approval (no tracking)
-  onSubmitUserAction?: (taskIndex: number, values: Record<string, string>) => void;  // For user_action tasks
 }
 
 // Get status icon for tasks
@@ -40,7 +37,6 @@ function getTaskStatusIcon(status?: TaskStatus) {
   if (!status || status === 'pending') return <IconCircle size={16} />;
   if (status === 'completed') return <IconCircleCheck size={16} />;
   if (status === 'failed' || status === 'e2e_failed') return <IconCircleX size={16} />;
-  if (status === 'awaiting_input') return <IconAlertCircle size={16} />;
   if (status === 'working' || status === 'verifying' || status === 'fixing' || status === 'e2e') {
     return <IconLoader size={16} className="animate-spin" />;
   }
@@ -53,7 +49,6 @@ function getTaskStatusColor(status?: TaskStatus): string {
   if (!status || status === 'pending') return 'gray';
   if (status === 'completed') return 'green';
   if (status === 'failed' || status === 'e2e_failed') return 'red';
-  if (status === 'awaiting_input') return 'yellow';
   if (status === 'working') return 'blue';
   if (status === 'verifying') return 'cyan';
   if (status === 'fixing') return 'orange';
@@ -155,7 +150,7 @@ function getProjectE2EStatus(project: string, taskStates?: TaskState[], testStat
   return allTasksComplete ? 'in_progress' : 'waiting';
 }
 
-export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval, onSubmitUserAction }: Props) {
+export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
   const tasks = plan?.tasks || [];
   const projectsRaw = useMemo(() => [...new Set(tasks.map(t => t.project))], [tasks]);
 
@@ -340,26 +335,6 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                     const isExpanded = expandedTaskIdx === idx;
                     const isLast = i === projectTasks.length - 1;
 
-                    // Show UserActionCard for user_action tasks that are awaiting input
-                    const isUserActionAwaitingInput =
-                      !isApproval &&
-                      task.type === 'user_action' &&
-                      state?.status === 'awaiting_input' &&
-                      state.userAction &&
-                      onSubmitUserAction;
-
-                    if (isUserActionAwaitingInput && state?.userAction) {
-                      return (
-                        <Box key={idx} mb="sm">
-                          <UserActionCard
-                            task={state}
-                            userAction={state.userAction}
-                            onSubmit={onSubmitUserAction}
-                          />
-                        </Box>
-                      );
-                    }
-
                     return (
                       <Box key={idx}>
                         <UnstyledButton
@@ -380,7 +355,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
                             </Text>
                             {status && !isApproval && (
                               <Badge size="xs" variant="light" color={color}>
-                                {status === 'awaiting_input' ? 'action required' : status}
+                                {status}
                               </Badge>
                             )}
                             {task.task && (

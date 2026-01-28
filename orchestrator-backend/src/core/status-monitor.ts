@@ -195,8 +195,7 @@ export class StatusMonitor extends EventEmitter {
         name: task.name || `Task ${index + 1}`,  // Fallback for legacy plans without name
         description: task.task,
         status: 'pending',
-        type: task.type,              // Include task type (implementation or user_action)
-        userAction: task.userAction   // Include userAction definition if present
+        type: task.type,
       });
     });
     console.log(`[StatusMonitor] Initialized ${tasks.length} tasks`);
@@ -218,7 +217,6 @@ export class StatusMonitor extends EventEmitter {
       description: task.task,
       status: 'pending',
       type: task.type,
-      userAction: task.userAction,
     };
 
     this.taskStates.set(taskIndex, taskState);

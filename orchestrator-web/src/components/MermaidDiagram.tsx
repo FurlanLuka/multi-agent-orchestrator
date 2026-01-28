@@ -31,16 +31,22 @@ interface Props {
   chart: string;
 }
 
-// Escape edge labels containing special characters like [] that Mermaid misinterprets
+// Sanitize Mermaid chart syntax to fix common LLM mistakes
 function sanitizeChart(chart: string): string {
-  // Match edge labels: |label| and wrap in quotes if they contain special chars
-  return chart.replace(/\|([^|"]+)\|/g, (match, label) => {
-    // If label contains [], <>, or other special chars, quote it
-    if (/[\[\]<>{}()]/.test(label)) {
+  let cleaned = chart;
+
+  // Strip markdown fences if LLM wrapped them
+  cleaned = cleaned.replace(/^```(?:mermaid)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+
+  // Quote edge labels containing special characters
+  cleaned = cleaned.replace(/\|([^|"]+)\|/g, (match, label) => {
+    if (/[\[\]<>{}()\/:.&]/.test(label)) {
       return `|"${label}"|`;
     }
     return match;
   });
+
+  return cleaned.trim();
 }
 
 export function MermaidDiagram({ chart }: Props) {

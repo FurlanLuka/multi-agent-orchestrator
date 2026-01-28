@@ -132,29 +132,31 @@ export interface Session {
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
 }
 
-// User action input field for secrets/configuration collection
-export interface UserActionInput {
-  name: string;           // e.g., "GOOGLE_CLIENT_ID" (env var name)
-  label: string;          // e.g., "Google OAuth Client ID"
-  description: string;    // Help text for the user
-  sensitive: boolean;     // true = password field, don't log
-  required: boolean;
-  placeholder?: string;
-  helpUrl?: string;       // e.g., "https://console.cloud.google.com/apis/credentials"
+// User input request (MCP tool: request_user_input)
+export interface UserInputField {
+  name: string;           // Variable name (e.g., GOOGLE_CLIENT_ID)
+  label: string;          // Display label
+  description?: string;   // Help text
+  sensitive?: boolean;    // If true, mask input
+  required?: boolean;     // If true, must provide value
 }
 
-// User action definition for tasks that require user input
-export interface UserActionDefinition {
-  prompt: string;                  // Explanation for user
-  inputs: UserActionInput[];       // Fields to collect
+export interface UserInputRequest {
+  requestId: string;
+  project: string;
+  inputs: UserInputField[];
+}
+
+export interface UserInputResponse {
+  requestId: string;
+  values: Record<string, string>;
 }
 
 export interface TaskDefinition {
   project: string;
   name: string;        // Short task name for display (e.g., "Add login form")
   task: string;        // Full task description (markdown supported)
-  type?: 'implementation' | 'user_action' | 'e2e_fix';  // Task type, default: 'implementation'
-  userAction?: UserActionDefinition;        // Only for type: 'user_action'
+  type?: 'implementation' | 'e2e_fix';  // Task type, default: 'implementation'
 }
 
 export interface Plan {
@@ -514,7 +516,6 @@ export interface TestStatusEvent {
 // Task status tracking for dependency-aware execution
 export type TaskStatus =
   | 'pending'         // Not started yet
-  | 'awaiting_input'  // Waiting for user to provide required input (user_action tasks)
   | 'waiting'         // Waiting on dependency tasks
   | 'working'         // Agent is implementing
   | 'verifying'       // Running deps install, build, restart, health check
@@ -533,8 +534,7 @@ export interface TaskState {
   message?: string;
   startedAt?: number;
   completedAt?: number;
-  type?: 'implementation' | 'user_action' | 'e2e_fix';  // Task type
-  userAction?: UserActionDefinition;        // Only for type: 'user_action'
+  type?: 'implementation' | 'e2e_fix';  // Task type
 }
 
 export interface TaskStatusEvent {
@@ -617,19 +617,6 @@ export interface StreamingMessage {
   createdAt: number;
 }
 
-// User action required event (backend → frontend)
-export interface UserActionRequiredEvent {
-  taskIndex: number;
-  project: string;
-  taskName: string;
-  userAction: UserActionDefinition;
-}
-
-// User action response (frontend → backend)
-export interface UserActionResponseEvent {
-  taskIndex: number;
-  values: Record<string, string>;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // Planning Phase Types (for 2-phase planning with interactive Q&A)
@@ -781,7 +768,6 @@ export interface RequestFlow {
 // Permission prompt from MCP server
 export interface PermissionPromptRequest {
   project: string;
-  taskIndex: number;
   toolName: string;
   toolInput: Record<string, unknown>;
 }
@@ -789,9 +775,9 @@ export interface PermissionPromptRequest {
 // Permission response from frontend
 export interface PermissionPromptResponse {
   project: string;
-  taskIndex: number;
   approved: boolean;
   toolName: string;
+  allowAll?: boolean;
 }
 
 // Alias for PermissionPromptRequest (used in web)

@@ -11,8 +11,10 @@ import {
   Code,
   Stack,
   Button,
+  TextInput,
+  Collapse,
 } from '@mantine/core';
-import { IconShield, IconCheck, IconShieldCheck, IconRefresh } from '@tabler/icons-react';
+import { IconShield, IconCheck, IconShieldCheck, IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '@aio/types';
 
 interface ProjectCardProps {
@@ -27,7 +29,9 @@ interface ProjectCardProps {
     toolInput: Record<string, unknown>;
   } | null;
   onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
-  onRetry?: () => void;
+  onRetry?: (hint?: string) => void;
+  onSkipE2E?: () => void;
+  onRestartServer?: () => void;
 }
 
 // Status configuration for colors and labels
@@ -61,9 +65,11 @@ const getStatusProgress = (status: AgentStatus): number => {
   }
 };
 
-function ProjectCardInner({ project, status, message, updatedAt, logs, testState, permissionPrompt, onPermissionResponse, onRetry }: ProjectCardProps) {
+function ProjectCardInner({ project, status, message, updatedAt, logs, testState, permissionPrompt, onPermissionResponse, onRetry, onSkipE2E, onRestartServer }: ProjectCardProps) {
   const [logType, setLogType] = useState<string>('agent');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showRetryHint, setShowRetryHint] = useState(false);
+  const [retryHint, setRetryHint] = useState('');
 
   const config = statusConfig[status] || statusConfig.PENDING;
   const progress = getStatusProgress(status);
@@ -120,7 +126,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
 
   return (
     <Paper shadow="sm" radius="lg" p="md" withBorder style={{ position: 'relative' }}>
-      {/* Header: Project name + Status badge + Retry button */}
+      {/* Header: Project name + Status badge + Action buttons */}
       <Group justify="space-between" mb="xs">
         <Group gap="sm">
           <Text fw={700} size="lg" tt="uppercase">{project.replace(/_/g, ' ')}</Text>
@@ -130,19 +136,86 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
           <Badge color={config.color} variant="filled" size="lg">
             {getStatusLabel()}
           </Badge>
+
+          {/* Skip E2E button for E2E or BLOCKED status */}
+          {(status === 'E2E' || status === 'BLOCKED') && onSkipE2E && (
+            <Button
+              size="xs"
+              variant="light"
+              color="orange"
+              leftSection={<IconPlayerSkipForward size={14} />}
+              onClick={onSkipE2E}
+            >
+              Skip E2E
+            </Button>
+          )}
+
+          {/* Restart Server button for fatal states */}
+          {(status === 'FATAL_DEBUGGING') && onRestartServer && (
+            <Button
+              size="xs"
+              variant="light"
+              color="yellow"
+              leftSection={<IconRotateClockwise size={14} />}
+              onClick={onRestartServer}
+            >
+              Restart Server
+            </Button>
+          )}
+
+          {/* Retry button for failed states */}
           {(status === 'FATAL_DEBUGGING' || status === 'FAILED') && onRetry && (
             <Button
               size="xs"
               variant="light"
               color="red"
               leftSection={<IconRefresh size={14} />}
-              onClick={onRetry}
+              onClick={() => {
+                if (showRetryHint && retryHint.trim()) {
+                  onRetry(retryHint.trim());
+                  setRetryHint('');
+                  setShowRetryHint(false);
+                } else {
+                  setShowRetryHint(!showRetryHint);
+                }
+              }}
             >
-              Retry
+              {showRetryHint ? 'Send Retry' : 'Retry'}
             </Button>
           )}
         </Group>
       </Group>
+
+      {/* Retry hint input (collapsible) */}
+      <Collapse in={showRetryHint && (status === 'FATAL_DEBUGGING' || status === 'FAILED')}>
+        <Group gap="xs" mb="xs">
+          <TextInput
+            placeholder="Optional hint for the agent (e.g., check the import path)"
+            value={retryHint}
+            onChange={(e) => setRetryHint(e.target.value)}
+            size="xs"
+            style={{ flex: 1 }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && onRetry) {
+                onRetry(retryHint.trim() || undefined);
+                setRetryHint('');
+                setShowRetryHint(false);
+              }
+            }}
+          />
+          <Button
+            size="xs"
+            variant="subtle"
+            color="gray"
+            onClick={() => {
+              setShowRetryHint(false);
+              setRetryHint('');
+            }}
+          >
+            Cancel
+          </Button>
+        </Group>
+      </Collapse>
 
       {/* Progress bar */}
       <Progress

@@ -9,7 +9,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserActionRequiredEvent, UserActionResponseEvent, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@aio/types';
 import { getWebDistPath } from '../config/paths';
 
@@ -306,6 +306,52 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   (io as any).pendingPlanApprovals = pendingPlanApprovals;
 
   // ═══════════════════════════════════════════════════════════════
+  // User Input Handling (for request_user_input MCP tool)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Store pending user input requests (key -> resolver)
+  const pendingUserInputs = new Map<string, {
+    resolve: (result: UserInputResponse) => void;
+    request: UserInputRequest;
+  }>();
+
+  // HTTP endpoint for MCP server to call when agent requests user input
+  app.post('/api/user-input', async (req: Request, res: Response) => {
+    const { project, inputs } = req.body;
+
+    // Generate unique request ID
+    const requestId = `input_${Date.now()}`;
+
+    console.log(`[UIServer] User input requested for ${project}: ${inputs.length} field(s)`);
+
+    // Build the request object
+    const request: UserInputRequest = {
+      requestId,
+      project,
+      inputs
+    };
+
+    // Emit user input request event to frontend
+    io.emit('userInputRequired', request);
+
+    // Create promise that will resolve when user responds
+    const response = await new Promise<UserInputResponse>((resolve) => {
+      pendingUserInputs.set(requestId, { resolve, request });
+    });
+
+    // Clean up
+    pendingUserInputs.delete(requestId);
+
+    console.log(`[UIServer] User input response: ${Object.keys(response.values).length} value(s)`);
+
+    // Return values to MCP server (which returns to agent)
+    res.json(response.values);
+  });
+
+  // Expose pendingUserInputs for socket handler
+  (io as any).pendingUserInputs = pendingUserInputs;
+
+  // ═══════════════════════════════════════════════════════════════
   // Planning Question Handling (for interactive Q&A during planning)
   // ═══════════════════════════════════════════════════════════════
 
@@ -496,12 +542,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       }
     });
 
-    // Handle user action response (user submitted credentials/config values)
-    socket.on('userActionResponse', (response: UserActionResponseEvent) => {
-      console.log(`[UIServer] User action response for task #${response.taskIndex}`);
-      io.emit('userActionResponse', response);  // Forward to orchestrator
-    });
-
     // Handle project retry request (forwarded to orchestrator)
     socket.on('retryProject', ({ project }: { project: string }) => {
       console.log(`[UIServer] Retry requested for ${project}`);
@@ -570,6 +610,16 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       }
     });
 
+    // Handle user input response (for request_user_input MCP tool)
+    socket.on('userInputResponse', ({ requestId, values }: { requestId: string; values: Record<string, string> }) => {
+      console.log(`[UIServer] User input response received: ${requestId}`);
+      const pending = (io as any).pendingUserInputs?.get(requestId);
+      if (pending?.resolve) {
+        pending.resolve({ requestId, values });
+        (io as any).pendingUserInputs.delete(requestId);
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });
@@ -630,11 +680,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     io.emit('analysisResult', event);
   };
 
-  // Emit user action required event (task needs user input)
-  const emitUserActionRequired = (event: UserActionRequiredEvent) => {
-    io.emit('userActionRequired', event);
-  };
-
   // ═══════════════════════════════════════════════════════════════
   // Flow Events (for two-section chat UX)
   // ═══════════════════════════════════════════════════════════════
@@ -678,7 +723,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   (io as any).emitTaskStates = emitTaskStates;
   (io as any).emitPlanningStatus = emitPlanningStatus;
   (io as any).emitAnalysisResult = emitAnalysisResult;
-  (io as any).emitUserActionRequired = emitUserActionRequired;
   (io as any).emitFlowStart = emitFlowStart;
   (io as any).emitFlowStep = emitFlowStep;
   (io as any).emitFlowComplete = emitFlowComplete;

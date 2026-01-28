@@ -21,7 +21,7 @@ import type {
   TaskStatusEvent,
   PlanningStatusEvent,
   PlanApprovalEvent,
-  UserActionRequiredEvent,
+  UserInputRequest,
   DependencyCheckResult,
   RequestFlow,
   FlowStep,
@@ -132,6 +132,9 @@ export function useSocket() {
   // Permission prompt queue (for live permission approval via MCP)
   // Uses a queue to handle multiple simultaneous permission requests
   const [permissionQueue, setPermissionQueue] = useState<PermissionPrompt[]>([]);
+
+  // User input request queue (for request_user_input MCP tool)
+  const [userInputQueue, setUserInputQueue] = useState<UserInputRequest[]>([]);
 
   // Planning question state (for interactive Q&A during planning via MCP)
   const [planningQuestion, setPlanningQuestion] = useState<PlanningQuestion | null>(null);
@@ -421,20 +424,10 @@ export function useSocket() {
       ));
     });
 
-    // User action required event - update task state with userAction info
-    socket.on('userActionRequired', (event: UserActionRequiredEvent) => {
-      console.log('[useSocket] User action required for task #' + event.taskIndex);
-      setTaskStates(prev => prev.map(task =>
-        task.taskIndex === event.taskIndex
-          ? {
-              ...task,
-              status: 'awaiting_input' as const,
-              type: 'user_action' as const,
-              userAction: event.userAction,
-              message: 'Waiting for user input...'
-            }
-          : task
-      ));
+    // User input required event (for request_user_input MCP tool)
+    socket.on('userInputRequired', (request: UserInputRequest) => {
+      console.log('[useSocket] User input required: ' + request.requestId);
+      setUserInputQueue(prev => [...prev, request]);
     });
 
     // Planning status events for UX feedback
@@ -900,11 +893,13 @@ export function useSocket() {
     activeSessionIdRef.current = null;
   }, []);
 
-  // Submit user action response (for user_action tasks)
-  const submitUserAction = useCallback((taskIndex: number, values: Record<string, string>) => {
+  // Submit user input response (for request_user_input MCP tool)
+  const submitUserInput = useCallback((requestId: string, values: Record<string, string>) => {
     if (socketRef.current) {
-      console.log('[useSocket] Submitting user action for task #' + taskIndex);
-      socketRef.current.emit('userActionResponse', { taskIndex, values });
+      console.log('[useSocket] Submitting user input: ' + requestId);
+      socketRef.current.emit('userInputResponse', { requestId, values });
+      // Remove from queue
+      setUserInputQueue(prev => prev.filter(r => r.requestId !== requestId));
     }
   }, []);
 
@@ -1002,7 +997,6 @@ export function useSocket() {
       const currentPrompt = permissionQueue[0];
       socketRef.current.emit('permissionResponse', {
         project: currentPrompt.project,
-        taskIndex: currentPrompt.taskIndex,
         approved,
         toolName: currentPrompt.toolName,
         allowAll: allowAll || false,
@@ -1111,6 +1105,7 @@ export function useSocket() {
     availableBranches,
     loadingBranches,
     permissionPrompt,
+    userInputRequest: userInputQueue.length > 0 ? userInputQueue[0] : null,
     planningQuestion,
     pendingPlanApproval,
     sendChat,
@@ -1129,7 +1124,7 @@ export function useSocket() {
     clearSession,
     stopSession,
     startNewSession,
-    submitUserAction,
+    submitUserInput,
     pushBranch,
     clearPushResult,
     mergeBranch,
