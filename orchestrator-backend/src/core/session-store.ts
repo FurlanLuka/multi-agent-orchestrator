@@ -4,7 +4,6 @@ import { EventEmitter } from 'events';
 import {
   Session,
   Plan,
-  PlanProposal,
   AgentStatus,
   ProjectState,
   LogEntry,
@@ -284,7 +283,6 @@ export class SessionStore extends EventEmitter {
     if (!session) return;
 
     session.plan = plan;
-    session.pendingPlan = undefined;  // Clear pending plan once approved
     session.status = 'running';
     this.writeSession(session);
     console.log(`[SessionStore] Set plan for session ${sessionId}`);
@@ -303,30 +301,6 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
-   * Sets a pending plan (waiting for user approval)
-   */
-  setPendingPlan(sessionId: string, pendingPlan: PlanProposal): void {
-    const session = this.loadSession(sessionId);
-    if (!session) return;
-
-    session.pendingPlan = pendingPlan;
-    this.writeSession(session);
-    console.log(`[SessionStore] Set pending plan for session ${sessionId}`);
-  }
-
-  /**
-   * Clears the pending plan (user declined or continued conversation)
-   */
-  clearPendingPlan(sessionId: string): void {
-    const session = this.loadSession(sessionId);
-    if (!session) return;
-
-    session.pendingPlan = undefined;
-    this.writeSession(session);
-    console.log(`[SessionStore] Cleared pending plan for session ${sessionId}`);
-  }
-
-  /**
    * Sets the exploration/analysis result from Phase 1
    */
   setExplorationResult(sessionId: string, result: ExplorationAnalysisResult): void {
@@ -336,14 +310,6 @@ export class SessionStore extends EventEmitter {
     session.explorationResult = result;
     this.writeSession(session);
     console.log(`[SessionStore] Set exploration result for session ${sessionId}`);
-  }
-
-  /**
-   * Gets the pending plan for a session
-   */
-  getPendingPlan(sessionId: string): PlanProposal | undefined {
-    const session = this.loadSession(sessionId);
-    return session?.pendingPlan;
   }
 
   /**

@@ -6,9 +6,7 @@ import type {
   Plan,
   ProjectState,
   LogEntry,
-  ChatMessage,
   ApprovalRequest,
-  PlanProposal,
   AgentStatus,
   ProjectTemplateConfig,
   ProjectConfig,
@@ -87,9 +85,7 @@ export function useSocket() {
   const [session, setSession] = useState<Session | null>(null);
   const [statuses, setStatuses] = useState<Record<string, ProjectState>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [currentApproval, setCurrentApproval] = useState<ApprovalRequest | null>(null);
-  const [pendingPlan, setPendingPlan] = useState<PlanProposal | null>(null);
   const [allComplete, setAllComplete] = useState(false);
   const [projects, setProjects] = useState<Record<string, ProjectConfig>>({});
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
@@ -315,24 +311,9 @@ export function useSocket() {
       setLogs(prev => [...prev.slice(-500), entry]); // Keep last 500 logs
     });
 
-    // Chat events
-    socket.on('chat', (msg: ChatMessage) => {
-      setChatHistory(prev => [...prev, { ...msg, timestamp: msg.timestamp || Date.now() }]);
-    });
-
     // Approval events
     socket.on('approval', (request: ApprovalRequest) => {
       setCurrentApproval(request);
-    });
-
-    // Plan proposal
-    socket.on('planProposal', (proposal: PlanProposal) => {
-      setPendingPlan(proposal);
-    });
-
-    // Plan cleared (user continued conversation)
-    socket.on('planCleared', () => {
-      setPendingPlan(null);
     });
 
     // All complete
@@ -597,7 +578,7 @@ export function useSocket() {
       setSessions(sessionList);
     });
 
-    socket.on('sessionLoaded', (data: FullSessionData & { isActive?: boolean; pendingPlan?: PlanProposal }) => {
+    socket.on('sessionLoaded', (data: FullSessionData & { isActive?: boolean }) => {
       setLoadingSession(false);
 
       // Restore session
@@ -629,13 +610,6 @@ export function useSocket() {
         if (data.isActive) {
           activeSessionMessagesRef.current = data.chatMessages;
         }
-      }
-
-      // Restore pending plan if it exists
-      if (data.pendingPlan) {
-        setPendingPlan(data.pendingPlan);
-      } else {
-        setPendingPlan(null);
       }
 
       // Restore test states
@@ -812,10 +786,6 @@ export function useSocket() {
   const sendChat = useCallback((message: string) => {
     if (socketRef.current) {
       socketRef.current.emit('chat', { message });
-      setChatHistory(prev => [...prev, { from: 'user', message, timestamp: Date.now() }]);
-
-      // Clear pending plan when user sends a message (they're continuing the conversation)
-      setPendingPlan(null);
 
       // Check if there's an active streaming message (Planning Agent is busy)
       // If so, mark this message as "queued"
@@ -845,14 +815,6 @@ export function useSocket() {
     }
   }, []);
 
-  const approvePlan = useCallback((plan: Plan) => {
-    if (socketRef.current) {
-      socketRef.current.emit('approvePlan', plan);
-      // Auto-start execution after approving the plan
-      socketRef.current.emit('startExecution');
-      setPendingPlan(null);
-    }
-  }, []);
 
   const startExecution = useCallback(() => {
     if (socketRef.current) {
@@ -976,7 +938,6 @@ export function useSocket() {
         setLogs([]);
         setStreamingMessages([]);
         setTestStates({});
-        setPendingPlan(null);
       }
     }
   }, [viewingSessionId]);
@@ -1019,10 +980,8 @@ export function useSocket() {
     setSession(null);
     setStatuses({});
     setLogs([]);
-    setChatHistory([]);
     setStreamingMessages([]);
     setTestStates({});
-    setPendingPlan(null);
     setAllComplete(false);
     setActiveSessionId(null);
     setViewingSessionId(null);
@@ -1200,7 +1159,6 @@ export function useSocket() {
     session,
     statuses,
     logs,
-    chatHistory,
     streamingMessages,
     testStates,
     taskStates,
@@ -1209,7 +1167,6 @@ export function useSocket() {
     activeFlows,
     completedFlows,
     currentApproval,
-    pendingPlan,
     allComplete,
     projects,
     templates,
@@ -1234,7 +1191,6 @@ export function useSocket() {
     pendingPlanApproval,
     sendChat,
     startSession,
-    approvePlan,
     startExecution,
     respondToApproval,
     clearLogs,

@@ -710,7 +710,6 @@ export interface PersistedSession {
   startedAt: number;
   explorationResult?: ExplorationAnalysisResult;  // Result from Phase 1 exploration/analysis
   plan?: Plan;
-  pendingPlan?: PlanProposal;  // Plan waiting for user approval
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
   taskStates?: TaskState[];  // Task execution states

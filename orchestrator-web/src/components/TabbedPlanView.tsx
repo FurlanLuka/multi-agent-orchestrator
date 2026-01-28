@@ -249,15 +249,24 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
 
   return (
     <Stack gap="sm">
-      {/* Header with feature and overview */}
-      <Box>
-        <Title order={4}>{plan.feature}</Title>
-        {plan.overview && (
-          <Text size="sm" c="dimmed" mt="xs">
-            {plan.overview}
-          </Text>
-        )}
-      </Box>
+      {/* Header with feature and overview - only show during approval (title shown in parent during execution) */}
+      {isApproval && (
+        <Box>
+          <Title order={4}>{plan.feature}</Title>
+          {plan.overview && (
+            <Text size="sm" c="dimmed" mt="xs">
+              {plan.overview}
+            </Text>
+          )}
+        </Box>
+      )}
+
+      {/* Overview only (no title) when viewing execution */}
+      {!isApproval && plan.overview && (
+        <Text size="sm" c="dimmed">
+          {plan.overview}
+        </Text>
+      )}
 
       {/* Collapsible Architecture diagram */}
       {plan.architecture && (

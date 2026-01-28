@@ -541,11 +541,6 @@ User: ${newMessage}`;
             content: contentBlocks
           };
           this.emit('stream', completeEvent);
-
-          // Also emit legacy chat event for backwards compatibility
-          if (finalResult.trim()) {
-            this.emit('chat', finalResult);
-          }
           resolve(finalResult);
         } else {
           const errorEvent: ChatStreamEvent = {
@@ -916,45 +911,13 @@ User: ${newMessage}`;
   }
 
   /**
-   * Handles output and extracts plans or structured responses
+   * Clears planning status when planning request completes.
    */
-  private processOutput(output: string): void {
-    // Check if plan was approved via MCP flow - skip planProposal emission to avoid duplicates
-    // The MCP flow emits planApproval directly from the /api/plan-approval endpoint
-    if (output.includes('[PLAN_APPROVED]')) {
-      console.log('[PlanningAgent] Plan was approved via MCP flow, skipping legacy planProposal');
-      if (this.isPlanningRequest) {
-        this.isPlanningRequest = false;
-      }
-      return;
-    }
-
-    // Check for plan JSON in output (legacy flow - when agent outputs plan directly without MCP)
-    const planMatch = output.match(/```json\s*(\{[\s\S]*?"feature"[\s\S]*?"tasks"[\s\S]*?\})\s*```/);
-    if (planMatch) {
-      try {
-        const plan: Plan = JSON.parse(planMatch[1]);
-        console.log('[PlanningAgent] Detected plan proposal (legacy flow)');
-
-        // Emit planning complete status
-        if (this.isPlanningRequest) {
-          const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Plan ready!' };
-          this.emit('planningStatus', statusEvent);
-          this.isPlanningRequest = false;
-        }
-
-        this.emit('planProposal', plan);
-      } catch (err) {
-        console.error('[PlanningAgent] Failed to parse plan JSON:', err);
-      }
-    } else {
-      // No plan detected - emit 'complete' to clear planning status if this was a planning request
-      // This fixes the bug where UI stays stuck at "Exploring codebase" when PA responds without a plan
-      if (this.isPlanningRequest) {
-        const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Response complete' };
-        this.emit('planningStatus', statusEvent);
-        this.isPlanningRequest = false;
-      }
+  private processOutput(_output: string): void {
+    if (this.isPlanningRequest) {
+      const statusEvent: PlanningStatusEvent = { phase: 'complete', message: 'Response complete' };
+      this.emit('planningStatus', statusEvent);
+      this.isPlanningRequest = false;
     }
   }
 
@@ -1060,13 +1023,6 @@ ${prompt}`;
     const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
     this.emit('planningStatus', initialStatus);
 
-    // Build project paths info if available
-    let projectInfo = `Available projects: ${projects.join(', ')}`;
-    if (projectPaths) {
-      const pathList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
-      projectInfo = `Available projects and their paths:\n${pathList}`;
-    }
-
     // Build Phase 1 prompt (exploration + analysis)
     const phase1Prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths || {});
 
@@ -1079,7 +1035,7 @@ ${prompt}`;
         projectPaths
       );
 
-      // Parse the plan from output and emit planProposal event
+      // Process output to clear planning status
       console.log(`[PlanningAgent] Persistent planning completed, result length: ${result.length}`);
       this.processOutput(result);
 
@@ -1115,8 +1071,10 @@ ${prompt}`;
 ## Feature to Implement
 ${feature}
 
-## Projects
+## Projects (USE THESE ABSOLUTE PATHS)
 ${projectList}
+
+**CRITICAL: You MUST use the absolute paths above when exploring. NEVER use relative paths or search in the current working directory. The current directory is the orchestrator system itself, NOT your projects.**
 
 ## Your Task
 
@@ -1169,7 +1127,10 @@ Your summary should include:
 
 DO NOT output a plan JSON yet - that happens in Phase 2 after you call exploration_complete.
 
-Start by exploring the projects NOW. Use Read, Glob, Grep tools to understand the codebase.
+Start by exploring the projects NOW using their absolute paths listed above.
+For example: Read("${Object.values(projectPaths)[0] || '/path/to/project'}/package.json")
+
+NEVER explore or read files from the current working directory - it's the orchestrator system, not your projects.
 Ask clarifying questions if needed. Then call exploration_complete when ready.`;
   }
 

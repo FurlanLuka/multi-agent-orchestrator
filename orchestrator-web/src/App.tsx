@@ -75,7 +75,6 @@ function App() {
     activeFlows,
     completedFlows,
     currentApproval,
-    pendingPlan,
     allComplete,
     projects,
     templates,
@@ -87,7 +86,6 @@ function App() {
     viewingSessionId,
     sendChat,
     startSession,
-    approvePlan,
     respondToApproval,
     createProjectFromTemplate,
     quickStartApp,
@@ -740,12 +738,10 @@ function App() {
                     <Box h="calc(100% - 57px)">
                       <AssistantChat
                         messages={streamingMessages}
-                        pendingPlan={pendingPlan}
                         planningStatus={planningStatus}
                         activeFlows={activeFlows}
                         completedFlows={completedFlows}
                         onSendMessage={sendChat}
-                        onApprovePlan={approvePlan}
                         onRetryPlan={handleRetryPlan}
                         sessionActive={!!session}
                         readOnly={isReadOnly}
@@ -776,20 +772,18 @@ function App() {
                           background: 'linear-gradient(135deg, white 0%, var(--mantine-color-gray-0) 100%)',
                         }}
                       >
-                        <Group justify="space-between" align="flex-start">
-                          <Stack gap="xs">
-                            <Group gap="xs">
-                              <ThemeIcon size="sm" radius="md" variant="light" color="violet">
-                                <IconClipboardList size={14} />
-                              </ThemeIcon>
-                              <Text size="xs" tt="uppercase" fw={600} c="dimmed">
-                                Current Feature
-                              </Text>
-                            </Group>
-                            <Text fw={700} size="lg" style={{ lineHeight: 1.3 }}>
-                              {session.plan?.feature || session.feature}
+                        <Stack gap="xs">
+                          <Group gap="xs">
+                            <ThemeIcon size="sm" radius="md" variant="light" color="violet">
+                              <IconClipboardList size={14} />
+                            </ThemeIcon>
+                            <Text size="xs" tt="uppercase" fw={600} c="dimmed">
+                              Current Feature
                             </Text>
-                          </Stack>
+                          </Group>
+                          <Text fw={700} size="lg" style={{ lineHeight: 1.3 }}>
+                            {session.plan?.feature || session.feature}
+                          </Text>
                           <Group gap="sm">
                             {session.plan && (
                               <Group gap={4}>
@@ -818,7 +812,7 @@ function App() {
                               Started {new Date(session.startedAt).toLocaleTimeString()}
                             </Badge>
                           </Group>
-                        </Group>
+                        </Stack>
 
                         {/* Collapsible Initial Prompt */}
                         {session.plan && (

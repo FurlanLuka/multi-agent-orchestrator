@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { Plan, ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@aio/types';
+import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@aio/types';
 import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {
@@ -13,7 +13,6 @@ interface ChatMessage {
 export class ChatHandler extends EventEmitter {
   private planningAgent: PlanningAgentManager;
   private history: ChatMessage[] = [];
-  private pendingPlan: Plan | null = null;
   private readonly MAX_HISTORY = 100;
 
   constructor(planningAgent: PlanningAgentManager) {
@@ -26,20 +25,6 @@ export class ChatHandler extends EventEmitter {
    * Sets up listeners for Planning Agent events
    */
   private setupListeners(): void {
-    // Handle chat output from Planning Agent (streaming)
-    this.planningAgent.on('chat', (message: string) => {
-      this.addMessage('planning', message);
-    });
-
-    // Handle plan proposals
-    this.planningAgent.on('planProposal', (plan: Plan) => {
-      this.pendingPlan = plan;
-      this.emit('planProposal', { plan, summary: this.generatePlanSummary(plan) });
-
-      // Also add as chat message
-      this.addMessage('planning', `I've created a plan for "${plan.feature}". Please review and approve.`);
-    });
-
     // Handle raw output for detailed logging
     this.planningAgent.on('output', (text: string) => {
       this.emit('rawOutput', text);
@@ -85,20 +70,6 @@ export class ChatHandler extends EventEmitter {
   }
 
   /**
-   * Generates a human-readable summary of a plan
-   */
-  private generatePlanSummary(plan: Plan): string {
-    const taskCount = plan.tasks.length;
-    const projects = [...new Set(plan.tasks.map(t => t.project))];
-    const testCount = Object.values(plan.testPlan).flat().length;
-
-    return `Plan: ${plan.feature}
-- ${taskCount} tasks across ${projects.length} projects (${projects.join(', ')})
-- ${testCount} test scenarios defined
-- ${plan.description}`;
-  }
-
-  /**
    * Adds a message to history and emits event
    */
   private addMessage(from: 'user' | 'planning' | 'system', message: string): void {
@@ -132,12 +103,6 @@ export class ChatHandler extends EventEmitter {
    * Handles a user chat message
    */
   async handleUserMessage(message: string): Promise<void> {
-    // Clear pending plan - user is continuing the conversation
-    if (this.pendingPlan) {
-      this.pendingPlan = null;
-      this.emit('planCleared');
-    }
-
     // Add to history
     this.addMessage('user', message);
 
@@ -172,37 +137,6 @@ export class ChatHandler extends EventEmitter {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error creating plan: ${error.message}`);
-    }
-  }
-
-  /**
-   * Gets the pending plan (if any)
-   */
-  getPendingPlan(): Plan | null {
-    return this.pendingPlan;
-  }
-
-  /**
-   * Clears the pending plan (used when plan is approved externally via socket)
-   */
-  clearPendingPlan(): void {
-    this.pendingPlan = null;
-  }
-
-  /**
-   * Rejects the pending plan with feedback
-   */
-  async rejectPlan(feedback: string): Promise<void> {
-    if (this.pendingPlan) {
-      this.addMessage('user', `Plan rejected. Feedback: ${feedback}`);
-      this.pendingPlan = null;
-
-      try {
-        await this.planningAgent.sendChat(`The plan was rejected with feedback: ${feedback}. Please revise.`);
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        this.addMessage('system', `Error: ${error.message}`);
-      }
     }
   }
 
@@ -284,7 +218,6 @@ export class ChatHandler extends EventEmitter {
    */
   clearHistory(): void {
     this.history = [];
-    this.pendingPlan = null;
     this.planningAgent.clearHistory();
   }
 

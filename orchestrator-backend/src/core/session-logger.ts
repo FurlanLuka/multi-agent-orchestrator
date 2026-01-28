@@ -56,19 +56,6 @@ export class SessionLogger {
   }
 
   /**
-   * Log plan proposal
-   */
-  planProposal(plan: any): void {
-    this.log('PLAN_PROPOSAL', plan);
-
-    // Write plan to separate file
-    fs.writeFileSync(
-      path.join(this.logDir, 'plan.json'),
-      JSON.stringify(plan, null, 2)
-    );
-  }
-
-  /**
    * Log agent task
    */
   agentTask(project: string, prompt: string): void {

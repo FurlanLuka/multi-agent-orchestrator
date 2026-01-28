@@ -590,10 +590,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     io.emit('sessionCreated', session);
   };
 
-  const emitPlanProposal = (plan: Plan, summary: string) => {
-    io.emit('planProposal', { plan, summary });
-  };
-
   const emitAllComplete = () => {
     io.emit('allComplete');
   };
@@ -666,7 +662,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   (io as any).emitApproval = emitApproval;
   (io as any).emitSession = emitSession;
   (io as any).emitSessionCreated = emitSessionCreated;
-  (io as any).emitPlanProposal = emitPlanProposal;
   (io as any).emitAllComplete = emitAllComplete;
   (io as any).emitTaskStatus = emitTaskStatus;
   (io as any).emitTaskStates = emitTaskStates;

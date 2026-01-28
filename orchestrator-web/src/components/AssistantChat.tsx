@@ -23,21 +23,18 @@ import {
   Button,
 } from '@mantine/core';
 import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanProposal, PlanningStatusEvent, RequestFlow, PermissionPrompt, PlanningQuestion } from '@aio/types';
+import type { StreamingMessage, ContentBlock, Plan, PlanningStatusEvent, RequestFlow, PermissionPrompt, PlanningQuestion } from '@aio/types';
 // PlanningStatusIndicator removed - status now shown in ActiveFlowCard
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
-import { PlanReadyFlowCard } from './PlanReadyFlowCard';
 import { PlanApprovalCard } from './PlanApprovalCard';
 
 interface AssistantChatProps {
   messages: StreamingMessage[];
-  pendingPlan: PlanProposal | null;
   planningStatus: PlanningStatusEvent | null;
   activeFlows: RequestFlow[];
   completedFlows: RequestFlow[];
   onSendMessage: (message: string) => void;
-  onApprovePlan: (plan: Plan) => void;
   onRetryPlan?: () => void;
   sessionActive: boolean;
   readOnly?: boolean;
@@ -396,12 +393,10 @@ type TimelineItem =
 // Main chat component using external store
 function ChatThread({
   messages,
-  pendingPlan,
   planningStatus,
   activeFlows,
   completedFlows,
   onSendMessage,
-  onApprovePlan,
   sessionActive,
   readOnly = false,
   permissionPrompt,
@@ -458,7 +453,7 @@ function ChatThread({
     return items.sort((a, b) => a.timestamp - b.timestamp);
   }, [messages, completedFlows]);
 
-  // Auto-scroll to bottom when new items arrive, active flows change, or pendingPlan appears
+  // Auto-scroll to bottom when new items arrive or active flows change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -466,7 +461,7 @@ function ChatThread({
         behavior: 'smooth',
       });
     }
-  }, [timeline, activeFlows, pendingPlan]);
+  }, [timeline, activeFlows, pendingPlanApproval]);
 
   const handleSend = () => {
     const input = inputRef.current;
@@ -526,14 +521,6 @@ function ChatThread({
                     return <CompletedFlowCard key={item.key} flow={item.data} />;
                   }
                 })}
-
-                {/* Pending Plan - green flow card with full plan view */}
-                {pendingPlan && !pendingPlanApproval && (
-                  <PlanReadyFlowCard
-                    pendingPlan={pendingPlan}
-                    onApprovePlan={onApprovePlan}
-                  />
-                )}
 
                 {/* Interactive Plan Approval (MCP-based) */}
                 {pendingPlanApproval && onApprovePlanViaChat && pendingPlanApproval.plan?.tasks && (

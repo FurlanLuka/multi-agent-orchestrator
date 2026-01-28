@@ -1348,29 +1348,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     sessionLogger?.chat(from, message);
   });
 
-  chatHandler.on('planProposal', ({ plan, summary }) => {
-    console.log(`[Orchestrator] Plan proposed: ${plan.feature}`);
-    (ui.io as any).emitPlanProposal(plan, summary);
-    sessionLogger?.planProposal(plan);
-
-    // Persist pending plan for session recovery
-    const currentSessionId = sessionStore.getCurrentSessionId();
-    if (currentSessionId) {
-      sessionStore.setPendingPlan(currentSessionId, { plan, summary });
-    }
-  });
-
-  chatHandler.on('planCleared', () => {
-    console.log(`[Orchestrator] Plan cleared (user continuing conversation)`);
-    (ui.io as any).emit('planCleared');
-
-    // Clear persisted pending plan
-    const currentSessionId = sessionStore.getCurrentSessionId();
-    if (currentSessionId) {
-      sessionStore.clearPendingPlan(currentSessionId);
-    }
-  });
-
   // Track failed task index per project for continuation after user fix
   const failedTaskIndex: Map<string, number> = new Map();
 
@@ -1790,8 +1767,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Handle plan approval
     socket.on('approvePlan', (plan: Plan) => {
       sessionManager.setPlan(plan);
-      // Clear the chat-handler's internal pending plan state
-      chatHandler.clearPendingPlan();
       // Initialize task tracking and broadcast to all clients
       statusMonitor.initializeTasks(plan.tasks);
       (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
@@ -1800,9 +1775,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       if (updatedSession) {
         (ui.io as any).emitSession(updatedSession);
       }
-
-      // Clear pending plan on all clients (prevents race condition where planProposal might re-appear)
-      (ui.io as any).emit('planCleared');
 
       // Emit plan approved as instant flow (goes straight to history as green card)
       (ui.io as any).emitInstantFlow({
@@ -2564,7 +2536,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // readOnly=true indicates this is just a view, not an active session
         socket.emit('sessionLoaded', {
           ...fullData,
-          pendingPlan: fullData.session.pendingPlan,
           isActive: isActiveSession,
           readOnly: !isActiveSession,  // True when viewing inactive sessions
         });
@@ -2651,16 +2622,14 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Emit success with pending plan if exists
-        const pendingPlan = sessionStore.getPendingPlan(sessionId);
-        socket.emit('sessionActivated', { sessionId, pendingPlan });
+        // Emit success
+        socket.emit('sessionActivated', { sessionId });
 
-        // Send full session data to all clients (include pending plan)
+        // Send full session data to all clients
         const updatedFullData = sessionStore.getFullSessionData(sessionId);
         if (updatedFullData) {
           (ui.io as any).emit('sessionLoaded', {
             ...updatedFullData,
-            pendingPlan: updatedFullData.session.pendingPlan,
             isActive: true,
           });
         }
@@ -2725,7 +2694,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       if (fullData) {
         socket.emit('sessionLoaded', {
           ...fullData,
-          pendingPlan: fullData.session.pendingPlan,
           isActive: true,
         });
       }
