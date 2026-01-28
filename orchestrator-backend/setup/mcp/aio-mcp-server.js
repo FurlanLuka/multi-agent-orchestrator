@@ -13,7 +13,6 @@ const readline = require('readline');
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:3456';
 const PROJECT = process.env.ORCHESTRATOR_PROJECT || 'unknown';
-const TASK_INDEX = process.env.ORCHESTRATOR_TASK_INDEX || '0';
 
 // Read JSON-RPC messages from stdin (one per line)
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
@@ -90,16 +89,12 @@ async function handleMessage(msg) {
           inputSchema: {
             type: 'object',
             properties: {
-              taskIndex: {
-                type: 'number',
-                description: 'The index of the completed task (0-based)'
-              },
               summary: {
                 type: 'string',
                 description: 'Brief summary of what was implemented (files changed, key functions added, etc.)'
               }
             },
-            required: ['taskIndex', 'summary']
+            required: ['summary']
           }
         },
         {
@@ -176,18 +171,11 @@ async function handleMessage(msg) {
     });
   }
   else if (method === 'tools/call' && params?.name === 'task_complete') {
-    const taskIndex = params.arguments?.taskIndex;
     const summary = params.arguments?.summary || '';
 
-    if (taskIndex === undefined || taskIndex === null) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'taskIndex is required' }) }]
-      });
-      return;
-    }
-
     // Call orchestrator endpoint (blocks until verification completes)
-    const result = await signalTaskComplete(taskIndex, summary);
+    // Orchestrator determines the current task from its own state
+    const result = await signalTaskComplete(summary);
 
     respond(id, {
       content: [{ type: 'text', text: result }]
@@ -232,7 +220,6 @@ function askOrchestrator(toolName, toolInput) {
   return new Promise((resolve) => {
     const postData = JSON.stringify({
       project: PROJECT,
-      taskIndex: parseInt(TASK_INDEX, 10),
       toolName,
       toolInput
     });
@@ -272,7 +259,6 @@ function askPlanningQuestions(questions) {
   return new Promise((resolve) => {
     const postData = JSON.stringify({
       project: PROJECT,
-      taskIndex: parseInt(TASK_INDEX, 10),
       questions  // Array of { question, context }
     });
 
@@ -307,11 +293,11 @@ function askPlanningQuestions(questions) {
   });
 }
 
-function signalTaskComplete(taskIndex, summary) {
+function signalTaskComplete(summary) {
+  // Don't send taskIndex - orchestrator knows which task is "working" for this project
   return new Promise((resolve) => {
     const postData = JSON.stringify({
       project: PROJECT,
-      taskIndex: taskIndex,
       summary: summary
     });
 

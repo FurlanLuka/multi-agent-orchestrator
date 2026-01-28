@@ -182,7 +182,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   const pendingPermissions = new Map<string, {
     resolve: (result: string) => void;
     project: string;
-    taskIndex: number;
     toolName: string;
     toolInput: Record<string, unknown>;
   }>();
@@ -193,7 +192,20 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // HTTP endpoint for MCP server to call when agent signals task completion
   app.post('/api/task-complete', async (req: Request, res: Response) => {
-    const { project, taskIndex, summary } = req.body as TaskCompleteRequest;
+    const { project, summary } = req.body as { project: string; summary: string };
+
+    // Look up the current working task for this project (orchestrator is source of truth)
+    const workingTask = deps.statusMonitor?.getWorkingTaskForProject(project);
+    const taskIndex = workingTask?.taskIndex;
+
+    if (taskIndex === undefined) {
+      console.error(`[UIServer] No working task found for ${project}`);
+      res.json({
+        status: 'escalate',
+        escalationReason: `No working task found for project ${project}`
+      } as TaskCompleteResponse);
+      return;
+    }
 
     console.log(`[UIServer] Task complete signal for ${project} task #${taskIndex}`);
 
@@ -308,8 +320,8 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   // HTTP endpoint for planning questions (called by MCP server)
   // Supports multiple questions - returns all answers joined when complete
   app.post('/api/planning-questions', (req: Request, res: Response) => {
-    const { project, taskIndex, questions } = req.body;
-    const key = `planning_${project}_${taskIndex}_${Date.now()}`;
+    const { project, questions } = req.body;
+    const key = `planning_${project}_${Date.now()}`;
 
     console.log(`[UIServer] Planning questions for ${project}: ${questions.length} question(s)`);
 
@@ -348,7 +360,7 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // HTTP endpoint for MCP server to call when Claude needs permission
   app.post('/api/permission-prompt', (req: Request, res: Response) => {
-    const { project, taskIndex, toolName, toolInput } = req.body;
+    const { project, toolName, toolInput } = req.body;
 
     console.log(`[UIServer] Permission prompt for ${project}: ${toolName}`);
 
@@ -404,16 +416,15 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     console.log(`[UIServer] Permission requires user approval: ${toolName}`);
 
     // Emit to frontend
-    io.emit('permissionPrompt', { project, taskIndex, toolName, toolInput });
+    io.emit('permissionPrompt', { project, toolName, toolInput });
 
     // Store resolver - response comes via socket
-    const key = `${project}_${taskIndex}`;
+    const key = `${project}_${Date.now()}`;
     pendingPermissions.set(key, {
       resolve: (result: string) => {
         res.send(result);  // "allow" or "deny"
       },
       project,
-      taskIndex,
       toolName,
       toolInput
     });

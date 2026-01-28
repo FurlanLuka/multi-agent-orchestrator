@@ -37,7 +37,6 @@ interface AssistantChatProps {
   onSendMessage: (message: string) => void;
   onRetryPlan?: () => void;
   sessionActive: boolean;
-  readOnly?: boolean;
   permissionPrompt?: PermissionPrompt | null;
   onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
   planningQuestion?: PlanningQuestion | null;
@@ -398,7 +397,6 @@ function ChatThread({
   completedFlows,
   onSendMessage,
   sessionActive,
-  readOnly = false,
   permissionPrompt,
   onPermissionResponse,
   planningQuestion,
@@ -479,7 +477,7 @@ function ChatThread({
 
   // Check if chat should be enabled during plan approval
   const isAwaitingApproval = planningStatus?.phase === 'awaiting_approval' || !!pendingPlanApproval;
-  const chatEnabled = sessionActive && !readOnly && (!planningStatus || isAwaitingApproval || planningStatus.phase === 'complete');
+  const chatEnabled = sessionActive && (!planningStatus || isAwaitingApproval || planningStatus.phase === 'complete');
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -568,9 +566,7 @@ function ChatThread({
                 <TextInput
                   ref={inputRef}
                   placeholder={
-                    readOnly
-                      ? 'Read-only view - activate session to chat'
-                      : pendingPlanApproval
+                    pendingPlanApproval
                       ? 'Type feedback to refine the plan...'
                       : sessionActive
                       ? 'Chat with Planning Agent...'

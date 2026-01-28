@@ -2645,6 +2645,53 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Stop dev servers only (does NOT mark session as interrupted)
+    socket.on('stopDevServers', async () => {
+      try {
+        console.log('[Orchestrator] Stopping dev servers...');
+        await processManager.stopAllDevServers();
+        socket.emit('devServersStopped');
+        console.log('[Orchestrator] Dev servers stopped');
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to stop dev servers:', error);
+      }
+    });
+
+    // Start a new session - clean up everything
+    socket.on('startNewSession', async () => {
+      try {
+        console.log('[Orchestrator] Starting new session - cleaning up...');
+
+        // Stop all processes (dev servers + agents)
+        await processManager.stopAll();
+
+        // Stop file watchers
+        eventWatcher.stopAll();
+
+        // Stop planning agent
+        planningAgent.stop();
+
+        // Clear chat handler history
+        chatHandler.clearHistory();
+
+        // Mark current session as interrupted if exists
+        const currentSession = sessionManager.getCurrentSession();
+        if (currentSession) {
+          sessionManager.markSessionInterrupted();
+        }
+
+        // Clear session manager state
+        sessionManager.clearCurrentSession();
+
+        socket.emit('newSessionReady');
+        console.log('[Orchestrator] New session ready');
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to start new session:', error);
+      }
+    });
+
     // Stop the active session (stops dev servers, marks as interrupted)
     // Also works for completed sessions where user wants to stop dev servers
     socket.on('stopSession', ({ sessionId }: { sessionId: string }) => {

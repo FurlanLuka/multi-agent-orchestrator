@@ -304,9 +304,8 @@ export class ProcessManager extends EventEmitter {
    * Used for E2E fix tasks that need direct prompting outside persistent sessions.
    * @param project The project name
    * @param prompt The prompt to send
-   * @param taskIndex Optional task index for permission tracking
    */
-  async sendToAgent(project: string, prompt: string, taskIndex?: number): Promise<string> {
+  async sendToAgent(project: string, prompt: string): Promise<string> {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) {
       const availableProjects = Object.keys(this.config.projects).join(', ');
@@ -352,7 +351,6 @@ export class ProcessManager extends EventEmitter {
       extraEnv: {
         ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
         ORCHESTRATOR_PROJECT: project,
-        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0),
       },
     });
 
@@ -513,7 +511,7 @@ export class ProcessManager extends EventEmitter {
    * Similar to sendToAgent but without --no-session-persistence, allowing the agent
    * to maintain context across task_complete calls (which block waiting for our response).
    */
-  async runPersistentAgent(project: string, prompt: string, taskIndex?: number): Promise<string> {
+  async runPersistentAgent(project: string, prompt: string): Promise<string> {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) {
       throw new Error(`Unknown project: ${project}`);
@@ -553,7 +551,6 @@ export class ProcessManager extends EventEmitter {
       extraEnv: {
         ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
         ORCHESTRATOR_PROJECT: project,
-        ORCHESTRATOR_TASK_INDEX: String(taskIndex ?? 0),
       },
     });
 
@@ -906,6 +903,48 @@ export class ProcessManager extends EventEmitter {
 
     console.log(`[ProcessManager] Starting dev server for ${project}`);
     await this.startDevServer(project);
+  }
+
+  /**
+   * Stops all dev server processes only (not agents)
+   */
+  async stopAllDevServers(): Promise<void> {
+    console.log(`[ProcessManager] Stopping all dev servers`);
+
+    const killPromises: Promise<void>[] = [];
+
+    for (const [key, info] of this.processes.entries()) {
+      if (info.type === 'devServer') {
+        const pid = info.process.pid;
+        console.log(`[ProcessManager] Stopping dev server ${key} (PID: ${pid})`);
+        if (pid) {
+          killPromises.push(this.killProcessTree(pid, 'SIGTERM'));
+        } else {
+          info.process.kill('SIGTERM');
+        }
+      }
+    }
+
+    // Wait for graceful kills
+    await Promise.all(killPromises);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Force kill anything remaining
+    for (const [key, info] of this.processes.entries()) {
+      if (info.type === 'devServer') {
+        const pid = info.process.pid;
+        if (pid) {
+          await this.killProcessTree(pid, 'SIGKILL');
+        }
+      }
+    }
+
+    // Clear only devServer entries from map
+    for (const [key, info] of this.processes.entries()) {
+      if (info.type === 'devServer') {
+        this.processes.delete(key);
+      }
+    }
   }
 
   /**

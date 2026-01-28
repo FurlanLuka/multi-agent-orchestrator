@@ -656,7 +656,6 @@ User: ${newMessage}`;
     const extraEnv = {
       ORCHESTRATOR_URL: 'http://localhost:3456',
       ORCHESTRATOR_PROJECT: 'planning',
-      ORCHESTRATOR_TASK_INDEX: '0'
     };
 
     const proc = await spawnWithShellEnv('claude', {

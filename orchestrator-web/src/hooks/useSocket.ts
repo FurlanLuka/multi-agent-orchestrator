@@ -16,7 +16,6 @@ import type {
   ContentBlock,
   ProjectTestState,
   TestStatusEvent,
-  SessionSummary,
   FullSessionData,
   TaskState,
   TaskStatusEvent,
@@ -109,10 +108,7 @@ export function useSocket() {
   const [flows, setFlows] = useState<RequestFlow[]>([]);
 
   // Session persistence state
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [loadingSession, setLoadingSession] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
 
   // Cache for active session's streaming messages (preserved when viewing other sessions)
   const activeSessionMessagesRef = useRef<StreamingMessage[]>([]);
@@ -236,7 +232,6 @@ export function useSocket() {
       setStartingSession(false);
       // New sessions are automatically active
       setActiveSessionId(s.id);
-      setViewingSessionId(s.id);
       activeSessionIdRef.current = s.id;
       // Clear the cached messages for the new session
       activeSessionMessagesRef.current = [];
@@ -573,13 +568,10 @@ export function useSocket() {
       console.error('Failed to update project:', error);
     });
 
-    // Session persistence events
-    socket.on('sessionList', (sessionList: SessionSummary[]) => {
-      setSessions(sessionList);
-    });
-
+    // Session auto-reconnect: restore active session when browser reconnects
     socket.on('sessionLoaded', (data: FullSessionData & { isActive?: boolean }) => {
-      setLoadingSession(false);
+      // Only handle active session reconnect
+      if (!data.isActive) return;
 
       // Restore session
       const restoredSession: Session = {
@@ -588,28 +580,19 @@ export function useSocket() {
         feature: data.session.feature,
         projects: data.session.projects,
         plan: data.session.plan,
+        gitBranches: data.session.gitBranches,
       };
       setSession(restoredSession);
-
-      // Restore statuses
       setStatuses(data.session.statuses);
-
-      // Restore logs
       setLogs(data.logs);
 
-      // Check if this is the currently active session - if so, use cached messages
-      // which may include an in-progress streaming message
+      // Use cached messages if returning to same session, otherwise use loaded
       const isReturningToActiveSession = data.session.id === activeSessionIdRef.current;
       if (isReturningToActiveSession && activeSessionMessagesRef.current.length > 0) {
-        // Use cached messages which may have streaming content
         setStreamingMessages(activeSessionMessagesRef.current);
       } else {
-        // Use loaded messages from persistence
         setStreamingMessages(data.chatMessages);
-        // If this becomes the active session, initialize the cache
-        if (data.isActive) {
-          activeSessionMessagesRef.current = data.chatMessages;
-        }
+        activeSessionMessagesRef.current = data.chatMessages;
       }
 
       // Restore test states
@@ -626,47 +609,25 @@ export function useSocket() {
       }
       setTestStates(restoredTestStates);
 
-      // Restore task states if available
       if (data.session.taskStates) {
         setTaskStates(data.session.taskStates);
       }
 
-      // Track which session we're viewing (sidebar still visible)
-      setViewingSessionId(data.session.id);
-
-      // If this was loaded as active session (e.g., auto-reconnect), track it
-      if (data.isActive) {
-        setActiveSessionId(data.session.id);
-        activeSessionIdRef.current = data.session.id;
-      }
-
-      // Set completion state based on session status
+      setActiveSessionId(data.session.id);
+      activeSessionIdRef.current = data.session.id;
       setAllComplete(data.session.status === 'completed');
 
-      console.log(`Session ${data.session.id} loaded (active: ${data.isActive ?? false})`);
+      console.log(`Session ${data.session.id} auto-reconnected`);
     });
 
-    socket.on('loadSessionError', ({ error }: { error: string }) => {
-      setLoadingSession(false);
-      console.error('Failed to load session:', error);
+    // New session ready event
+    socket.on('newSessionReady', () => {
+      console.log('New session ready');
     });
 
-    socket.on('deleteSessionSuccess', ({ sessionId }: { sessionId: string }) => {
-      setSessions(prev => prev.filter(s => s.id !== sessionId));
-    });
-
-    socket.on('deleteSessionError', ({ sessionId, error }: { sessionId: string; error: string }) => {
-      console.error(`Failed to delete session ${sessionId}:`, error);
-    });
-
-
-    // Session stopped event
-    socket.on('sessionStopped', ({ sessionId }: { sessionId: string }) => {
-      setActiveSessionId(null);
-      activeSessionIdRef.current = null;
-      // Clear the cached messages since session is no longer active
-      activeSessionMessagesRef.current = [];
-      console.log(`Session ${sessionId} stopped`);
+    // Dev servers stopped event
+    socket.on('devServersStopped', () => {
+      console.log('Dev servers stopped');
     });
 
     // Git push events
@@ -751,7 +712,6 @@ export function useSocket() {
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
-    socket.emit('getSessions');
 
     return () => {
       // Cancel any pending animation frame
@@ -913,60 +873,32 @@ export function useSocket() {
     }
   }, []);
 
-  const getSessions = useCallback(() => {
-    if (socketRef.current) {
-      socketRef.current.emit('getSessions');
-    }
-  }, []);
-
-  const loadSession = useCallback((sessionId: string) => {
-    if (socketRef.current) {
-      setLoadingSession(true);
-      socketRef.current.emit('loadSession', { sessionId });
-    }
-  }, []);
-
-  const deleteSession = useCallback((sessionId: string) => {
-    if (socketRef.current) {
-      socketRef.current.emit('deleteSession', { sessionId });
-
-      // If we're viewing the deleted session, clear the view
-      if (viewingSessionId === sessionId) {
-        setViewingSessionId(null);
-        setSession(null);
-        setStatuses({});
-        setLogs([]);
-        setStreamingMessages([]);
-        setTestStates({});
-      }
-    }
-  }, [viewingSessionId]);
-
-
-  const viewSession = useCallback((sessionId: string) => {
-    // If it's the currently active session, just switch to viewing it
-    if (sessionId === activeSessionId) {
-      setViewingSessionId(sessionId);
-      // Refresh the session data
-      if (socketRef.current) {
-        setLoadingSession(true);
-        socketRef.current.emit('loadSession', { sessionId });
-      }
-    } else {
-      // Load session in read-only mode (no dev servers started)
-      setViewingSessionId(sessionId);
-      if (socketRef.current) {
-        setLoadingSession(true);
-        socketRef.current.emit('loadSession', { sessionId });
-      }
-    }
-  }, [activeSessionId]);
-
   const stopSession = useCallback(() => {
-    if (socketRef.current && activeSessionId) {
-      socketRef.current.emit('stopSession', { sessionId: activeSessionId });
+    if (socketRef.current) {
+      socketRef.current.emit('stopDevServers');
     }
-  }, [activeSessionId]);
+  }, []);
+
+  const startNewSession = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('startNewSession');
+    }
+    // Clear all local state
+    setSession(null);
+    setStatuses({});
+    setLogs([]);
+    setStreamingMessages([]);
+    setTestStates({});
+    setTaskStates([]);
+    setAllComplete(false);
+    setActiveSessionId(null);
+    setFlows([]);
+    setPlanningStatus(null);
+    setPendingPlanApproval(null);
+    // Clear refs
+    activeSessionMessagesRef.current = [];
+    activeSessionIdRef.current = null;
+  }, []);
 
   // Submit user action response (for user_action tasks)
   const submitUserAction = useCallback((taskIndex: number, values: Record<string, string>) => {
@@ -984,12 +916,7 @@ export function useSocket() {
     setTestStates({});
     setAllComplete(false);
     setActiveSessionId(null);
-    setViewingSessionId(null);
     setFlows([]);
-    // Request fresh session list
-    if (socketRef.current) {
-      socketRef.current.emit('getSessions');
-    }
   }, []);
 
   // Clear flows when starting new session
@@ -1173,10 +1100,7 @@ export function useSocket() {
     creatingProject,
     addingProject,
     startingSession,
-    sessions,
-    loadingSession,
     activeSessionId,
-    viewingSessionId,
     pushingBranch,
     pushResults,
     mergingBranch,
@@ -1202,12 +1126,9 @@ export function useSocket() {
     removeProject,
     updateProject,
     refreshProjects,
-    getSessions,
-    loadSession,
-    deleteSession,
     clearSession,
-    viewSession,
     stopSession,
+    startNewSession,
     submitUserAction,
     pushBranch,
     clearPushResult,

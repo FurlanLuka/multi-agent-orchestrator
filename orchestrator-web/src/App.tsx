@@ -8,7 +8,6 @@ import {
   Group,
   Badge,
   Text,
-  Alert,
   Grid,
   Paper,
   Box,
@@ -34,7 +33,6 @@ import {
   IconClipboardList,
   IconChevronDown,
   IconChevronUp,
-  IconEye,
   IconExternalLink,
   IconPlayerStop,
   IconGitBranch,
@@ -43,8 +41,8 @@ import {
   IconSettings,
   IconPlayerPlay,
   IconPower,
-  IconBrandGithub,
   IconGitPullRequest,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { useSocket } from './hooks/useSocket';
 import { AssistantChat } from './components/AssistantChat';
@@ -52,8 +50,6 @@ import { ApprovalPanel } from './components/ApprovalPanel';
 import { SessionSetup } from './components/SessionSetup';
 import { ProjectManager } from './components/ProjectManager';
 import { ProjectCard } from './components/ProjectCard';
-// SessionSidebar hidden for now - session history navigation is broken
-// import { SessionSidebar } from './components/SessionSidebar';
 import { TabbedPlanView } from './components/TabbedPlanView';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { SplashScreen } from './components/SplashScreen';
@@ -81,9 +77,7 @@ function App() {
     creatingProject,
     addingProject,
     startingSession,
-    loadingSession,
     activeSessionId,
-    viewingSessionId,
     sendChat,
     startSession,
     respondToApproval,
@@ -93,7 +87,7 @@ function App() {
     removeProject,
     updateProject,
     stopSession,
-    getSessions,
+    startNewSession,
     submitUserAction,
     pushingBranch,
     pushResults,
@@ -186,9 +180,6 @@ function App() {
     }
   }, [allComplete, session?.gitBranches, gitHubInfo, getGitHubInfo]);
 
-  // Determine if we're in read-only mode (viewing a session that's not active)
-  const isReadOnly = viewingSessionId !== null && viewingSessionId !== activeSessionId;
-
   // Memoize expensive computations
   const isStreaming = useMemo(
     () => streamingMessages.some(m => m.status === 'streaming'),
@@ -207,13 +198,10 @@ function App() {
     return grouped;
   }, [logs]);
 
-  // Handler for starting a new session
   // Handler for starting session (wraps startSession to hide form)
   const handleStartSession = (feature: string, projectList: string[], branchName?: string) => {
     startSession(feature, projectList, branchName);
     setShowNewSession(false);
-    // Refresh sessions list
-    getSessions();
   };
 
   // Handler for retrying plan generation after failure
@@ -274,18 +262,7 @@ function App() {
               </Title>
             </Group>
             <Group gap="md">
-              {isReadOnly && (
-                <Badge
-                  variant="light"
-                  color="orange"
-                  size="lg"
-                  radius="md"
-                  leftSection={<IconEye size={14} />}
-                >
-                  Read-Only View
-                </Badge>
-              )}
-              {activeSessionId && !isReadOnly && (
+              {activeSessionId && (
                 <Badge
                   variant="light"
                   color="blue"
@@ -312,50 +289,67 @@ function App() {
           </Group>
         </AppShell.Header>
 
-        {/* Session Sidebar - Hidden for now */}
-
         <AppShell.Main>
           <Container size="100%" py="md" h="calc(100vh - 80px)">
-            {/* All Complete - Success Message Card */}
+            {/* All Complete - Split into 3 Cards */}
             {allComplete && (
               <Stack gap="md" mb="md">
-                {/* Green Success Card */}
-                <Alert
-                  icon={<IconCheck size={20} />}
-                  title="Feature Complete!"
-                  color="green"
-                  radius="md"
-                  variant="light"
-                  styles={{
-                    root: {
-                      border: '1px solid var(--mantine-color-green-3)',
-                    },
-                  }}
-                >
-                  <Text size="sm">All projects have completed their tasks successfully.</Text>
-                </Alert>
+                {/* Card 1: Feature Complete + Start New Session */}
+                <Paper shadow="sm" radius="md" p="md" withBorder style={{ borderColor: 'var(--mantine-color-green-3)', backgroundColor: 'var(--mantine-color-green-0)' }}>
+                  <Group justify="space-between" align="center">
+                    <Group gap="sm">
+                      <ThemeIcon size="lg" radius="md" color="green" variant="light">
+                        <IconCheck size={20} />
+                      </ThemeIcon>
+                      <div>
+                        <Text fw={600} size="md">Feature Complete!</Text>
+                        <Text size="sm" c="dimmed">All projects have completed their tasks successfully.</Text>
+                      </div>
+                    </Group>
+                    <Button
+                      variant="filled"
+                      color="blue"
+                      leftSection={<IconRefresh size={16} />}
+                      onClick={startNewSession}
+                    >
+                      Start New Session
+                    </Button>
+                  </Group>
+                </Paper>
 
-                {/* Controls Card - Git Operations + Dev Server */}
-                <Paper shadow="sm" radius="md" p="md" withBorder>
-                  <Stack gap="md">
-                    {/* Section 1: Git Operations */}
-                    {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
-                      <Stack gap="xs">
-                        <Group gap="xs">
-                          <IconGitBranch size={16} color="var(--mantine-color-violet-6)" />
-                          <Text size="sm" fw={600}>Git Operations</Text>
-                        </Group>
-                        {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
-                          const isPushing = pushingBranch[projectName];
-                          const pushResult = pushResults[projectName];
-                          const isMerging = mergingBranch[projectName];
-                          const mergeResult = mergeResults[projectName];
-                          const mainBranch = projects[projectName]?.mainBranch || 'main';
-                          const ghInfo = gitHubInfo[projectName];
-                          const isGitHubProject = ghInfo?.isGitHub && dependencyCheck?.gh?.available;
+                {/* Card 2: Git Operations */}
+                {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
+                  <Paper shadow="sm" radius="md" p="md" withBorder>
+                    <Stack gap="md">
+                      <Group gap="xs">
+                        <ThemeIcon size="sm" radius="md" color="violet" variant="light">
+                          <IconGitBranch size={14} />
+                        </ThemeIcon>
+                        <Text size="sm" fw={600}>Git Operations</Text>
+                      </Group>
 
-                          return (
-                            <Group key={projectName} gap="xs" wrap="wrap">
+                      {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
+                        const isPushing = pushingBranch[projectName];
+                        const pushResult = pushResults[projectName];
+                        const isMerging = mergingBranch[projectName];
+                        const mergeResult = mergeResults[projectName];
+                        const mainBranch = projects[projectName]?.mainBranch || 'main';
+                        const ghInfo = gitHubInfo[projectName];
+                        const isGitHubProject = ghInfo?.isGitHub && dependencyCheck?.gh?.available;
+                        const isCreating = creatingPR[projectName];
+                        const prResult = prResults[projectName];
+                        const branches = availableBranches[projectName] || [];
+                        const isLoadingBranches = loadingBranches[projectName];
+                        const selectedBaseBranch = prBaseBranch[projectName] || mainBranch;
+
+                        // Build branch options for PR
+                        const branchOptions = branches.length > 0
+                          ? branches.map(b => ({ value: b, label: b }))
+                          : [{ value: mainBranch, label: mainBranch }];
+
+                        return (
+                          <Stack key={projectName} gap="xs">
+                            <Group gap="xs" wrap="wrap">
                               <Badge variant="light" color="violet" leftSection={<IconGitBranch size={12} />}>
                                 {projectName}: {branchName}
                               </Badge>
@@ -366,7 +360,7 @@ function App() {
                                   Merged to {mainBranch}
                                 </Badge>
                               ) : pushResult?.success ? (
-                                // Push succeeded - show status and merge option (only for non-GitHub projects)
+                                // Push succeeded - show status and merge/PR options
                                 <>
                                   <Badge color="green" variant="light" leftSection={<IconCheck size={12} />}>
                                     Pushed
@@ -390,9 +384,59 @@ function App() {
                                       )}
                                     </>
                                   )}
+                                  {/* GitHub PR creation */}
+                                  {isGitHubProject && !prResult?.success && (
+                                    <>
+                                      <Select
+                                        size="xs"
+                                        w={140}
+                                        value={selectedBaseBranch}
+                                        onChange={(val) => setPrBaseBranch(prev => ({ ...prev, [projectName]: val || mainBranch }))}
+                                        data={branchOptions}
+                                        placeholder="Target branch"
+                                        searchable
+                                        nothingFoundMessage="No branches found"
+                                        onDropdownOpen={() => {
+                                          if (branches.length === 0 && !isLoadingBranches) {
+                                            getBranches(projectName);
+                                          }
+                                        }}
+                                        rightSection={isLoadingBranches ? <Badge size="xs" variant="dot" color="blue">...</Badge> : undefined}
+                                      />
+                                      <Button
+                                        variant="filled"
+                                        color="green"
+                                        size="xs"
+                                        leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
+                                        loading={isCreating}
+                                        onClick={() => createPR(projectName, branchName, selectedBaseBranch)}
+                                        disabled={isCreating}
+                                      >
+                                        Open PR
+                                      </Button>
+                                    </>
+                                  )}
+                                  {prResult?.success && prResult.prUrl && (
+                                    <>
+                                      <Badge color="green" variant="light" leftSection={<IconGitPullRequest size={12} />}>
+                                        PR Created
+                                      </Badge>
+                                      <Button
+                                        component="a"
+                                        href={prResult.prUrl}
+                                        target="_blank"
+                                        variant="subtle"
+                                        color="blue"
+                                        size="xs"
+                                        leftSection={<IconExternalLink size={14} />}
+                                      >
+                                        View PR
+                                      </Button>
+                                    </>
+                                  )}
                                 </>
                               ) : (
-                                // Show push button with clear text
+                                // Show push button
                                 <>
                                   <Button
                                     variant="filled"
@@ -411,174 +455,60 @@ function App() {
                                 </>
                               )}
                             </Group>
-                          );
-                        })}
-                      </Stack>
-                    )}
-
-                    {/* Section 2: GitHub Integration (if gh CLI available) */}
-                    {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && dependencyCheck?.gh?.available && (
-                      <Stack gap="xs">
-                        <Group gap="xs">
-                          <IconBrandGithub size={16} color="var(--mantine-color-gray-6)" />
-                          <Text size="sm" fw={600}>GitHub Integration</Text>
-                        </Group>
-                        {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
-                          const ghInfo = gitHubInfo[projectName];
-                          const isCreating = creatingPR[projectName];
-                          const prResult = prResults[projectName];
-                          const pushResult = pushResults[projectName];
-                          const mainBranch = projects[projectName]?.mainBranch || 'main';
-                          const branches = availableBranches[projectName] || [];
-                          const isLoadingBranches = loadingBranches[projectName];
-                          const selectedBaseBranch = prBaseBranch[projectName] || mainBranch;
-
-                          // Only show PR option if:
-                          // 1. Project is on GitHub
-                          // 2. Branch has been pushed
-                          if (!ghInfo?.isGitHub) {
-                            return null;
-                          }
-
-                          if (!pushResult?.success) {
-                            return (
-                              <Group key={projectName} gap="xs">
-                                <Text size="xs" c="dimmed">{projectName}: Push branch first to create PR</Text>
-                              </Group>
-                            );
-                          }
-
-                          if (prResult?.success) {
-                            return (
-                              <Group key={projectName} gap="xs">
-                                <Badge color="green" variant="light" leftSection={<IconGitPullRequest size={12} />}>
-                                  {projectName}: PR Created
-                                </Badge>
-                                {prResult.prUrl && (
-                                  <Button
-                                    component="a"
-                                    href={prResult.prUrl}
-                                    target="_blank"
-                                    variant="subtle"
-                                    color="blue"
-                                    size="xs"
-                                    leftSection={<IconExternalLink size={14} />}
-                                  >
-                                    View PR
-                                  </Button>
-                                )}
-                              </Group>
-                            );
-                          }
-
-                          // Build branch options: use fetched branches or fall back to mainBranch
-                          const branchOptions = branches.length > 0
-                            ? branches.map(b => ({ value: b, label: b }))
-                            : [{ value: mainBranch, label: mainBranch }];
-
-                          return (
-                            <Stack key={projectName} gap={4}>
-                              <Group gap="xs" align="center">
-                                <Badge variant="light" color="gray" size="sm">{projectName}</Badge>
-                                <Text size="xs" c="dimmed">→</Text>
-                                <Select
-                                  size="xs"
-                                  w={160}
-                                  value={selectedBaseBranch}
-                                  onChange={(val) => setPrBaseBranch(prev => ({ ...prev, [projectName]: val || mainBranch }))}
-                                  data={branchOptions}
-                                  placeholder="Target branch"
-                                  searchable
-                                  nothingFoundMessage="No branches found"
-                                  onDropdownOpen={() => {
-                                    // Fetch branches when dropdown opens (if not already loaded)
-                                    if (branches.length === 0 && !isLoadingBranches) {
-                                      getBranches(projectName);
-                                    }
-                                  }}
-                                  rightSection={isLoadingBranches ? <Badge size="xs" variant="dot" color="blue">...</Badge> : undefined}
-                                />
-                                <Button
-                                  variant="filled"
-                                  color="green"
-                                  size="xs"
-                                  leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
-                                  loading={isCreating}
-                                  onClick={() => createPR(projectName, branchName, selectedBaseBranch)}
-                                  disabled={isCreating}
-                                >
-                                  Open PR
-                                </Button>
-                              </Group>
-                              {prResult && !prResult.success && (
-                                <Text size="xs" c="red" ml="xs">{prResult.message}</Text>
-                              )}
-                            </Stack>
-                          );
-                        })}
-                      </Stack>
-                    )}
-
-                    {/* Section 3: Dev Server Controls */}
-                    <Stack gap="xs">
-                      <Group gap="xs">
-                        <IconExternalLink size={16} color="var(--mantine-color-blue-6)" />
-                        <Text size="sm" fw={600}>Dev Servers</Text>
-                      </Group>
-                      <Group gap="sm" align="center">
-                      {session?.projects.map(projectName => {
-                        const config = projects[projectName];
-                        if (!config?.devServer?.url) return null;
-                        return (
-                          <Button
-                            key={projectName}
-                            component="a"
-                            href={config.devServer.url}
-                            target="_blank"
-                            variant="light"
-                            color="blue"
-                            size="xs"
-                            leftSection={<IconExternalLink size={14} />}
-                          >
-                            {projectName}
-                          </Button>
+                            {prResult && !prResult.success && (
+                              <Text size="xs" c="red" ml="xs">{prResult.message}</Text>
+                            )}
+                          </Stack>
                         );
                       })}
-                      <Button
-                        variant="light"
-                        color="red"
-                        size="xs"
-                        leftSection={<IconPlayerStop size={14} />}
-                        onClick={stopSession}
-                      >
-                        Stop Dev Servers
-                      </Button>
+                    </Stack>
+                  </Paper>
+                )}
+
+                {/* Card 3: Dev Servers */}
+                {session?.projects.some(p => projects[p]?.devServer?.url) && (
+                  <Paper shadow="sm" radius="md" p="md" withBorder>
+                    <Stack gap="md">
+                      <Group gap="xs">
+                        <ThemeIcon size="sm" radius="md" color="blue" variant="light">
+                          <IconExternalLink size={14} />
+                        </ThemeIcon>
+                        <Text size="sm" fw={600}>Dev Servers</Text>
+                      </Group>
+
+                      <Group gap="sm" align="center" wrap="wrap">
+                        {session?.projects.map(projectName => {
+                          const config = projects[projectName];
+                          if (!config?.devServer?.url) return null;
+                          return (
+                            <Button
+                              key={projectName}
+                              component="a"
+                              href={config.devServer.url}
+                              target="_blank"
+                              variant="light"
+                              color="blue"
+                              size="xs"
+                              leftSection={<IconExternalLink size={14} />}
+                            >
+                              {projectName}
+                            </Button>
+                          );
+                        })}
+                        <Button
+                          variant="light"
+                          color="red"
+                          size="xs"
+                          leftSection={<IconPlayerStop size={14} />}
+                          onClick={stopSession}
+                        >
+                          Stop Dev Servers
+                        </Button>
                       </Group>
                     </Stack>
-                  </Stack>
-                </Paper>
+                  </Paper>
+                )}
               </Stack>
-            )}
-
-            {/* Read-Only Banner */}
-            {isReadOnly && session && (
-              <Alert
-                icon={<IconEye size={20} />}
-                title="Viewing Session History"
-                color="orange"
-                mb="md"
-                radius="md"
-                variant="light"
-                styles={{
-                  root: {
-                    border: '1px solid var(--mantine-color-orange-3)',
-                  },
-                }}
-              >
-                <Text size="sm">
-                  This is a read-only view of a past session. Start a new session to continue working.
-                </Text>
-              </Alert>
             )}
 
             {/* No Session or New Session Form - Show Quick Start + Tabbed Setup */}
@@ -659,10 +589,6 @@ function App() {
                         projectConfigs={projects}
                         onStartSession={handleStartSession}
                         connected={connected}
-                        sessions={[]}
-                        onLoadSession={() => {}}
-                        onDeleteSession={() => {}}
-                        loadingSession={loadingSession}
                         startingSession={startingSession}
                       />
                       {showNewSession && (
@@ -744,7 +670,6 @@ function App() {
                         onSendMessage={sendChat}
                         onRetryPlan={handleRetryPlan}
                         sessionActive={!!session}
-                        readOnly={isReadOnly}
                         permissionPrompt={permissionPrompt}
                         onPermissionResponse={respondToPermission}
                         planningQuestion={planningQuestion}

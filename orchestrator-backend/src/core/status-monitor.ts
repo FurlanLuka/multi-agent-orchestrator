@@ -296,6 +296,19 @@ export class StatusMonitor extends EventEmitter {
   }
 
   /**
+   * Gets the current working task for a project (or verifying task if in verification)
+   * Returns undefined if no task is currently being worked on
+   */
+  getWorkingTaskForProject(project: string): TaskState | undefined {
+    for (const task of this.taskStates.values()) {
+      if (task.project === project && (task.status === 'working' || task.status === 'verifying' || task.status === 'fixing')) {
+        return task;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Clears all statuses
    */
   clear(): void {

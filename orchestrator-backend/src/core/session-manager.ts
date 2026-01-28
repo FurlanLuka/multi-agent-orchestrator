@@ -395,4 +395,12 @@ export class SessionManager {
   deleteSession(sessionId: string): boolean {
     return this.sessionStore.deleteSession(sessionId);
   }
+
+  /**
+   * Clears the current session reference without marking it completed/interrupted.
+   * Used for starting a new session flow.
+   */
+  clearCurrentSession(): void {
+    this.currentSession = null;
+  }
 }

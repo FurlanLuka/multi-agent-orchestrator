@@ -519,7 +519,7 @@ Please fix the issue and try again.`;
       // Run agent with all tasks in one prompt
       // Agent uses task_complete MCP tool after each task, which blocks and waits for our response
       // This keeps the agent alive with context preserved across all tasks
-      await this.processManager.runPersistentAgent(project, initialPrompt, tasks[0]?.taskIndex);
+      await this.processManager.runPersistentAgent(project, initialPrompt);
 
       // Determine final results from task statuses
       for (const { taskIndex } of tasks) {
@@ -816,7 +816,6 @@ ${task.task}
 
 1. Implement the current task's requirements
 2. Call the \`task_complete\` MCP tool with:
-   - \`taskIndex\`: The task number you just completed
    - \`summary\`: Brief description of what you implemented (files changed, key functions, etc.)
 3. Based on the response:
    - \`next_task\`: Proceed to the next task provided
