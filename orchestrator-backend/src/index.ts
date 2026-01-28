@@ -371,6 +371,17 @@ async function main() {
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // Set up kill planning agent handler (called when plan is approved)
+  // This prevents the planning agent from making any more MCP calls
+  // (e.g., duplicate plan submissions after approval)
+  // ═══════════════════════════════════════════════════════════════
+
+  ui.setKillPlanningAgentHandler(() => {
+    console.log(`[Orchestrator] Killing planning agent after plan approval`);
+    planningAgent.stop();
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
   // ═══════════════════════════════════════════════════════════════
 

@@ -32,6 +32,8 @@ export interface UIServerDependencies {
   onExplorationComplete?: (summary: string) => Promise<string>;
   // Callback for plan approval (set after PlanningAgent is created)
   onPlanApproval?: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>;
+  // Callback to kill planning agent when plan is approved (prevents duplicate submissions)
+  onKillPlanningAgent?: () => void;
 }
 
 export interface UIServer {
@@ -43,6 +45,7 @@ export interface UIServer {
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
   setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => void;
   setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
+  setKillPlanningAgentHandler: (handler: () => void) => void;
 }
 
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
@@ -535,6 +538,12 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
         io.emit('planningStatus', { phase: 'complete', message: 'Plan approved!' });
         pending.resolve({ status: 'approved' });
         (io as any).pendingPlanApprovals.delete(approvalId);
+
+        // Kill the planning agent to prevent any further MCP calls (e.g., duplicate plan submissions)
+        if (deps.onKillPlanningAgent) {
+          console.log(`[UIServer] Killing planning agent after approval`);
+          deps.onKillPlanningAgent();
+        }
       }
     });
 
@@ -690,6 +699,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     },
     setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => {
       deps.onPlanApproval = handler;
+    },
+    setKillPlanningAgentHandler: (handler: () => void) => {
+      deps.onKillPlanningAgent = handler;
     }
   };
 }

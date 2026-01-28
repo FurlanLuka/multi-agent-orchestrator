@@ -919,12 +919,22 @@ User: ${newMessage}`;
    * Handles output and extracts plans or structured responses
    */
   private processOutput(output: string): void {
-    // Check for plan JSON in output
+    // Check if plan was approved via MCP flow - skip planProposal emission to avoid duplicates
+    // The MCP flow emits planApproval directly from the /api/plan-approval endpoint
+    if (output.includes('[PLAN_APPROVED]')) {
+      console.log('[PlanningAgent] Plan was approved via MCP flow, skipping legacy planProposal');
+      if (this.isPlanningRequest) {
+        this.isPlanningRequest = false;
+      }
+      return;
+    }
+
+    // Check for plan JSON in output (legacy flow - when agent outputs plan directly without MCP)
     const planMatch = output.match(/```json\s*(\{[\s\S]*?"feature"[\s\S]*?"tasks"[\s\S]*?\})\s*```/);
     if (planMatch) {
       try {
         const plan: Plan = JSON.parse(planMatch[1]);
-        console.log('[PlanningAgent] Detected plan proposal');
+        console.log('[PlanningAgent] Detected plan proposal (legacy flow)');
 
         // Emit planning complete status
         if (this.isPlanningRequest) {
