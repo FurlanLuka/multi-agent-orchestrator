@@ -1,389 +1,26 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Paper,
   ScrollArea,
   Group,
-  ActionIcon,
-  TextInput,
   Text,
   Badge,
-  Card,
   Stack,
-  Accordion,
-  Code,
-  Box,
   Divider,
-  Button,
+  Box,
 } from '@mantine/core';
-import { IconSend, IconRobot, IconUser, IconTool, IconBrain, IconClock, IconChevronDown, IconChevronUp, IconShield, IconCheck, IconShieldCheck } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock, Plan, PlanningStatusEvent, RequestFlow, PermissionPrompt, PlanningQuestion } from '@aio/types';
-// PlanningStatusIndicator removed - status now shown in ActiveFlowCard
+import type { StreamingMessage, RequestFlow } from '@aio/types';
+import { useOrchestrator } from '../context/OrchestratorContext';
+import { ChatMessage } from './chat/ChatMessage';
+import { ChatInput } from './chat/ChatInput';
+import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
 import { PlanApprovalCard } from './PlanApprovalCard';
-
-interface AssistantChatProps {
-  messages: StreamingMessage[];
-  planningStatus: PlanningStatusEvent | null;
-  activeFlows: RequestFlow[];
-  completedFlows: RequestFlow[];
-  onSendMessage: (message: string) => void;
-  onRetryPlan?: () => void;
-  sessionActive: boolean;
-  executionStarted?: boolean; // True after plan approval - disables chat input
-  permissionPrompt?: PermissionPrompt | null;
-  onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
-  planningQuestion?: PlanningQuestion | null;
-  onAnswerPlanningQuestion?: (questionId: string, answer: string) => void;
-  // Interactive plan approval (MCP-based)
-  pendingPlanApproval?: { approvalId: string; plan: Plan } | null;
-  onApprovePlanViaChat?: () => void;
-  onRefinePlan?: (feedback: string) => void;
-}
-
-// Types for markdown components
-interface MarkdownCodeProps {
-  className?: string;
-  children?: React.ReactNode;
-}
-
-interface MarkdownChildrenProps {
-  children?: React.ReactNode;
-}
-
-// Custom markdown components with syntax highlighting
-const markdownComponents = {
-  code({ className, children }: MarkdownCodeProps) {
-    const match = /language-(\w+)/.exec(className || '');
-    const isInline = !match && !className;
-
-    if (isInline) {
-      return (
-        <Code style={{ fontSize: '0.85em' }}>
-          {children}
-        </Code>
-      );
-    }
-
-    return (
-      <SyntaxHighlighter
-        style={oneDark}
-        language={match ? match[1] : 'text'}
-        PreTag="div"
-        customStyle={{
-          margin: '0.5em 0',
-          borderRadius: '4px',
-          fontSize: '12px',
-        }}
-      >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
-    );
-  },
-  p({ children }: MarkdownChildrenProps) {
-    return <Text size="sm" style={{ marginBottom: '0.5em' }}>{children}</Text>;
-  },
-  ul({ children }: MarkdownChildrenProps) {
-    return <ul style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>{children}</ul>;
-  },
-  ol({ children }: MarkdownChildrenProps) {
-    return <ol style={{ margin: '0.5em 0', paddingLeft: '1.5em' }}>{children}</ol>;
-  },
-  li({ children }: MarkdownChildrenProps) {
-    return <li style={{ marginBottom: '0.25em' }}><Text size="sm" component="span">{children}</Text></li>;
-  },
-  h1({ children }: MarkdownChildrenProps) {
-    return <Text size="lg" fw={700} mt="md" mb="xs">{children}</Text>;
-  },
-  h2({ children }: MarkdownChildrenProps) {
-    return <Text size="md" fw={600} mt="sm" mb="xs">{children}</Text>;
-  },
-  h3({ children }: MarkdownChildrenProps) {
-    return <Text size="sm" fw={600} mt="sm" mb="xs">{children}</Text>;
-  },
-};
-
-// Custom message content renderer for our content blocks - memoized
-const MessageContent = memo(function MessageContent({ content }: { content: ContentBlock[] }) {
-  return (
-    <Stack gap="sm">
-      {content.map((block, index) => {
-        switch (block.type) {
-          case 'text':
-            return (
-              <Box key={index}>
-                <ReactMarkdown components={markdownComponents}>
-                  {block.text}
-                </ReactMarkdown>
-              </Box>
-            );
-
-          case 'tool_use':
-            return (
-              <Accordion
-                key={index}
-                variant="filled"
-                radius="sm"
-                styles={{
-                  item: { backgroundColor: 'var(--mantine-color-blue-light)', border: 'none' },
-                  control: { padding: '8px 12px' },
-                  panel: { padding: '0 12px 12px' },
-                }}
-              >
-                <Accordion.Item value={block.id}>
-                  <Accordion.Control icon={<IconTool size={14} color="var(--mantine-color-blue-6)" />}>
-                    <Group gap="xs">
-                      <Badge size="xs" color="blue" variant="filled">
-                        Tool Call
-                      </Badge>
-                      <Text size="xs" fw={500} c="blue.7">{block.name}</Text>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Box style={{ backgroundColor: '#1e1e1e', borderRadius: '4px', padding: '8px' }}>
-                      <Code
-                        block
-                        style={{
-                          fontSize: '11px',
-                          maxHeight: '200px',
-                          overflow: 'auto',
-                          backgroundColor: 'transparent',
-                          color: '#abb2bf',
-                        }}
-                      >
-                        {JSON.stringify(block.input, null, 2)}
-                      </Code>
-                    </Box>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-            );
-
-          case 'tool_result':
-            return (
-              <Accordion
-                key={index}
-                variant="filled"
-                radius="sm"
-                styles={{
-                  item: {
-                    backgroundColor: block.is_error
-                      ? 'var(--mantine-color-red-light)'
-                      : 'var(--mantine-color-green-light)',
-                    border: 'none'
-                  },
-                  control: { padding: '8px 12px' },
-                  panel: { padding: '0 12px 12px' },
-                }}
-              >
-                <Accordion.Item value={block.tool_use_id}>
-                  <Accordion.Control icon={<IconTool size={14} color={block.is_error ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-green-6)'} />}>
-                    <Group gap="xs">
-                      <Badge
-                        size="xs"
-                        color={block.is_error ? 'red' : 'green'}
-                        variant="filled"
-                      >
-                        {block.is_error ? 'Error' : 'Result'}
-                      </Badge>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Box style={{ backgroundColor: '#1e1e1e', borderRadius: '4px', padding: '8px' }}>
-                      <Code
-                        block
-                        style={{
-                          fontSize: '11px',
-                          maxHeight: '200px',
-                          overflow: 'auto',
-                          backgroundColor: 'transparent',
-                          color: block.is_error ? '#ff6b6b' : '#98c379',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {block.content}
-                      </Code>
-                    </Box>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-            );
-
-          case 'thinking':
-            return (
-              <Accordion
-                key={index}
-                variant="filled"
-                radius="sm"
-                styles={{
-                  item: { backgroundColor: 'var(--mantine-color-grape-light)', border: 'none' },
-                  control: { padding: '8px 12px' },
-                  panel: { padding: '0 12px 12px' },
-                }}
-              >
-                <Accordion.Item value={`thinking-${index}`}>
-                  <Accordion.Control icon={<IconBrain size={14} color="var(--mantine-color-grape-6)" />}>
-                    <Group gap="xs">
-                      <Badge size="xs" color="grape" variant="filled">
-                        Thinking
-                      </Badge>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap', fontStyle: 'italic' }}>
-                      {block.thinking}
-                    </Text>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
-            );
-
-          default:
-            return null;
-        }
-      })}
-    </Stack>
-  );
-});
-
-// Format timestamp
-function formatTimestamp(timestamp: number): string {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-// Check if content looks like a long plan message that should be collapsible
-function isLongPlanContent(content: ContentBlock[]): boolean {
-  const textBlocks = content.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
-  if (textBlocks.length === 0) return false;
-
-  const fullText = textBlocks.map(b => b.text).join('\n');
-
-  // Only collapse very long structured messages
-  return fullText.length > 2000 && (
-    fullText.includes('## Implementation Plan') ||
-    fullText.includes('## Tasks') ||
-    fullText.includes('```json')
-  );
-}
-
-// Collapsible long content component (no type badges)
-interface CollapsibleContentProps {
-  content: ContentBlock[];
-  expanded: boolean;
-  onToggle: () => void;
-}
-
-function CollapsibleContent({ content, expanded, onToggle }: CollapsibleContentProps) {
-  if (!expanded) {
-    return (
-      <Box>
-        <Button
-          variant="subtle"
-          size="xs"
-          onClick={onToggle}
-          leftSection={<IconChevronDown size={14} />}
-        >
-          Show full message
-        </Button>
-      </Box>
-    );
-  }
-
-  return (
-    <Box>
-      <MessageContent content={content} />
-      <Button
-        variant="subtle"
-        size="xs"
-        onClick={onToggle}
-        leftSection={<IconChevronUp size={14} />}
-        mt="sm"
-      >
-        Hide details
-      </Button>
-    </Box>
-  );
-}
-
-// Single message component - memoized to prevent re-renders
-interface ChatMessageProps {
-  message: StreamingMessage;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
-}
-
-const ChatMessage = memo(function ChatMessage({ message, isExpanded, onToggleExpand }: ChatMessageProps) {
-  const isUser = message.role === 'user';
-  const isStreaming = message.status === 'streaming';
-  const isQueued = message.status === 'queued';
-  const isLongContent = useMemo(() => !isUser && isLongPlanContent(message.content), [isUser, message.content]);
-
-  return (
-    <Card
-      p="md"
-      withBorder
-      shadow="sm"
-      radius="md"
-      style={{
-        backgroundColor: isUser ? 'var(--mantine-color-blue-0)' : 'white',
-        borderColor: isUser ? 'var(--mantine-color-blue-2)' : 'var(--mantine-color-gray-3)',
-        opacity: isQueued ? 0.8 : 1,
-      }}
-    >
-      {/* Header with role and timestamp */}
-      <Group justify="space-between" mb="sm">
-        <Group gap="xs">
-          {isUser ? (
-            <IconUser size={18} color="var(--mantine-color-blue-6)" />
-          ) : (
-            <IconRobot size={18} color="var(--mantine-color-gray-6)" />
-          )}
-          <Text size="sm" fw={600} c={isUser ? 'blue.7' : 'gray.7'}>
-            {isUser ? 'You' : 'Planning Agent'}
-          </Text>
-          {isStreaming && (
-            <Badge size="xs" color="yellow" variant="dot">
-              Streaming...
-            </Badge>
-          )}
-          {isQueued && (
-            <Badge size="xs" color="orange" variant="light">
-              Queued
-            </Badge>
-          )}
-        </Group>
-        <Group gap="xs">
-          <IconClock size={12} color="var(--mantine-color-gray-5)" />
-          <Text size="xs" c="dimmed">
-            {formatTimestamp(message.createdAt)}
-          </Text>
-        </Group>
-      </Group>
-
-      <Divider mb="sm" color={isUser ? 'blue.1' : 'gray.2'} />
-
-      {/* Message content - collapsible for very long messages */}
-      {isLongContent ? (
-        <CollapsibleContent
-          content={message.content}
-          expanded={isExpanded}
-          onToggle={onToggleExpand}
-        />
-      ) : (
-        <MessageContent content={message.content} />
-      )}
-    </Card>
-  );
-});
 
 // Timeline item type for unified rendering
 type TimelineItem =
@@ -391,26 +28,29 @@ type TimelineItem =
   | { type: 'flow'; timestamp: number; data: RequestFlow; key: string };
 
 // Main chat component using external store
-function ChatThread({
-  messages,
-  planningStatus,
-  activeFlows,
-  completedFlows,
-  onSendMessage,
-  sessionActive,
-  executionStarted,
-  permissionPrompt,
-  onPermissionResponse,
-  planningQuestion,
-  onAnswerPlanningQuestion,
-  pendingPlanApproval,
-  onApprovePlanViaChat,
-  onRefinePlan,
-}: AssistantChatProps) {
+function ChatThread() {
+  const {
+    streamingMessages: messages,
+    planningStatus,
+    activeFlows,
+    completedFlows,
+    sendChat,
+    session,
+    permissionPrompt,
+    respondToPermission,
+    planningQuestion,
+    answerPlanningQuestion,
+    pendingPlanApproval,
+    approvePlanViaChat,
+    refinePlan,
+  } = useOrchestrator();
+
+  const sessionActive = !!session;
+  const executionStarted = !!session?.plan;
+
   // Check if this permission is for the planner
   const isPlannerPermission = permissionPrompt?.project === 'planner';
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
 
   // Check if any message is currently streaming - memoized
@@ -423,11 +63,10 @@ function ChatThread({
   const effectiveExpandedId = hasStreamingMessage ? null : expandedMessageId;
 
   // Create unified timeline: user messages + completed flows
-  // PA responses are shown via planningStatus indicator or pendingPlan card
   const timeline = useMemo(() => {
     const items: TimelineItem[] = [];
 
-    // Only user messages in timeline (PA responses handled separately)
+    // Only user messages in timeline
     messages
       .filter(msg => msg.role === 'user')
       .forEach(msg => {
@@ -439,7 +78,7 @@ function ChatThread({
         });
       });
 
-    // Add completed flows (task verifications, E2E results, etc.)
+    // Add completed flows
     completedFlows.forEach(flow => {
       items.push({
         type: 'flow',
@@ -453,7 +92,7 @@ function ChatThread({
     return items.sort((a, b) => a.timestamp - b.timestamp);
   }, [messages, completedFlows]);
 
-  // Auto-scroll to bottom when new items arrive or active flows change
+  // Auto-scroll to bottom when new items arrive
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -463,31 +102,27 @@ function ChatThread({
     }
   }, [timeline, activeFlows, pendingPlanApproval]);
 
-  const handleSend = () => {
-    const input = inputRef.current;
-    if (input && input.value.trim()) {
-      const message = input.value.trim();
-      // If we're in plan approval mode, send as refinement feedback
-      if (pendingPlanApproval && onRefinePlan) {
-        onRefinePlan(message);
-      } else {
-        onSendMessage(message);
-      }
-      input.value = '';
+  // Handle send - routes to refinePlan or sendChat
+  const handleSend = useCallback((message: string) => {
+    if (pendingPlanApproval && refinePlan) {
+      refinePlan(message);
+    } else {
+      sendChat(message);
     }
-  };
+  }, [pendingPlanApproval, refinePlan, sendChat]);
 
-  // Check if chat should be enabled during plan approval
-  // Chat is disabled after plan approval (executionStarted = true)
+  // Chat enabled logic
   const isAwaitingApproval = planningStatus?.phase === 'awaiting_approval' || !!pendingPlanApproval;
   const chatEnabled = sessionActive && !executionStarted && (!planningStatus || isAwaitingApproval || planningStatus.phase === 'complete');
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  // Input placeholder
+  const placeholder = executionStarted
+    ? 'Execution in progress...'
+    : pendingPlanApproval
+    ? 'Type feedback to refine the plan...'
+    : sessionActive
+    ? 'Chat with Planning Agent...'
+    : 'Start a session first...';
 
   return (
     <Box style={{ position: 'relative', height: '100%' }}>
@@ -505,7 +140,7 @@ function ChatThread({
           <Box style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <ScrollArea h="100%" viewportRef={scrollRef}>
               <Stack gap="md" p="xs">
-                {/* Unified timeline - shown when no active planning flow */}
+                {/* Unified timeline */}
                 {timeline.map((item) => {
                   if (item.type === 'message') {
                     return (
@@ -523,18 +158,18 @@ function ChatThread({
                   }
                 })}
 
-                {/* Interactive Plan Approval (MCP-based) */}
-                {pendingPlanApproval && onApprovePlanViaChat && pendingPlanApproval.plan?.tasks && (
+                {/* Interactive Plan Approval */}
+                {pendingPlanApproval && approvePlanViaChat && pendingPlanApproval.plan?.tasks && (
                   <PlanApprovalCard
                     plan={pendingPlanApproval.plan}
-                    onApprove={onApprovePlanViaChat}
+                    onApprove={approvePlanViaChat}
                   />
                 )}
               </Stack>
             </ScrollArea>
           </Box>
 
-          {/* BOTTOM: Active Operations (only shown when there are active flows) */}
+          {/* BOTTOM: Active Operations */}
           {activeFlows.length > 0 && (
             <>
               <Divider my="sm" />
@@ -553,7 +188,7 @@ function ChatThread({
                       key={flow.id}
                       flow={flow}
                       pendingQuestion={flow.type === 'planning' ? planningQuestion : null}
-                      onAnswerQuestion={onAnswerPlanningQuestion}
+                      onAnswerQuestion={answerPlanningQuestion}
                       planningStatus={flow.type === 'planning' ? planningStatus : null}
                     />
                   ))}
@@ -564,162 +199,44 @@ function ChatThread({
 
           {/* Input area */}
           <Box pt="sm">
-            <Paper p="sm" withBorder radius="md" shadow="sm">
-              <Group gap="xs">
-                <TextInput
-                  ref={inputRef}
-                  placeholder={
-                    executionStarted
-                      ? 'Execution in progress...'
-                      : pendingPlanApproval
-                      ? 'Type feedback to refine the plan...'
-                      : sessionActive
-                      ? 'Chat with Planning Agent...'
-                      : 'Start a session first...'
-                  }
-                  style={{ flex: 1 }}
-                  disabled={!chatEnabled}
-                  onKeyDown={handleKeyDown}
-                  radius="md"
-                  size="md"
-                />
-                <ActionIcon
-                  size="xl"
-                  variant="filled"
-                  color={pendingPlanApproval ? 'orange' : 'blue'}
-                  radius="md"
-                  onClick={handleSend}
-                  disabled={!chatEnabled}
-                >
-                  <IconSend size={20} />
-                </ActionIcon>
-              </Group>
-            </Paper>
+            <ChatInput
+              placeholder={placeholder}
+              disabled={!chatEnabled}
+              actionColor={pendingPlanApproval ? 'orange' : 'blue'}
+              onSend={handleSend}
+            />
           </Box>
         </Stack>
       </Paper>
 
       {/* Planner permission overlay */}
-      {isPlannerPermission && permissionPrompt && (() => {
-        const input = permissionPrompt.toolInput || {};
-
-        // Get command from toolInput.command or parse from toolName
-        const toolMatch = permissionPrompt.toolName.match(/^(\w+)\((.+)\)$/);
-        const toolNameCommand = toolMatch ? toolMatch[2] : '';
-
-        // Prefer toolInput.command over parsed toolName
-        const actualCommand = typeof input.command === 'string' ? input.command : toolNameCommand;
-        const description = typeof input.description === 'string' ? input.description : null;
-
-        // Extract base command for "Allow All" (e.g., "curl -s ..." -> "curl")
-        // Only show "Allow All" if we have a valid command that looks like a real command name
-        const toolTypeMatch = permissionPrompt.toolName.match(/^(\w+)/);
-        const toolType = toolTypeMatch ? toolTypeMatch[1] : 'Bash';
-        const baseCommand = actualCommand.trim().split(/\s+/)[0] || '';
-        const isValidCommand = baseCommand.length > 0 && /^[a-zA-Z][\w.-]*$/.test(baseCommand);
-        const allowAllPattern = isValidCommand ? `${toolType}(${baseCommand} *)` : null;
-
-        return (
-          <Box
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.94)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-            }}
-          >
-            <Stack align="center" gap="md" p="xl" style={{ maxWidth: 400 }}>
-              <Group gap="xs">
-                <IconShield size={24} color="var(--mantine-color-blue-4)" />
-                <Text fw={600} size="md" c="white">Planner Permission</Text>
-              </Group>
-
-              {/* Description */}
-              {description && (
-                <Text size="sm" c="gray.4" ta="center">
-                  {description}
-                </Text>
-              )}
-
-              {/* Command display */}
-              <Text
-                size="sm"
-                c="white"
-                ff="monospace"
-                ta="center"
-                style={{
-                  wordBreak: 'break-all',
-                  padding: '10px 14px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '6px',
-                  width: '100%',
-                }}
-              >
-                {actualCommand || permissionPrompt.toolName}
-              </Text>
-
-              {/* Action buttons */}
-              <Group justify="center" gap="sm">
-                <Button
-                  color="blue"
-                  variant="filled"
-                  size="sm"
-                  leftSection={<IconCheck size={16} />}
-                  onClick={() => onPermissionResponse?.(true, false)}
-                >
-                  Allow
-                </Button>
-                {allowAllPattern && (
-                  <Button
-                    color="teal"
-                    variant="light"
-                    size="sm"
-                    leftSection={<IconShieldCheck size={16} />}
-                    onClick={() => onPermissionResponse?.(true, true)}
-                  >
-                    Allow all - {allowAllPattern}
-                  </Button>
-                )}
-                <Button
-                  color="red"
-                  variant="subtle"
-                  size="sm"
-                  onClick={() => onPermissionResponse?.(false)}
-                >
-                  Deny
-                </Button>
-              </Group>
-            </Stack>
-          </Box>
-        );
-      })()}
+      {isPlannerPermission && permissionPrompt && (
+        <PermissionOverlay
+          toolName={permissionPrompt.toolName}
+          toolInput={permissionPrompt.toolInput}
+          onResponse={respondToPermission}
+          title="Planner Permission"
+          compact={false}
+        />
+      )}
     </Box>
   );
 }
 
 // Convert our messages to ThreadMessageLike format for assistant-ui
 function convertMessage(msg: StreamingMessage) {
-  // Extract all text content and combine into a single string for simpler conversion
   const textContent = msg.content
     .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
     .map((block) => block.text)
     .join('\n');
 
-  // Base message properties
   const baseMessage = {
     id: msg.id,
     role: msg.role as 'user' | 'assistant',
-    content: textContent || ' ', // assistant-ui requires non-empty content
+    content: textContent || ' ',
     createdAt: new Date(msg.createdAt),
   };
 
-  // Status is only supported for assistant messages
   if (msg.role === 'assistant') {
     return {
       ...baseMessage,
@@ -733,33 +250,34 @@ function convertMessage(msg: StreamingMessage) {
 }
 
 // Wrapper with AssistantUI runtime
-export function AssistantChat(props: AssistantChatProps) {
-  // Memoize isRunning to avoid recomputation
+export function AssistantChat() {
+  const { streamingMessages, sendChat } = useOrchestrator();
+
+  // Memoize isRunning
   const isRunning = useMemo(
-    () => props.messages.some((m) => m.status === 'streaming'),
-    [props.messages]
+    () => streamingMessages.some((m) => m.status === 'streaming'),
+    [streamingMessages]
   );
 
-  // Create external store runtime with proper adapter
+  // Create external store runtime
   const runtime = useExternalStoreRuntime({
-    messages: props.messages,
+    messages: streamingMessages,
     convertMessage: (msg: StreamingMessage) => convertMessage(msg),
     isRunning,
     onNew: async (message) => {
-      // Extract text content from the message
       const textContent = message.content
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map((c) => c.text)
         .join('');
       if (textContent) {
-        props.onSendMessage(textContent);
+        sendChat(textContent);
       }
     },
   });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ChatThread {...props} />
+      <ChatThread />
     </AssistantRuntimeProvider>
   );
 }

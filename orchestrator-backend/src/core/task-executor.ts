@@ -790,6 +790,7 @@ ${task.task}
 4. **DO NOT start dev servers** - the orchestrator manages dev servers
 5. **DO NOT use browser automation tools** to test your work
 6. Focus ONLY on implementing the feature code
+7. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
 
 ## Status Reporting
 

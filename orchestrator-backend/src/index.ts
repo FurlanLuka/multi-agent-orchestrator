@@ -1062,6 +1062,7 @@ ${devServerUrl ? `\nDev Server URL: ${devServerUrl}` : ''}
 4. If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
 5. Your ONLY job is to run E2E tests and report results
 6. **FAIL FAST**: Stop immediately after the FIRST test failure - do not continue to other tests
+7. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
 
 ## Custom Testing Instructions
 

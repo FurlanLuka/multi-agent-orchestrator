@@ -1088,7 +1088,13 @@ For each project, discover:
 ### Part 2: Analysis
 Based on exploration:
 1. **Parse Requirements** - What exactly needs to be built
-2. **Define API Contracts** - Endpoints, request/response formats, which project provides/consumes
+2. **Define COMPLETE API Contracts** - For every API endpoint the feature needs:
+   - HTTP method and path (e.g. POST /api/auth/login)
+   - Full request body with field names, types, and validation rules (e.g. email: string, required, valid email format; password: string, required, min 8 chars)
+   - Full response body with field names and types for success AND error cases
+   - Status codes for each scenario (200, 201, 400, 401, 404, etc.)
+   - Authentication requirements (public, JWT, etc.)
+   - Which project provides the endpoint and which consumes it
 3. **Determine Execution Order** - Which projects first, dependencies
 4. **Pattern Recommendations** - What conventions to follow
 5. **Identify Considerations** - Risks, edge cases
@@ -1120,7 +1126,8 @@ with a summary of your discoveries. This will trigger Phase 2 (plan generation).
 Your summary should include:
 - Technologies discovered in each project
 - Patterns to follow
-- API contracts defined
+- **Complete API contracts** for every endpoint the feature requires:
+  - Method, path, request body (with field types and validations), response body (success + error), status codes, auth requirements
 - Execution order determined
 - Any considerations or edge cases
 
@@ -1182,9 +1189,10 @@ and have answers to any questions you asked.
 
 Generate a detailed Plan JSON based on your exploration. The plan should:
 1. Follow the execution order you determined
-2. Use consistent API contracts across projects
+2. Use consistent API contracts across projects - every API task MUST include the full contract
 3. Apply the patterns you discovered for each project
 4. Address all considerations and edge cases
+5. **For any feature that involves APIs, every task description MUST include the complete API contract** — endpoints, request/response schemas with field types, validation rules, error responses, and status codes. Both backend and frontend tasks must reference the same contracts so they stay in sync.
 
 ## Plan JSON Format
 
@@ -1215,8 +1223,15 @@ Generate a detailed Plan JSON based on your exploration. The plan should:
 Each task MUST include:
 1. **Files to create/modify** - exact paths matching project conventions
 2. **Implementation details** - functions, classes, components
-3. **For APIs:** endpoints, request body, response format, status codes
-4. **For UIs:** component props, state, behavior
+3. **For APIs — COMPLETE contract for EVERY endpoint in the task:**
+   - HTTP method and full path (e.g. \`POST /api/auth/register\`)
+   - Request body schema with field names, types, and validation rules (e.g. \`email: string, required, must be valid email; password: string, required, min 8 chars\`)
+   - Success response body schema with field names and types
+   - Error response body schema (e.g. \`{ message: string, errors?: Record<string, string[]> }\`)
+   - HTTP status codes for each scenario (200, 201, 400, 401, 404, 409, etc.)
+   - Authentication/authorization requirements
+   - Include a concrete example request/response pair
+4. **For UIs:** component props, state, behavior, and the exact API endpoints it calls (matching the backend contract)
 5. **Dependencies:** what to import or install
 
 ## Secret/Credential Detection
@@ -1289,6 +1304,7 @@ Generate an E2E test prompt that instructs the agent to:
 - If the server is not responding, FAIL the tests and report the error - DO NOT try to fix it
 - The agent's ONLY job is to run E2E tests and report results
 - **FAIL FAST**: Stop immediately after the FIRST test failure - do not continue to other tests
+- **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
 
 1. READ the project's E2E testing skill if it exists: Check for .claude/skills/e2e-testing.md in the project directory
    - If the skill file exists, follow its testing methodology exactly

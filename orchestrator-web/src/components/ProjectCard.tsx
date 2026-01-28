@@ -9,13 +9,13 @@ import {
   ScrollArea,
   Box,
   Code,
-  Stack,
   Button,
   TextInput,
   Collapse,
 } from '@mantine/core';
-import { IconShield, IconCheck, IconShieldCheck, IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
+import { IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '@aio/types';
+import { PermissionOverlay } from './overlay/PermissionOverlay';
 
 interface ProjectCardProps {
   project: string;
@@ -52,7 +52,7 @@ const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
 const getStatusProgress = (status: AgentStatus): number => {
   switch (status) {
     case 'PENDING': return 0;
-    case 'BLOCKED': return 5;  // Waiting on dependencies
+    case 'BLOCKED': return 5;
     case 'WORKING': return 30;
     case 'DEBUGGING': return 40;
     case 'FATAL_DEBUGGING': return 45;
@@ -75,16 +75,13 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
   const progress = getStatusProgress(status);
   const isAnimated = status === 'WORKING' || status === 'E2E' || status === 'E2E_FIXING';
 
-  // Determine if truly complete (tasks done + tests passed)
+  // Determine if truly complete
   const isTrulyComplete = useMemo(() => {
     if (status !== 'IDLE') return false;
-    // No tests = complete
     if (!testState || testState.scenarios.length === 0) return true;
-    // All tests passed = complete
     return testState.scenarios.every(s => s.status === 'passed');
   }, [status, testState]);
 
-  // Get the display label for status badge
   const getStatusLabel = () => {
     if (status === 'IDLE') {
       return isTrulyComplete ? 'Complete' : 'Tasks Done';
@@ -98,13 +95,13 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
     devServer: logs.filter(l => l.type === 'devServer').length,
   }), [logs]);
 
-  // Filter logs based on selected type - memoized
+  // Filter logs based on selected type
   const filteredLogs = useMemo(
     () => logs.filter(l => l.type === logType).slice(-100),
     [logs, logType]
   );
 
-  // Auto-scroll to bottom when new logs arrive
+  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -137,7 +134,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             {getStatusLabel()}
           </Badge>
 
-          {/* Skip E2E button for E2E or BLOCKED status */}
+          {/* Skip E2E button */}
           {(status === 'E2E' || status === 'BLOCKED') && onSkipE2E && (
             <Button
               size="xs"
@@ -150,7 +147,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             </Button>
           )}
 
-          {/* Restart Server button for fatal states */}
+          {/* Restart Server button */}
           {(status === 'FATAL_DEBUGGING') && onRestartServer && (
             <Button
               size="xs"
@@ -163,7 +160,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             </Button>
           )}
 
-          {/* Retry button for failed states */}
+          {/* Retry button */}
           {(status === 'FATAL_DEBUGGING' || status === 'FAILED') && onRetry && (
             <Button
               size="xs"
@@ -276,111 +273,18 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
       </ScrollArea>
 
       {/* Permission overlay */}
-      {permissionPrompt && (() => {
-        const input = permissionPrompt.toolInput || {};
-
-        // Get command from toolInput.command or parse from toolName
-        const toolMatch = permissionPrompt.toolName.match(/^(\w+)\((.+)\)$/);
-        const toolNameCommand = toolMatch ? toolMatch[2] : '';
-
-        // Prefer toolInput.command over parsed toolName
-        const actualCommand = typeof input.command === 'string' ? input.command : toolNameCommand;
-        const description = typeof input.description === 'string' ? input.description : null;
-
-        // Extract base command for "Allow All" (e.g., "curl -s ..." -> "curl")
-        // Only show "Allow All" if we have a valid command that looks like a real command name
-        const toolTypeMatch = permissionPrompt.toolName.match(/^(\w+)/);
-        const toolType = toolTypeMatch ? toolTypeMatch[1] : 'Bash';
-        const baseCommand = actualCommand.trim().split(/\s+/)[0] || '';
-        const isValidCommand = baseCommand.length > 0 && /^[a-zA-Z][\w.-]*$/.test(baseCommand);
-        const allowAllPattern = isValidCommand ? `${toolType}(${baseCommand} *)` : null;
-
-        return (
-          <Box
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.94)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 100,
-              borderRadius: 'inherit',
-              padding: '12px',
-            }}
-          >
-            <Stack align="center" gap="xs" style={{ maxWidth: '100%', width: '100%' }}>
-              <Group gap="xs">
-                <IconShield size={18} color="var(--mantine-color-blue-4)" />
-                <Text fw={600} size="sm" c="white">Permission Required</Text>
-              </Group>
-
-              {/* Description */}
-              {description && (
-                <Text size="xs" c="gray.4" ta="center" lineClamp={2}>
-                  {description}
-                </Text>
-              )}
-
-              {/* Command display */}
-              <Text
-                size="xs"
-                c="white"
-                ff="monospace"
-                ta="center"
-                lineClamp={3}
-                style={{
-                  wordBreak: 'break-all',
-                  padding: '6px 10px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '4px',
-                  width: '100%',
-                }}
-              >
-                {actualCommand || permissionPrompt.toolName}
-              </Text>
-
-              {/* Action buttons - compact row */}
-              <Group justify="center" gap="xs" mt="xs">
-                <Button
-                  color="blue"
-                  variant="filled"
-                  size="xs"
-                  leftSection={<IconCheck size={14} />}
-                  onClick={() => onPermissionResponse?.(true, false)}
-                >
-                  Allow
-                </Button>
-                {allowAllPattern && (
-                  <Button
-                    color="teal"
-                    variant="light"
-                    size="xs"
-                    leftSection={<IconShieldCheck size={14} />}
-                    onClick={() => onPermissionResponse?.(true, true)}
-                  >
-                    Allow all - {allowAllPattern}
-                  </Button>
-                )}
-                <Button
-                  color="red"
-                  variant="subtle"
-                  size="xs"
-                  onClick={() => onPermissionResponse?.(false)}
-                >
-                  Deny
-                </Button>
-              </Group>
-            </Stack>
-          </Box>
-        );
-      })()}
+      {permissionPrompt && onPermissionResponse && (
+        <PermissionOverlay
+          toolName={permissionPrompt.toolName}
+          toolInput={permissionPrompt.toolInput}
+          onResponse={onPermissionResponse}
+          title="Permission Required"
+          compact={true}
+        />
+      )}
     </Paper>
   );
 }
 
-// Export memoized component to prevent re-renders when props haven't changed
+// Export memoized component
 export const ProjectCard = memo(ProjectCardInner);

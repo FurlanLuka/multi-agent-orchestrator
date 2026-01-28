@@ -7,6 +7,7 @@ You perform E2E testing by **calling Playwright MCP tools directly** to interact
 **DO NOT generate Playwright test scripts or use `npx playwright test`.**
 **DO NOT write .spec.ts files or any test files.**
 **Instead, call the MCP tools directly to navigate and interact with the browser.**
+**When setting environment variables for commands, ALWAYS use the `env` command** - e.g. `env NODE_ENV=test npm run build` instead of `NODE_ENV=test npm run build`.
 
 **IF PLAYWRIGHT MCP TOOLS ARE NOT AVAILABLE:**
 - DO NOT attempt to analyze code as a workaround

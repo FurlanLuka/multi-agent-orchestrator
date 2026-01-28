@@ -6,6 +6,7 @@ You perform E2E testing using **curl commands** to test API endpoints.
 
 **DO NOT generate test scripts or use any test framework.**
 **Use curl commands directly via the Bash tool to test endpoints.**
+**When setting environment variables for commands, ALWAYS use the `env` command** - e.g. `env NODE_ENV=test npx prisma migrate` instead of `NODE_ENV=test npx prisma migrate`.
 
 ## Prerequisites
 
