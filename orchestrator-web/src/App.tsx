@@ -55,6 +55,7 @@ import { ProjectCard } from './components/ProjectCard';
 // SessionSidebar hidden for now - session history navigation is broken
 // import { SessionSidebar } from './components/SessionSidebar';
 import { TabbedPlanView } from './components/TabbedPlanView';
+import { MarkdownMessage } from './components/MarkdownMessage';
 import { SplashScreen } from './components/SplashScreen';
 
 function App() {
@@ -125,6 +126,7 @@ function App() {
   const sessionProjects = session?.projects || Object.keys(statuses);
   const availableProjects = Object.keys(projects);
   const [showPlan, setShowPlan] = useState(true);  // Show plan by default
+  const [showInitialPrompt, setShowInitialPrompt] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
   const [quickStartName, setQuickStartName] = useState('');
   // Selected base branch for PR creation per project
@@ -785,26 +787,62 @@ function App() {
                               </Text>
                             </Group>
                             <Text fw={700} size="lg" style={{ lineHeight: 1.3 }}>
-                              {session.feature}
+                              {session.plan?.feature || session.feature}
                             </Text>
                           </Stack>
                           <Group gap="sm">
                             {session.plan && (
-                              <Button
-                                variant="subtle"
-                                size="xs"
-                                color="gray"
-                                onClick={() => setShowPlan(!showPlan)}
-                                rightSection={showPlan ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                              >
-                                {showPlan ? 'Hide Plan' : 'View Plan'}
-                              </Button>
+                              <Group gap={4}>
+                                <Button
+                                  variant="subtle"
+                                  size="xs"
+                                  color="gray"
+                                  onClick={() => setShowPlan(!showPlan)}
+                                  rightSection={showPlan ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                >
+                                  {showPlan ? 'Hide Plan' : 'View Plan'}
+                                </Button>
+                                <Text c="dimmed" size="xs">|</Text>
+                                <Button
+                                  variant="subtle"
+                                  size="xs"
+                                  color="gray"
+                                  onClick={() => setShowInitialPrompt(!showInitialPrompt)}
+                                  rightSection={showInitialPrompt ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                >
+                                  {showInitialPrompt ? 'Hide Prompt' : 'Show Prompt'}
+                                </Button>
+                              </Group>
                             )}
                             <Badge variant="light" color="gray" size="sm" radius="md">
                               Started {new Date(session.startedAt).toLocaleTimeString()}
                             </Badge>
                           </Group>
                         </Group>
+
+                        {/* Collapsible Initial Prompt */}
+                        {session.plan && (
+                          <Collapse in={showInitialPrompt}>
+                            <Box
+                              mt="md"
+                              pt="md"
+                              style={{ borderTop: '1px solid var(--mantine-color-gray-2)' }}
+                            >
+                              <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                                Initial Prompt
+                              </Text>
+                              <Box
+                                p="sm"
+                                style={{
+                                  backgroundColor: 'var(--mantine-color-gray-0)',
+                                  borderRadius: 'var(--mantine-radius-sm)',
+                                }}
+                              >
+                                <MarkdownMessage content={session.feature} />
+                              </Box>
+                            </Box>
+                          </Collapse>
+                        )}
 
                         {/* Collapsible Plan Details - Now using TabbedPlanView */}
                         {session.plan && (
