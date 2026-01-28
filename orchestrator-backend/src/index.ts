@@ -343,6 +343,18 @@ async function main() {
   processManager.setOrchestratorPort(orchestratorPort);
 
   // ═══════════════════════════════════════════════════════════════
+  // Set up exploration_complete handler for persistent planning agent
+  // ═══════════════════════════════════════════════════════════════
+
+  ui.setExplorationCompleteHandler(async (summary: string) => {
+    console.log(`[Orchestrator] Exploration complete: ${summary.substring(0, 100)}...`);
+    chatHandler.systemMessage('Exploration complete. Generating plan...');
+
+    // Generate Phase 2 prompt - planningAgent has the context from requestPlan()
+    return planningAgent.generatePhase2Prompt(summary);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
   // ═══════════════════════════════════════════════════════════════
 
@@ -439,8 +451,13 @@ async function main() {
         // Handle status/notification events immediately
         const hookEvent = event as HookEvent;
         if ('status' in hookEvent) {
-          const status = hookEvent.status === 'NEEDS_INPUT' ? 'IDLE' :
-                         hookEvent.status === 'ERROR' ? 'FATAL_DEBUGGING' :
+          // Don't convert NEEDS_INPUT to IDLE - orchestrator controls IDLE status explicitly
+          // NEEDS_INPUT just means Claude is waiting for input, not that the project is complete
+          if (hookEvent.status === 'NEEDS_INPUT') {
+            break;
+          }
+
+          const status = hookEvent.status === 'ERROR' ? 'FATAL_DEBUGGING' :
                          hookEvent.status;
           const message = 'message' in hookEvent ? hookEvent.message : '';
           statusMonitor.updateStatus(project, status as any, message);
@@ -1896,11 +1913,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           return;
         }
 
-        // All tasks for this project completed, set to READY (if not already)
-        const currentStatus = statusMonitor.getStatus(project);
-        if (currentStatus?.status !== 'READY' && currentStatus?.status !== 'FAILED') {
-          statusMonitor.updateStatus(project, 'READY', 'All tasks completed');
-        }
+        // Status is already set by handleTaskCompleteRequest - just log completion
+        console.log(`[Orchestrator] Persistent session completed for ${project}`);
       });
 
       // Wait for all projects to complete (they run in parallel)

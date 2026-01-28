@@ -28,6 +28,8 @@ export interface UIServerDependencies {
   };
   // Callback for task completion (set after TaskExecutor is created)
   onTaskComplete?: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>;
+  // Callback for exploration completion (set after PlanningAgent is created)
+  onExplorationComplete?: (summary: string) => Promise<string>;
 }
 
 export interface UIServer {
@@ -37,6 +39,7 @@ export interface UIServer {
   start: () => void;
   stop: () => void;
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
+  setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => void;
 }
 
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
@@ -210,6 +213,35 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
         status: 'escalate',
         escalationReason: `Verification error: ${errorMsg}`
       } as TaskCompleteResponse);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Exploration Complete Handling (for persistent planning agent)
+  // ═══════════════════════════════════════════════════════════════
+
+  // HTTP endpoint for MCP server to call when planning agent signals exploration complete
+  app.post('/api/exploration-complete', async (req: Request, res: Response) => {
+    const { summary } = req.body;
+
+    console.log(`[UIServer] Exploration complete: ${(summary || '').substring(0, 100)}...`);
+
+    // Check if callback is registered
+    if (!deps.onExplorationComplete) {
+      console.error(`[UIServer] No exploration complete handler registered`);
+      res.send('Error: No exploration handler registered. Please generate a plan based on your exploration.');
+      return;
+    }
+
+    try {
+      // Call the handler to generate Phase 2 prompt (blocks until ready)
+      const phase2Prompt = await deps.onExplorationComplete(summary || '');
+      console.log(`[UIServer] Phase 2 prompt generated (${phase2Prompt.length} chars)`);
+      res.send(phase2Prompt);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Exploration complete error:`, err);
+      res.send(`Error generating Phase 2 prompt: ${errorMsg}. Please generate a plan based on your exploration.`);
     }
   });
 
@@ -583,6 +615,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     },
     setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => {
       deps.onTaskComplete = handler;
+    },
+    setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => {
+      deps.onExplorationComplete = handler;
     }
   };
 }

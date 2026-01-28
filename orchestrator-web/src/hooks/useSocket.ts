@@ -136,8 +136,9 @@ export function useSocket() {
   const [availableBranches, setAvailableBranches] = useState<Record<string, string[]>>({});
   const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
 
-  // Permission prompt state (for live permission approval via MCP)
-  const [permissionPrompt, setPermissionPrompt] = useState<PermissionPrompt | null>(null);
+  // Permission prompt queue (for live permission approval via MCP)
+  // Uses a queue to handle multiple simultaneous permission requests
+  const [permissionQueue, setPermissionQueue] = useState<PermissionPrompt[]>([]);
 
   // Planning question state (for interactive Q&A during planning via MCP)
   const [planningQuestion, setPlanningQuestion] = useState<PlanningQuestion | null>(null);
@@ -739,9 +740,10 @@ export function useSocket() {
     });
 
     // Permission prompt events (for live permission approval via MCP)
+    // Queue prompts to handle multiple simultaneous requests
     socket.on('permissionPrompt', (event: PermissionPrompt) => {
       console.log(`Permission prompt for ${event.project}: ${event.toolName}`);
-      setPermissionPrompt(event);
+      setPermissionQueue(prev => [...prev, event]);
     });
 
     // Planning question events (for interactive Q&A during planning via MCP)
@@ -1088,19 +1090,25 @@ export function useSocket() {
     }
   }, []);
 
+  // Current permission prompt (first in queue) for backward compatibility
+  const permissionPrompt = permissionQueue.length > 0 ? permissionQueue[0] : null;
+
   // Respond to permission prompt (for live permission approval via MCP)
+  // Removes the first item from the queue after responding
   const respondToPermission = useCallback((approved: boolean, allowAll?: boolean) => {
-    if (socketRef.current && permissionPrompt) {
+    if (socketRef.current && permissionQueue.length > 0) {
+      const currentPrompt = permissionQueue[0];
       socketRef.current.emit('permissionResponse', {
-        project: permissionPrompt.project,
-        taskIndex: permissionPrompt.taskIndex,
+        project: currentPrompt.project,
+        taskIndex: currentPrompt.taskIndex,
         approved,
-        toolName: permissionPrompt.toolName,
+        toolName: currentPrompt.toolName,
         allowAll: allowAll || false,
       });
-      setPermissionPrompt(null);
+      // Remove the first item from the queue
+      setPermissionQueue(prev => prev.slice(1));
     }
-  }, [permissionPrompt]);
+  }, [permissionQueue]);
 
   // Answer planning question (for interactive Q&A during planning via MCP)
   const answerPlanningQuestion = useCallback((questionId: string, answer: string) => {

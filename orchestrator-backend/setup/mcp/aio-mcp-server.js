@@ -101,6 +101,20 @@ async function handleMessage(msg) {
             },
             required: ['taskIndex', 'summary']
           }
+        },
+        {
+          name: 'exploration_complete',
+          description: 'Signal that codebase exploration and Q&A is complete. Returns Phase 2 instructions for plan generation. Call this AFTER you have thoroughly explored all relevant code and asked any clarifying questions. The response will contain instructions for generating the implementation plan.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              summary: {
+                type: 'string',
+                description: 'Summary of discoveries: technologies found, patterns identified, API contracts defined, execution order determined, and any considerations. This summary is included in Phase 2 prompt.'
+              }
+            },
+            required: ['summary']
+          }
         }
       ]
     });
@@ -163,6 +177,17 @@ async function handleMessage(msg) {
 
     respond(id, {
       content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'exploration_complete') {
+    const summary = params.arguments?.summary || '';
+
+    // Call orchestrator endpoint (blocks until Phase 2 prompt is generated)
+    const phase2Prompt = await signalExplorationComplete(summary);
+
+    // Return Phase 2 prompt as tool result - agent continues with full context preserved
+    respond(id, {
+      content: [{ type: 'text', text: phase2Prompt }]
     });
   }
   else if (method === 'notifications/initialized') {
@@ -290,6 +315,45 @@ function signalTaskComplete(taskIndex, summary) {
     req.on('timeout', () => {
       req.destroy();
       resolve(JSON.stringify({ status: 'escalate', escalationReason: 'Verification timeout' }));
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+function signalExplorationComplete(summary) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      project: PROJECT,
+      summary
+    });
+
+    const url = new URL(`${ORCHESTRATOR_URL}/api/exploration-complete`);
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 60000  // 1 minute timeout for Phase 2 prompt generation
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        // Body contains the Phase 2 prompt - agent will continue with this
+        resolve(body || 'Error: No response from orchestrator. Please generate a plan based on your exploration.');
+      });
+    });
+
+    req.on('error', () => resolve('Error: Could not reach orchestrator. Please generate a plan based on your exploration.'));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve('Error: Timeout. Please generate a plan based on your exploration.');
     });
 
     req.write(postData);

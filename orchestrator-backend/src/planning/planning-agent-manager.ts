@@ -67,6 +67,14 @@ export class PlanningAgentManager extends EventEmitter {
   private currentPlanningPhase: PlanningPhase = 'exploring';
   private isPlanningRequest: boolean = false;
 
+  // Pending plan context for Phase 2 prompt generation (persistent planning agent)
+  private pendingPlanContext: {
+    feature: string;
+    projects: string[];
+    projectPaths?: Record<string, string>;
+    flowId: string;
+  } | null = null;
+
   // Request queue for serializing Claude calls (prevents race conditions)
   private requestQueue: Array<{
     prompt: string;
@@ -79,7 +87,7 @@ export class PlanningAgentManager extends EventEmitter {
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
     CHAT: 600000,           // 2 min - general chat responses
-    PLAN_CREATION: 600000,  // 10 min - explores codebase extensively
+    PLAN_CREATION: 1200000,  // 20 min - explores codebase extensively
     TASK_ANALYSIS: 180000,  // 3 min - analyzing task results
     E2E_PROMPT: 180000,     // 3 min - generating E2E prompts
     E2E_ANALYSIS: 300000,   // 5 min - analyzing E2E results
@@ -376,9 +384,12 @@ User: ${newMessage}`;
                         try {
                           const statusData = JSON.parse(statusMatch[1]);
                           if (statusData.message) {
-                            console.log(`[PlanningAgent] Status: ${statusData.message}`);
+                            // Use phase from JSON if provided, otherwise use current phase
+                            const phase = statusData.phase || this.currentPlanningPhase || 'exploring';
+                            this.currentPlanningPhase = phase; // Update current phase
+                            console.log(`[PlanningAgent] Status (${phase}): ${statusData.message}`);
                             const statusEvent: PlanningStatusEvent = {
-                              phase: this.currentPlanningPhase || 'exploring',
+                              phase,
                               message: statusData.message
                             };
                             this.emit('planningStatus', statusEvent);
@@ -712,8 +723,11 @@ User: ${newMessage}`;
                         try {
                           const statusData = JSON.parse(statusMatch[1]);
                           if (statusData.message) {
+                            // Use phase from JSON if provided, otherwise use current phase
+                            const phase = statusData.phase || this.currentPlanningPhase || 'exploring';
+                            this.currentPlanningPhase = phase; // Update current phase
                             const statusEvent: PlanningStatusEvent = {
-                              phase: this.currentPlanningPhase || 'exploring',
+                              phase,
                               message: statusData.message
                             };
                             this.emit('planningStatus', statusEvent);
@@ -845,295 +859,6 @@ User: ${newMessage}`;
 
       proc.on('exit', () => clearTimeout(timeout));
     });
-  }
-
-  /**
-   * Phase 1: Exploration + Analysis with MCP for interactive Q&A.
-   * Explores project structure, analyzes requirements, and can ask user questions.
-   */
-  async runExplorationAnalysisPhase(
-    feature: string,
-    projects: string[],
-    projectPaths: Record<string, string>
-  ): Promise<ExplorationAnalysisResult> {
-    const prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths);
-
-    console.log('[PlanningAgent] Starting Phase 1: Exploration + Analysis');
-
-    // 60% of plan creation time for exploration/analysis phase
-    const result = await this.executeOneShotWithMCP(
-      prompt,
-      Math.floor(PlanningAgentManager.TIMEOUTS.PLAN_CREATION * 0.6),
-      projectPaths
-    );
-
-    // Log the raw result for debugging (truncated)
-    console.log('[PlanningAgent] Phase 1 raw result length:', result.length);
-    if (result.includes('[EXPLORATION_RESULT]')) {
-      console.log('[PlanningAgent] Found EXPLORATION_RESULT marker');
-      const markerIndex = result.indexOf('[EXPLORATION_RESULT]');
-      console.log('[PlanningAgent] Content after marker (first 500 chars):', result.substring(markerIndex, markerIndex + 500));
-    } else {
-      console.log('[PlanningAgent] WARNING: No EXPLORATION_RESULT marker found in response');
-      console.log('[PlanningAgent] Response preview (last 1000 chars):', result.substring(result.length - 1000));
-    }
-
-    const parsed = parseMarkedResponse<ExplorationAnalysisResult>(
-      result,
-      MARKERS.EXPLORATION_RESULT,
-      ['projects', 'featureRequirements']
-    );
-
-    if (!parsed.success || !parsed.data) {
-      console.error('[PlanningAgent] Phase 1 parsing failed:', parsed.error);
-      throw new Error(`Exploration/Analysis failed: ${parsed.error}`);
-    }
-
-    console.log('[PlanningAgent] Phase 1 completed successfully');
-    console.log('[PlanningAgent] Questions asked:', parsed.data.questionsAsked?.length || 0);
-    console.log('[PlanningAgent] Projects explored:', Object.keys(parsed.data.projects || {}).join(', '));
-
-    return parsed.data;
-  }
-
-  /**
-   * Builds the prompt for Phase 1: Exploration + Analysis
-   */
-  private buildExplorationAnalysisPrompt(
-    feature: string,
-    projects: string[],
-    projectPaths: Record<string, string>
-  ): string {
-    const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
-
-    return `You are an exploration and analysis agent for a multi-project orchestrator.
-
-## Feature to Implement
-${feature}
-
-## Projects
-${projectList}
-
-## Your Task
-
-### Part 1: Exploration
-For each project, discover:
-1. **Guidelines** - Read CLAUDE.md, .claude/development.md, .claude/skills/*.md
-2. **Technology Stack** - package.json, framework, language
-3. **Patterns** - API style, state management, component structure
-4. **Key Files** - Entry points, important modules
-5. **Related Features** - Similar existing implementations
-
-### Part 2: Analysis
-Based on exploration:
-1. **Parse Requirements** - What exactly needs to be built
-2. **Define API Contracts** - Endpoints, request/response formats, which project provides/consumes
-3. **Determine Execution Order** - Which projects first, dependencies
-4. **Pattern Recommendations** - What conventions to follow
-5. **Identify Considerations** - Risks, edge cases
-
-## IMPORTANT: Asking Questions
-
-You have access to the \`ask_planning_question\` tool (via MCP). Use it when:
-- Requirements are ambiguous
-- Multiple valid approaches exist and user preference matters
-- You need domain-specific information not in the code
-- Credentials or external service details are needed
-
-Example:
-\`\`\`
-Use tool: ask_planning_question
-Arguments: {
-  "question": "Should the authentication use JWT tokens or session cookies?",
-  "context": "Both are supported by the existing backend framework"
-}
-\`\`\`
-
-Ask questions ONE AT A TIME. Wait for the answer before asking the next question.
-DO NOT ask more than 3-4 questions total - focus on the most important clarifications.
-
-## Status Reporting
-
-Output status markers as you work:
-[PLANNER_STATUS] {"message": "Exploring backend structure"}
-[PLANNER_STATUS] {"message": "Reading auth module"}
-[PLANNER_STATUS] {"message": "Analyzing API endpoints"}
-
-## Output Format (REQUIRED)
-
-After exploration, analysis, and any Q&A, output:
-
-[EXPLORATION_RESULT] {
-  "projects": {
-    "project-name": {
-      "guidelines": "Summary of guidelines found",
-      "technology": {"framework": "...", "language": "...", "packageManager": "..."},
-      "patterns": {"apiStyle": "...", "stateManagement": "...", "componentStructure": "..."},
-      "keyFiles": ["src/index.ts", "src/app.ts"],
-      "relatedFeatures": ["existing similar feature"]
-    }
-  },
-  "featureRequirements": "Detailed requirements based on exploration and user answers",
-  "apiContracts": [
-    {
-      "endpoint": "/api/example",
-      "method": "POST",
-      "requestBody": "{ field: string }",
-      "responseBody": "{ id: number }",
-      "providedBy": "backend",
-      "consumedBy": ["frontend"]
-    }
-  ],
-  "executionOrder": [
-    {"project": "backend", "reason": "Provides API", "dependsOn": []},
-    {"project": "frontend", "reason": "Consumes API", "dependsOn": ["backend"]}
-  ],
-  "recommendations": {
-    "backend": "Use existing auth middleware pattern",
-    "frontend": "Follow existing form component structure"
-  },
-  "considerations": ["Edge case 1", "Security consideration"],
-  "questionsAsked": [
-    {"question": "What was asked?", "answer": "What user answered"}
-  ],
-  "timestamp": ${Date.now()}
-}
-
-Start by exploring the projects NOW. Use Read, Glob, Grep tools to understand the codebase. Ask clarifying questions if needed. Then output the structured result.`;
-  }
-
-  /**
-   * Phase 2: Plan Generation based on exploration results.
-   * Takes the output from Phase 1 and generates the detailed Plan JSON.
-   */
-  async runPlanGenerationPhase(params: {
-    feature: string;
-    projects: string[];
-    explorationAnalysis: ExplorationAnalysisResult;
-  }): Promise<Plan> {
-    const { feature, projects, explorationAnalysis } = params;
-    const prompt = this.buildPlanGenerationPrompt(feature, projects, explorationAnalysis);
-
-    // 40% of plan creation time for generation phase
-    const result = await this.executeOneShot(
-      prompt,
-      Math.floor(PlanningAgentManager.TIMEOUTS.PLAN_CREATION * 0.4)
-    );
-
-    // Extract plan JSON from the result
-    const planMatch = result.match(/```json\s*(\{[\s\S]*?"feature"[\s\S]*?"tasks"[\s\S]*?\})\s*```/);
-    if (!planMatch) {
-      throw new Error('Plan generation did not produce valid Plan JSON');
-    }
-
-    try {
-      const plan: Plan = JSON.parse(planMatch[1]);
-      return plan;
-    } catch (err) {
-      throw new Error(`Failed to parse Plan JSON: ${err}`);
-    }
-  }
-
-  /**
-   * Builds the prompt for Phase 2: Plan Generation
-   */
-  private buildPlanGenerationPrompt(
-    feature: string,
-    projects: string[],
-    analysis: ExplorationAnalysisResult
-  ): string {
-    // Identify projects with E2E testing disabled
-    const projectsWithoutE2E = projects.filter(p => {
-      const config = this.projectConfig[p];
-      return config && config.hasE2E === false;
-    });
-
-    const e2eExclusionNote = projectsWithoutE2E.length > 0
-      ? `\n\nE2E TESTING EXCLUSIONS:
-The following projects have E2E testing DISABLED:
-${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
-DO NOT include these projects in the "testPlan" section.`
-      : '';
-
-    return `You are generating a detailed implementation plan based on prior exploration and analysis.
-
-## Feature
-${feature}
-
-## Projects
-${projects.join(', ')}${e2eExclusionNote}
-
-## Exploration & Analysis Results
-
-### Feature Requirements (clarified with user)
-${analysis.featureRequirements}
-
-### API Contracts
-${JSON.stringify(analysis.apiContracts, null, 2)}
-
-### Execution Order
-${JSON.stringify(analysis.executionOrder, null, 2)}
-
-### Recommendations by Project
-${Object.entries(analysis.recommendations).map(([p, r]) => `- ${p}: ${r}`).join('\n')}
-
-### Considerations
-${analysis.considerations.map(c => `- ${c}`).join('\n')}
-
-### Questions Asked (context)
-${analysis.questionsAsked.length > 0
-  ? analysis.questionsAsked.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
-  : 'No questions were asked'}
-
-## Your Task
-
-Generate a detailed Plan JSON based on the above analysis. The plan should:
-1. Follow the execution order specified
-2. Use the API contracts exactly as defined
-3. Apply the recommendations for each project
-4. Address all considerations
-
-## Plan JSON Format
-
-\`\`\`json
-{
-  "feature": "Feature name",
-  "description": "Brief description",
-  "overview": "High-level implementation approach",
-  "architecture": "Mermaid diagram (flowchart LR)",
-  "tasks": [
-    {
-      "project": "project-name",
-      "name": "Task name",
-      "task": "## Detailed task description in markdown\\n\\n**Files to create:**\\n- ...\\n\\n**Implementation:**\\n- ..."
-    }
-  ],
-  "testPlan": {
-    "project-name": ["E2E scenario 1", "E2E scenario 2"]
-  },
-  "e2eDependencies": {
-    "frontend": ["backend"]
-  }
-}
-\`\`\`
-
-## Task Requirements
-
-Each task MUST include:
-1. **Files to create/modify** - exact paths
-2. **Implementation details** - functions, classes, components
-3. **For APIs:** endpoints, request body, response format, status codes
-4. **For UIs:** component props, state, behavior
-5. **Dependencies:** what to import or install
-
-## Rules
-- Tasks for DIFFERENT projects run IN PARALLEL
-- Tasks for SAME project run SEQUENTIALLY
-- NO unit tests - only implementation code
-- NO starting dev servers
-- testPlan = E2E scenarios only
-
-Generate the Plan JSON now:`;
   }
 
   /**
@@ -1302,92 +1027,25 @@ ${prompt}`;
 
   /**
    * Requests the Planning Agent to create a plan for a feature.
-   * Uses 2-phase architecture with interactive Q&A via MCP.
-   *
-   * Phase 1: Exploration + Analysis (with MCP for user questions)
-   * Phase 2: Plan Generation (based on Phase 1 results)
+   * Two-phase planning with persistent agent:
+   * - Phase 1: Exploration + analysis (agent calls exploration_complete MCP tool when done)
+   * - Phase 2: Plan generation (agent receives Phase 2 prompt via MCP tool response)
+   * This preserves full context from codebase exploration through to plan creation.
    */
   async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
     const flowId = `planning_${Date.now()}`;
-    const paths = projectPaths || {};
 
-    // Set planning request flag
-    this.isPlanningRequest = true;
-    this.currentPlanningPhase = 'exploring';
-
-    // Emit flow start
-    this.emitFlowStart(flowId);
-
-    try {
-      // ═══════════════════════════════════════════════════════════════
-      // PHASE 1: Exploration + Analysis (with MCP for Q&A)
-      // ═══════════════════════════════════════════════════════════════
-      this.emitFlowStep(flowId, 'explore_analyze', 'active', 'Exploring & Analyzing');
-      const statusExploring: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
-      this.emit('planningStatus', statusExploring);
-
-      let explorationAnalysis: ExplorationAnalysisResult;
-      try {
-        explorationAnalysis = await this.runExplorationAnalysisPhase(feature, projects, paths);
-        this.emitFlowStep(flowId, 'explore_analyze', 'completed', 'Analysis complete');
-        // Emit exploration result for session persistence
-        this.emit('explorationComplete', explorationAnalysis);
-      } catch (err) {
-        // Phase 1 failed - fall back to legacy single-phase planning
-        console.log('[PlanningAgent] Phase 1 failed, falling back to legacy planning:', err);
-        this.emitFlowStep(flowId, 'explore_analyze', 'failed', 'Exploration failed, using fallback');
-
-        // Use legacy single-phase planning
-        await this.requestPlanLegacy(feature, projects, projectPaths);
-        return;
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // PHASE 2: Plan Generation
-      // ═══════════════════════════════════════════════════════════════
-      this.emitFlowStep(flowId, 'generate', 'active', 'Generating plan');
-      this.currentPlanningPhase = 'generating';
-      const statusGenerating: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
-      this.emit('planningStatus', statusGenerating);
-
-      try {
-        const plan = await this.runPlanGenerationPhase({
-          feature,
-          projects,
-          explorationAnalysis
-        });
-
-        this.emitFlowComplete(flowId, 'completed', {
-          passed: true,
-          summary: 'Plan ready for review'
-        });
-
-        const statusComplete: PlanningStatusEvent = { phase: 'complete', message: 'Plan ready!' };
-        this.emit('planningStatus', statusComplete);
-        this.emit('planProposal', plan);
-
-      } catch (err) {
-        this.handlePhaseError(flowId, 'Plan generation', err);
-      }
-
-    } catch (err) {
-      this.emitFlowComplete(flowId, 'failed', {
-        passed: false,
-        summary: 'Planning failed unexpectedly',
-        details: String(err)
-      });
-    } finally {
-      this.isPlanningRequest = false;
-    }
-  }
-
-  /**
-   * Legacy single-phase planning (fallback when 2-phase fails or for simple cases)
-   */
-  private async requestPlanLegacy(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
     // Set planning request flag and emit initial status
     this.isPlanningRequest = true;
     this.currentPlanningPhase = 'exploring';
+
+    // Store context for Phase 2 prompt generation (used when exploration_complete is called)
+    this.pendingPlanContext = { feature, projects, projectPaths, flowId };
+
+    // Emit flow start for UI tracking
+    this.emitFlowStart(flowId);
+    this.emitFlowStep(flowId, 'exploring', 'active', 'Exploring codebase');
+
     const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
     this.emit('planningStatus', initialStatus);
 
@@ -1398,6 +1056,131 @@ ${prompt}`;
       projectInfo = `Available projects and their paths:\n${pathList}`;
     }
 
+    // Build Phase 1 prompt (exploration + analysis)
+    const phase1Prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths || {});
+
+    try {
+      // Run persistent agent - it will call exploration_complete MCP tool when done
+      // The MCP tool handler calls generatePhase2Prompt() and returns Phase 2 prompt
+      const result = await this.executeOneShotWithMCP(
+        phase1Prompt,
+        PlanningAgentManager.TIMEOUTS.PLAN_CREATION,
+        projectPaths
+      );
+
+      // Parse the plan from output and emit planProposal event
+      console.log(`[PlanningAgent] Persistent planning completed, result length: ${result.length}`);
+      this.processOutput(result);
+
+      // Emit flow complete
+      this.emitFlowStep(flowId, 'complete', 'completed', 'Plan created');
+      this.emitFlowComplete(flowId, 'completed', {
+        passed: true,
+        summary: 'Plan ready for review'
+      });
+    } catch (err) {
+      // Emit flow failure
+      this.emitFlowComplete(flowId, 'failed', {
+        passed: false,
+        summary: 'Planning failed',
+        details: String(err)
+      });
+      throw err;
+    } finally {
+      this.isPlanningRequest = false;
+      this.pendingPlanContext = null;
+    }
+  }
+
+  /**
+   * Builds the Phase 1 prompt (exploration + analysis) for persistent planning agent.
+   * Agent explores codebase, asks questions via MCP, then calls exploration_complete when ready.
+   */
+  private buildExplorationAnalysisPrompt(feature: string, projects: string[], projectPaths: Record<string, string>): string {
+    const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
+
+    return `You are an exploration and analysis agent for a multi-project orchestrator.
+
+## Feature to Implement
+${feature}
+
+## Projects
+${projectList}
+
+## Your Task
+
+### Part 1: Exploration
+For each project, discover:
+1. **Guidelines** - Read CLAUDE.md, .claude/development.md, .claude/skills/*.md
+2. **Technology Stack** - package.json, framework, language
+3. **Patterns** - API style, state management, component structure
+4. **Key Files** - Entry points, important modules
+5. **Related Features** - Similar existing implementations
+
+### Part 2: Analysis
+Based on exploration:
+1. **Parse Requirements** - What exactly needs to be built
+2. **Define API Contracts** - Endpoints, request/response formats, which project provides/consumes
+3. **Determine Execution Order** - Which projects first, dependencies
+4. **Pattern Recommendations** - What conventions to follow
+5. **Identify Considerations** - Risks, edge cases
+
+## IMPORTANT: Asking Questions
+
+You have access to the \`ask_planning_question\` tool (via MCP). Use it when:
+- Requirements are ambiguous
+- Multiple valid approaches exist and user preference matters
+- You need domain-specific information not in the code
+- Credentials or external service details are needed
+
+**BATCH YOUR QUESTIONS**: If you have multiple questions, include them ALL in a single tool call.
+The tool accepts a questions array - add all your questions to it at once.
+DO NOT ask more than 3-4 questions total - focus on the most important clarifications.
+
+## Status Reporting
+
+Output status markers as you work:
+[PLANNER_STATUS] {"phase": "exploring", "message": "Exploring backend structure"}
+[PLANNER_STATUS] {"phase": "exploring", "message": "Reading auth module"}
+[PLANNER_STATUS] {"phase": "analyzing", "message": "Analyzing API endpoints"}
+
+## WHEN DONE: Signal Completion
+
+When you have explored enough and analyzed the requirements, call the \`exploration_complete\` tool
+with a summary of your discoveries. This will trigger Phase 2 (plan generation).
+
+Your summary should include:
+- Technologies discovered in each project
+- Patterns to follow
+- API contracts defined
+- Execution order determined
+- Any considerations or edge cases
+
+DO NOT output a plan JSON yet - that happens in Phase 2 after you call exploration_complete.
+
+Start by exploring the projects NOW. Use Read, Glob, Grep tools to understand the codebase.
+Ask clarifying questions if needed. Then call exploration_complete when ready.`;
+  }
+
+  /**
+   * Generates Phase 2 prompt when exploration_complete MCP tool is called.
+   * Called synchronously by the HTTP endpoint handler.
+   */
+  generatePhase2Prompt(explorationSummary: string): string {
+    if (!this.pendingPlanContext) {
+      throw new Error('No pending plan context - exploration_complete called without active planning');
+    }
+
+    const { feature, projects, flowId } = this.pendingPlanContext;
+
+    // Update UI status
+    this.currentPlanningPhase = 'generating';
+    const statusEvent: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
+    this.emit('planningStatus', statusEvent);
+
+    // Update flow step
+    this.emitFlowStep(flowId, 'generating', 'active', 'Generating plan');
+
     // Identify projects with E2E testing disabled
     const projectsWithoutE2E = projects.filter(p => {
       const config = this.projectConfig[p];
@@ -1406,366 +1189,105 @@ ${prompt}`;
 
     const e2eExclusionNote = projectsWithoutE2E.length > 0
       ? `\n\nE2E TESTING EXCLUSIONS:
-The following projects have E2E testing DISABLED (hasE2E: false in config):
+The following projects have E2E testing DISABLED:
 ${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
-
-DO NOT include these projects in the "testPlan" section. Only include projects that have E2E testing enabled.`
+DO NOT include these projects in the "testPlan" section.`
       : '';
 
-    const prompt = `You are a senior software architect planning an implementation.
+    return `## PHASE 2: PLAN GENERATION
 
-## YOUR TASK
-Create a detailed implementation plan for: ${feature}
+You have completed exploration of the codebase. Your exploration summary:
+${explorationSummary}
 
-${projectInfo}${e2eExclusionNote}
+Now generate the implementation plan.
 
-## PHASE 1: EXPLORATION (Required - Do this FIRST)
+**Feature:** ${feature}
+**Projects:** ${projects.join(', ')}${e2eExclusionNote}
 
-Before writing ANY plan, you MUST thoroughly explore the codebase.
+You already have full context from your exploration - you read the files, understand the patterns,
+and have answers to any questions you asked.
 
-**SPEED UP WITH PARALLEL SUBAGENTS:**
-For multi-project features, spawn multiple Task agents simultaneously to explore in parallel:
-- Launch one Explore agent per project (e.g., "Explore frontend structure" + "Explore backend structure")
-- Use quick thoroughness for initial scans
-- Combine findings from all agents before Phase 2
+## Your Task
 
-**What to explore:**
+Generate a detailed Plan JSON based on your exploration. The plan should:
+1. Follow the execution order you determined
+2. Use consistent API contracts across projects
+3. Apply the patterns you discovered for each project
+4. Address all considerations and edge cases
 
-1. **Read Project Guidelines FIRST**
-   - Check for CLAUDE.md or .claude/development.md - these contain project-specific instructions
-   - Check .claude/skills/ directory for specialized skills (e.g., e2e-testing.md)
-   - These files tell you HOW to work with each project
-
-2. **Understand Project Structure**
-   - Use Glob to find key files: "**/{package.json,tsconfig.json,*.config.*}"
-   - Read package.json for dependencies, scripts, and technology stack
-   - Map out the directory structure to understand conventions
-
-3. **Analyze Existing Code Patterns**
-   - Read existing source files to understand conventions
-   - Look for: API patterns, component structure, state management, styling
-   - Check for existing similar features you can follow as examples
-   - Identify the framework/libraries used and their patterns
-
-4. **Identify Integration Points**
-   - How do projects communicate? (REST, GraphQL, gRPC, etc.)
-   - What authentication/authorization exists?
-   - What shared types or contracts exist?
-
-DO NOT SKIP EXPLORATION. Poor plans come from not understanding the codebase.
-DO NOT ASSUME TECHNOLOGIES. Every project may use different frameworks - discover them.
-
-## PHASE 2: ANALYSIS
-
-After exploration, analyze:
-- What patterns should new code follow?
-- What dependencies exist between projects?
-- What's the logical order of implementation?
-
-## CROSS-PROJECT API CONSISTENCY (Critical for Multi-Project Features)
-
-When tasks span multiple projects with API dependencies (e.g., frontend + backend):
-
-1. **Define the API Contract FIRST**
-   - Before writing task descriptions, establish exact endpoint paths, request bodies, and response formats
-   - Use identical naming for fields across all projects (e.g., if backend uses \`userId\`, frontend must also use \`userId\`, not \`user_id\` or \`id\`)
-
-2. **Ensure Consistency Across Tasks**
-   - If backend task says: POST /api/users with body \`{ email, password }\` returning \`{ id, token }\`
-   - Frontend task MUST reference the EXACT same: POST /api/users with \`{ email, password }\` expecting \`{ id, token }\`
-   - Copy-paste endpoint definitions between tasks to avoid typos
-
-3. **Match Data Types and Structures**
-   - If backend returns \`{ user: { id: number, name: string } }\`, frontend must expect exactly that shape
-   - Document nullable fields consistently: if backend can return \`avatar: string | null\`, frontend must handle null
-
-4. **Coordinate Error Responses**
-   - Define error format once (e.g., \`{ message: string, code: string }\`) and use everywhere
-   - List the same status codes in both backend and frontend tasks
-
-5. **Shared Constants**
-   - Use same magic strings, enum values, and status codes across projects
-   - Example: If backend uses status "PENDING", "APPROVED", "REJECTED", frontend must use identical strings
-
-**Example of GOOD cross-project consistency:**
-
-Backend task:
-\`\`\`
-POST /api/auth/login
-Body: { email: string, password: string }
-Success (200): { token: string, user: { id: number, email: string, name: string } }
-Error (401): { message: "Invalid credentials" }
-\`\`\`
-
-Frontend task:
-\`\`\`
-Call POST /api/auth/login with { email, password }
-On 200: Store token, extract user as { id: number, email: string, name: string }
-On 401: Display error.message to user
-\`\`\`
-
-**Example of BAD inconsistency (DO NOT DO THIS):**
-- Backend: \`/api/auth/login\` returns \`{ accessToken, userData }\`
-- Frontend: expects \`/auth/login\` returning \`{ token, user }\`  ← WRONG paths and field names!
-
-## PHASE 3: PLAN CREATION
-
-Only after completing exploration and analysis, create the plan.
-
-CRITICAL RULES:
-- Tasks = IMPLEMENTATION ONLY (write feature code)
-- NO unit tests or test files in tasks - testing is handled separately
-- NO "write tests" or "add test coverage" instructions
-- NO starting dev servers (orchestrator manages these)
-- Testing is handled via E2E after implementation
-- "testPlan" is for E2E scenarios only (automatable tests)
-- Exclude hasE2E: false projects from testPlan
-- Tests MUST be automatable: HTTP requests or browser interactions ONLY
-- DO NOT include WebSocket, Socket.IO, or real-time event tests - these require client libraries and cannot be automated
-- IMPORTANT: Adapt your file paths, patterns, and conventions to match each project's actual technology stack (discovered during exploration)
-
-DATABASE DEFAULTS:
-- If the project already has a database configured, use that existing database
-- When adding a NEW database to a project, default to SQLite unless the user explicitly requests a different one (PostgreSQL, MySQL, MongoDB, etc.)
-- SQLite is simpler to set up, requires no external services, and is perfect for development
-
-## OUTPUT FORMAT
-
-IMPORTANT: The example below shows the STRUCTURE. You MUST adapt file paths, patterns, and technology-specific details to match what you discovered during exploration of each project.
+## Plan JSON Format
 
 \`\`\`json
 {
-  "feature": "User Authentication System",
-  "description": "Allow users to register, login, and access protected resources with JWT tokens",
-  "overview": "Brief description of the implementation approach. Describe the high-level architecture: what each project will do, how they communicate, and the key components involved. Adapt to the actual frameworks/libraries used in each project.",
-  "architecture": "Mermaid diagram showing components, endpoints, and data flow (see guidelines below)",
+  "feature": "Feature name",
+  "description": "Brief description",
+  "overview": "High-level implementation approach",
+  "architecture": "Mermaid diagram (flowchart LR)",
   "tasks": [
     {
-      "project": "api-server",
-      "name": "Create Auth Endpoints",
-      "task": "## Auth API Setup\\n\\n**Files to create:** (use patterns matching the project's existing structure)\\n- Auth controller/router\\n- Auth service/handler\\n- DTOs/validation schemas\\n\\n**Endpoints:**\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success 201: \`{ token: string, user: { id, email, name } }\`\\n- Email exists 409: \`{ message: 'Email already exists' }\`\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success 200: \`{ token: string, user: { id, email, name } }\`\\n- Invalid 401: \`{ message: 'Invalid credentials' }\`\\n\\n**Implementation:**\\n- Use bcrypt for password hashing\\n- JWT for token generation\\n- Follow the project's existing patterns for controllers/services"
-    },
-    {
-      "project": "api-server",
-      "name": "Add Auth Middleware",
-      "task": "## Authentication Middleware\\n\\n**Files to create:** (follow project conventions)\\n- Auth middleware/guard\\n- Token validation utility\\n\\n**Implementation:**\\n- Extract token from Authorization: Bearer header\\n- Verify token signature and expiration\\n- Attach user to request context\\n- Return 401 if token invalid/missing"
-    },
-    {
-      "project": "web-app",
-      "name": "Create Auth State Management",
-      "task": "## Auth State Management\\n\\n**Files to create:** (use patterns matching the project's state management approach)\\n- Auth state/context/store\\n- Auth hooks or utilities\\n\\n**State:**\\n- user: { id, email, name } | null\\n- token: string | null\\n- isLoading: boolean\\n\\n**Methods:**\\n- login(email, password)\\n- register(email, password, name)\\n- logout()\\n\\n**Implementation:**\\n- Store token in localStorage/cookies\\n- Configure API client to include auth header\\n- Follow project's existing state management patterns"
-    },
-    {
-      "project": "web-app",
-      "name": "Create Auth UI",
-      "task": "## Login and Register UI\\n\\n**Files to create:** (follow project's component/page structure)\\n- Login page/component\\n- Register page/component\\n- Shared form component (if applicable)\\n\\n**LoginPage:**\\n- Fields: email, password\\n- On success, redirect to main page\\n- Show error message on failure\\n\\n**RegisterPage:**\\n- Fields: name, email, password, confirm password\\n- Validate passwords match\\n- On success, redirect to main page\\n\\n**Styling:** Use the project's existing UI components/styling approach"
+      "project": "project-name",
+      "name": "Task name",
+      "task": "## Detailed task description in markdown\\n\\n**Files to create:**\\n- ...\\n\\n**Implementation:**\\n- ..."
     }
   ],
   "testPlan": {
-    "api-server": [
-      "Register with valid data returns 201 and JWT token",
-      "Register with existing email returns 409",
-      "Login with valid credentials returns 200 and JWT token",
-      "Login with wrong password returns 401",
-      "Protected route without token returns 401",
-      "Protected route with valid token returns 200"
-    ],
-    "web-app": [
-      "User can register with valid form data",
-      "User sees error when registering with existing email",
-      "User can login with valid credentials",
-      "User sees error with invalid login",
-      "User is redirected to dashboard after login",
-      "User can logout and is redirected to login page"
-    ]
+    "project-name": ["E2E scenario 1", "E2E scenario 2"]
   },
   "e2eDependencies": {
-    "web-app": ["api-server"]
+    "frontend": ["backend"]
   }
 }
 \`\`\`
 
-NOTE: Replace "api-server" and "web-app" with the actual project names from the session. The task file paths should follow each project's existing conventions discovered during exploration.
+## Task Requirements
 
-## ARCHITECTURE DIAGRAM
-
-Create a Mermaid flowchart showing component interactions (use actual project names):
-
-\`\`\`mermaid
-flowchart LR
-    subgraph WebApp[Web Application]
-        UI[Auth UI] --> State[Auth State]
-        State --> Client[API Client]
-    end
-
-    subgraph APIServer[API Server]
-        Routes[Auth Routes] --> Service[Auth Service]
-        Service --> DB[(Database)]
-    end
-
-    Client -->|POST /auth/login| Routes
-    Client -->|POST /auth/register| Routes
-    Routes -->|JWT token| Client
-\`\`\`
-
-Guidelines:
-- Use flowchart LR (left-to-right) for horizontal layouts
-- Label edges with key endpoints (method + path)
-- Keep to 5-10 nodes maximum
-- Use appropriate shapes: [] for services, [()] for databases, {} for decisions
-- Use subgraphs to group components by project/layer
-
-## SECRET/CREDENTIAL DETECTION
-
-When analyzing a feature request, identify if it requires:
-- OAuth credentials (client_id, client_secret)
-- API keys (third-party services like Stripe, SendGrid, Twilio, etc.)
-- Database credentials (if not already configured)
-- Any environment variables that need user-provided values
-
-If secrets are required, generate a \`user_action\` task as the FIRST task before any implementation tasks:
-
-\`\`\`json
-{
-  "project": "<project-name>",
-  "name": "Configure [Service] Credentials",
-  "task": "User must provide required credentials before implementation can proceed.",
-  "type": "user_action",
-  "userAction": {
-    "prompt": "To implement [feature], you need to provide the following credentials. You can get these from [instructions on where to find them].",
-    "inputs": [
-      {
-        "name": "API_KEY_NAME",
-        "label": "Human Readable Label",
-        "description": "Where to find this value and what it's used for",
-        "sensitive": true,
-        "required": true,
-        "helpUrl": "https://example.com/docs/api-keys"
-      }
-    ]
-  }
-}
-\`\`\`
-
-### Common Secret Patterns:
-
-**Google OAuth:**
-\`\`\`json
-{
-  "project": "<project-name>",
-  "name": "Configure Google OAuth Credentials",
-  "task": "User must provide Google OAuth credentials.",
-  "type": "user_action",
-  "userAction": {
-    "prompt": "To implement Google OAuth, create OAuth 2.0 credentials in Google Cloud Console.",
-    "inputs": [
-      {
-        "name": "GOOGLE_CLIENT_ID",
-        "label": "Google Client ID",
-        "description": "OAuth 2.0 Client ID from Google Cloud Console",
-        "sensitive": false,
-        "required": true,
-        "helpUrl": "https://console.cloud.google.com/apis/credentials"
-      },
-      {
-        "name": "GOOGLE_CLIENT_SECRET",
-        "label": "Google Client Secret",
-        "description": "OAuth 2.0 Client Secret",
-        "sensitive": true,
-        "required": true
-      }
-    ]
-  }
-}
-\`\`\`
-
-**Stripe:**
-- STRIPE_SECRET_KEY (sensitive), STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET (sensitive)
-
-**SendGrid/Email:**
-- SENDGRID_API_KEY (sensitive), SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD (sensitive)
-
-**AWS:**
-- AWS_ACCESS_KEY_ID (sensitive), AWS_SECRET_ACCESS_KEY (sensitive), AWS_REGION
-
-IMPORTANT: Always use "type": "user_action" for credential collection tasks. These tasks will pause execution and show a form to the user.
-
-## TASK REQUIREMENTS
-
-Each task MUST be detailed enough for an AI agent to implement without asking questions:
-
-**Required in each task description:**
-1. **Files to create/modify** - use paths matching project's existing conventions
-2. **Implementation details** - what functions, classes, or components to create
+Each task MUST include:
+1. **Files to create/modify** - exact paths matching project conventions
+2. **Implementation details** - functions, classes, components
 3. **For APIs:** endpoints, request body, response format, status codes
-4. **For UIs:** component props, state, UI behavior
+4. **For UIs:** component props, state, behavior
 5. **Dependencies:** what to import or install
 
-GOOD task example:
+## Secret/Credential Detection
+
+If the feature requires credentials (OAuth, API keys, etc.), create a "user_action" task FIRST:
 \`\`\`json
 {
-  "project": "api-server",
-  "name": "Create Auth Controller",
-  "task": "## Auth Controller\\n\\n**Files to create:** (use project's existing conventions)\\n- Auth controller/router file\\n- Auth service/handler file\\n- DTOs/validation schemas\\n\\n**Endpoints:**\\n\\n### POST /auth/login\\n- Body: \`{ email: string, password: string }\`\\n- Success (200): \`{ token: string, user: { id, email, name } }\`\\n- Invalid credentials (401): \`{ message: 'Invalid credentials' }\`\\n\\n### POST /auth/register\\n- Body: \`{ email: string, password: string, name: string }\`\\n- Success (201): \`{ token: string, user: { id, email, name } }\`\\n- Email exists (409): \`{ message: 'Email already registered' }\`\\n\\n**Implementation notes:**\\n- Use bcrypt for password hashing (cost factor 10)\\n- JWT token expires in 7 days\\n- Validate email format and password min 8 chars"
+  "project": "project-name",
+  "name": "Configure Credentials",
+  "task": "User must provide credentials.",
+  "type": "user_action",
+  "userAction": {
+    "prompt": "Instructions for user",
+    "inputs": [{ "name": "API_KEY", "label": "Label", "sensitive": true, "required": true }]
+  }
 }
 \`\`\`
 
-BAD task (too vague - DO NOT do this):
-\`\`\`json
-{
-  "project": "api-server",
-  "name": "Add auth",
-  "task": "Create authentication endpoints"
-}
-\`\`\`
-
-## EXECUTION RULES
+## Rules
 - Tasks for DIFFERENT projects run IN PARALLEL
-- Tasks for the SAME project run SEQUENTIALLY (order matters!)
-- Group related tasks by project
+- Tasks for SAME project run SEQUENTIALLY
 - NO unit tests - only implementation code
-- NO starting dev servers - orchestrator handles this
+- NO starting dev servers
+- testPlan = E2E scenarios only
+- Tests MUST be automatable: HTTP requests or browser interactions ONLY
+- DO NOT include WebSocket, Socket.IO, or real-time event tests
 
-## TEST PLAN
-- testPlan contains E2E scenarios only (automated tests)
-- Each scenario = user-facing behavior to verify
-- Only include projects with hasE2E: true
-- E2E runs AFTER all tasks complete
+## Architecture Diagram
 
-**E2E DEPENDENCIES (e2eDependencies):**
-- Specify which project's E2E tests must pass BEFORE another project's E2E tests can run
-- Format: "e2eDependencies": { "projectA": ["projectB", "projectC"] } means projectA waits for B and C
-- Example: Frontend usually depends on backend (frontend E2E needs backend API working)
-- Consider the actual data flow: if project X calls project Y's API, X depends on Y
-- Leave empty {} if all projects can run E2E tests in parallel
+Include a Mermaid flowchart showing component interactions:
+\`\`\`mermaid
+flowchart LR
+    subgraph Frontend
+        UI --> State
+    end
+    subgraph Backend
+        API --> DB[(Database)]
+    end
+    State -->|POST /api| API
+\`\`\`
 
-**IMPORTANT - TEST AUTOMATION CONSTRAINTS:**
-- Tests MUST be automatable with: Playwright (browser), curl (HTTP), or basic shell commands
-- DO NOT include tests for: WebSockets, Socket.IO, GraphQL subscriptions, or any real-time/push features
-- DO NOT include tests requiring client libraries (ws, socket.io-client, etc.)
-- If a feature involves real-time updates, test the REST API endpoints only (e.g., "POST /messages creates message" not "WebSocket receives message event")
-- Focus on request/response patterns that can be verified with curl or browser navigation
-- **EXCEPTION**: If the project's e2e testing rules specifiy custom testing tools/capabilities, follow those instructions instead
-
-## STATUS REPORTING
-
-As you work, output status markers so the user knows what you're doing:
-[PLANNER_STATUS] {"message": "Brief description of current step"}
-
-Examples:
-[PLANNER_STATUS] {"message": "Exploring backend structure"}
-[PLANNER_STATUS] {"message": "Reading auth module"}
-[PLANNER_STATUS] {"message": "Analyzing API endpoints"}
-[PLANNER_STATUS] {"message": "Designing task breakdown"}
-[PLANNER_STATUS] {"message": "Creating test plan"}
-
-Output a status marker before starting each significant step.
-
-## BEGIN
-
-Start with PHASE 1: Use Glob and Read tools to explore each project NOW. Then proceed to create the plan.`;
-
-    await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.PLAN_CREATION);
+Generate the Plan JSON now:`;
   }
 
   /**

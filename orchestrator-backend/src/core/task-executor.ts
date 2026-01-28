@@ -494,6 +494,7 @@ Please fix the issue and try again.`;
 
     // Mark project as working and first task as working
     this.statusMonitor.updateStatus(project, 'WORKING', 'Starting persistent session...');
+    
     if (tasks.length > 0) {
       this.statusMonitor.updateTaskStatus(tasks[0].taskIndex, 'working', 'Agent implementing...');
       this.stateMachine.markAgentActive(project);
