@@ -574,6 +574,30 @@ Please fix the issue and try again.`;
 
     const { task } = taskEntry;
 
+    // Check if task is already completed - don't re-verify
+    const taskState = this.statusMonitor.getTaskState(taskIndex);
+    if (taskState?.status === 'completed') {
+      console.log(`[TaskExecutor] Task #${taskIndex} is already completed, skipping re-verification`);
+      // Find next incomplete task for this project
+      const nextTaskEntry = allTasks.find(t => {
+        const state = this.statusMonitor.getTaskState(t.taskIndex);
+        return state?.status !== 'completed' && t.taskIndex !== taskIndex;
+      });
+      if (nextTaskEntry) {
+        return {
+          status: 'next_task',
+          nextTask: {
+            index: nextTaskEntry.taskIndex,
+            name: nextTaskEntry.task.name || `Task ${nextTaskEntry.taskIndex}`,
+            description: nextTaskEntry.task.task,
+            project,
+          },
+        };
+      }
+      // All tasks complete
+      return { status: 'all_complete' };
+    }
+
     // Store summary for context
     if (!this.taskSummaries.has(project)) {
       this.taskSummaries.set(project, []);

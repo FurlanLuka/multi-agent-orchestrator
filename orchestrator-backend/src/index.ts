@@ -700,6 +700,11 @@ After fixing, the E2E tests will be re-run automatically.`;
           // Initialize task state in UI
           statusMonitor.initializeTask(fixTaskIndex, fixTask);
 
+          // Add to allTasksByProject so task_complete handler can find it
+          const existingTasks = allTasksByProject.get(targetProject) || [];
+          existingTasks.push({ task: fixTask, taskIndex: fixTaskIndex });
+          allTasksByProject.set(targetProject, existingTasks);
+
           // Emit updated session so UI shows the new fix task
           const updatedSession = sessionManager.getCurrentSession();
           if (updatedSession) {
