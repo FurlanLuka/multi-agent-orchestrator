@@ -26,6 +26,7 @@ import type {
   RequestFlow,
   FlowStep,
   FlowStatus,
+  FlowType,
   PermissionPrompt,
   PlanningQuestion,
   WorkspaceConfig,
@@ -485,7 +486,7 @@ export function useSocket() {
     socket.on('flowUpdate', ({ flowId, result, type }: {
       flowId: string;
       result: { passed: boolean; summary?: string; details?: string };
-      type?: string;
+      type?: FlowType;
     }) => {
       setFlows(prev => prev.map(f => {
         if (f.id !== flowId) return f;
