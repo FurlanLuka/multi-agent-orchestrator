@@ -18,6 +18,8 @@ const DELIMITER = '_SHELL_ENV_DELIMITER_';
 
 // Cache for shell env (per process lifetime)
 let cachedShellEnv: Record<string, string> | null = null;
+// Promise cache to prevent race conditions during concurrent calls
+let pendingShellEnvPromise: Promise<Record<string, string>> | null = null;
 
 /**
  * Get the user's default shell
@@ -120,6 +122,11 @@ export async function getShellEnv(forceRefresh = false): Promise<Record<string, 
     return cachedShellEnv;
   }
 
+  // If a capture is already in progress, wait for it (prevents race condition)
+  if (pendingShellEnvPromise && !forceRefresh) {
+    return pendingShellEnvPromise;
+  }
+
   if (process.platform === 'win32') {
     return process.env as Record<string, string>;
   }
@@ -132,28 +139,35 @@ export async function getShellEnv(forceRefresh = false): Promise<Record<string, 
 
   console.log(`[shell-env] Capturing env from ${shell}...`);
 
-  try {
-    // Use -l (login) and -i (interactive) flags to ensure all shell configs load (especially nvm)
-    const { stdout } = await execAsync(`${shell} -l -i -c '${command}'`, {
-      env: getMinimalEnv(),
-      timeout: 15000,
-      maxBuffer: 10 * 1024 * 1024,
-    });
+  // Create and store the promise to prevent concurrent captures
+  pendingShellEnvPromise = (async () => {
+    try {
+      // Use -l (login) and -i (interactive) flags to ensure all shell configs load (especially nvm)
+      const { stdout } = await execAsync(`${shell} -l -i -c '${command}'`, {
+        env: getMinimalEnv(),
+        timeout: 15000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
 
-    const env = parseEnv(stdout);
+      const env = parseEnv(stdout);
 
-    if (env.PATH) {
-      console.log(`[shell-env] Captured PATH (first 150 chars): ${env.PATH.substring(0, 150)}...`);
+      if (env.PATH) {
+        console.log(`[shell-env] Captured PATH (first 150 chars): ${env.PATH.substring(0, 150)}...`);
+      }
+
+      // Cache it
+      cachedShellEnv = env;
+      return env;
+    } catch (error: any) {
+      console.error(`[shell-env] Failed to capture shell env: ${error.message}`);
+      // Fall back to process.env
+      return process.env as Record<string, string>;
+    } finally {
+      pendingShellEnvPromise = null;
     }
+  })();
 
-    // Cache it
-    cachedShellEnv = env;
-    return env;
-  } catch (error: any) {
-    console.error(`[shell-env] Failed to capture shell env: ${error.message}`);
-    // Fall back to process.env
-    return process.env as Record<string, string>;
-  }
+  return pendingShellEnvPromise;
 }
 
 /**
@@ -161,6 +175,7 @@ export async function getShellEnv(forceRefresh = false): Promise<Record<string, 
  */
 export function clearShellEnvCache(): void {
   cachedShellEnv = null;
+  pendingShellEnvPromise = null;
   console.log('[shell-env] Cache cleared');
 }
 

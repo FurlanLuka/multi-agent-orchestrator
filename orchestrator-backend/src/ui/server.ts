@@ -285,6 +285,15 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Emit planning status - awaiting approval (chat unlocks)
     io.emit('planningStatus', { phase: 'awaiting_approval', message: 'Plan ready for review' });
 
+    // Complete the planning flow with "Plan ready for review" BEFORE blocking for approval
+    // This ensures correct timeline order (flow completes, then gets updated on approval)
+    if (currentPlanningFlowId) {
+      emitFlowComplete(currentPlanningFlowId, 'completed', {
+        passed: true,
+        summary: 'Plan ready for review'
+      });
+    }
+
     // Emit plan approval event to frontend
     io.emit('planApproval', { approvalId, plan } as PlanApprovalEvent);
 
@@ -686,6 +695,10 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Emit flow start event (begins a new tracked flow)
   const emitFlowStart = (flow: RequestFlow) => {
+    // Track planning flows for approval coordination
+    if (flow.type === 'planning') {
+      currentPlanningFlowId = flow.id;
+    }
     io.emit('flowStart', flow);
   };
 
@@ -699,6 +712,11 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     io.emit('flowComplete', { flowId, status, result, timestamp: Date.now() });
   };
 
+  // Emit flow update event (updates an existing flow's result/summary and optionally type)
+  const emitFlowUpdate = (flowId: string, result: { passed: boolean; summary?: string; details?: string }, type?: string) => {
+    io.emit('flowUpdate', { flowId, result, type, timestamp: Date.now() });
+  };
+
   // Emit instant flow (already completed - goes straight to history)
   // This is for events like "Plan Approved" that don't need an active state
   const emitInstantFlow = (flow: Omit<RequestFlow, 'status' | 'completedAt'> & { result?: { passed: boolean; summary?: string; details?: string } }) => {
@@ -709,6 +727,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     };
     io.emit('flowStart', completeFlow);  // Emit as flowStart so frontend processes it
   };
+
+  // Track the current planning flow ID for coordinating plan approval
+  let currentPlanningFlowId: string | null = null;
 
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
@@ -726,7 +747,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   (io as any).emitFlowStart = emitFlowStart;
   (io as any).emitFlowStep = emitFlowStep;
   (io as any).emitFlowComplete = emitFlowComplete;
+  (io as any).emitFlowUpdate = emitFlowUpdate;
   (io as any).emitInstantFlow = emitInstantFlow;
+  (io as any).getCurrentPlanningFlowId = () => currentPlanningFlowId;
 
   return {
     app,

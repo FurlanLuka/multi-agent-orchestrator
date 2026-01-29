@@ -1801,17 +1801,15 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         (ui.io as any).emitSession(updatedSession);
       }
 
-      // Emit plan approved as instant flow (goes straight to history as green card)
-      (ui.io as any).emitInstantFlow({
-        id: `plan_approved_${Date.now()}`,
-        type: 'success',
-        startedAt: Date.now(),
-        steps: [],
-        result: {
+      // Update the planning flow to show "Plan approved" (mutates existing flow)
+      // Change type to 'success' so it shows green with checkmark
+      const planningFlowId = (ui.io as any).getCurrentPlanningFlowId?.();
+      if (planningFlowId) {
+        (ui.io as any).emitFlowUpdate(planningFlowId, {
           passed: true,
           summary: `Plan approved: "${plan.feature}" - ${plan.tasks.length} tasks across ${new Set(plan.tasks.map(t => t.project)).size} projects`
-        }
-      });
+        }, 'success');
+      }
 
       chatHandler.systemMessage('Plan approved! Ready to start execution.');
     });

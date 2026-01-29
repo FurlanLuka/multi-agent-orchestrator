@@ -1,14 +1,13 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs';
 import { getShellEnv, clearShellEnvCache, execWithShellEnv } from '../utils/shell-env';
-
-const execAsync = promisify(exec);
 
 // Re-export for backwards compatibility
 export { getShellEnv, clearShellEnvCache };
+
+// Cache for deduplicating concurrent dependency checks
+let pendingCheckPromise: Promise<DependencyCheckResult> | null = null;
+let cachedCheckResult: DependencyCheckResult | null = null;
+const CACHE_TTL = 30000; // 30 seconds
 
 /**
  * Execute command with user's shell environment
@@ -36,55 +35,23 @@ export interface DependencyCheckResult {
 
 /**
  * Check if Claude Code CLI is installed and accessible
+ * Uses pre-warmed shell env cache to avoid redundant shell spawns
  */
-async function checkClaudeCode(): Promise<DependencyResult> {
+async function checkClaudeCode(shellEnv: Record<string, string>): Promise<DependencyResult> {
   const installGuide = getClaudeCodeInstallGuide();
-  const shell = process.env.SHELL || '/bin/bash';
+  const shell = shellEnv.SHELL || process.env.SHELL || '/bin/bash';
   const debugLines: string[] = [];
 
   debugLines.push(`Shell: ${shell}`);
   debugLines.push(`HOME: ${os.homedir()}`);
-  debugLines.push(`Process PATH: ${process.env.PATH?.substring(0, 150)}...`);
+  debugLines.push(`Shell PATH: ${shellEnv.PATH?.substring(0, 150) || 'not set'}...`);
 
   console.log('[DependencyCheck] Checking for Claude CLI...');
-  console.log(`[DependencyCheck] Using shell: ${shell}`);
-  console.log(`[DependencyCheck] HOME: ${os.homedir()}`);
-  console.log(`[DependencyCheck] Current PATH: ${process.env.PATH?.substring(0, 200)}...`);
 
   try {
-    // First, try to get the shell's PATH to debug (use -l -i for full env)
-    let shellPath = '';
-    try {
-      const { stdout: pathOutput } = await execAsync(`${shell} -l -i -c "echo \\$PATH"`, {
-        timeout: 5000,
-        env: { ...process.env, HOME: os.homedir() },
-      });
-      shellPath = pathOutput.trim();
-      debugLines.push(`Shell PATH (-l -i): ${shellPath.substring(0, 150)}...`);
-      console.log(`[DependencyCheck] Shell PATH: ${shellPath.substring(0, 200)}...`);
-    } catch (pathErr: any) {
-      debugLines.push(`Shell PATH error: ${pathErr.message}`);
-      console.log(`[DependencyCheck] Failed to get shell PATH: ${pathErr.message}`);
-    }
-
-    // Try to find claude using 'which' first
-    let whichResult = '';
-    try {
-      const { stdout: whichOutput } = await execAsync(`${shell} -l -i -c "which claude"`, {
-        timeout: 5000,
-        env: { ...process.env, HOME: os.homedir() },
-      });
-      whichResult = whichOutput.trim();
-      debugLines.push(`which claude: ${whichResult}`);
-      console.log(`[DependencyCheck] 'which claude' returned: ${whichResult}`);
-    } catch (whichErr: any) {
-      debugLines.push(`which claude: not found (${whichErr.message})`);
-      console.log(`[DependencyCheck] 'which claude' failed: ${whichErr.message}`);
-    }
-
     // Use login shell to get user's full PATH (nvm, homebrew, etc.)
     const { stdout } = await execWithUserPath('claude --version', 10000);
-    console.log(`[DependencyCheck] Claude version output: ${stdout.trim()}`);
+    console.log(`[DependencyCheck] Claude version: ${stdout.trim()}`);
 
     // Parse version from output (format: "claude version X.Y.Z" or similar)
     const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
@@ -103,10 +70,7 @@ async function checkClaudeCode(): Promise<DependencyResult> {
       debugLines.push(`Stderr: ${err.stderr}`);
     }
 
-    console.log(`[DependencyCheck] Claude check failed:`);
-    console.log(`[DependencyCheck]   Error code: ${err.code}`);
-    console.log(`[DependencyCheck]   Error message: ${err.message}`);
-    console.log(`[DependencyCheck]   Stderr: ${err.stderr || 'none'}`);
+    console.log(`[DependencyCheck] Claude check failed: ${err.message}`);
 
     // Check specific error types
     if (err.code === 'ENOENT' || (err.message && err.message.includes('not found'))) {
@@ -265,33 +229,64 @@ function getGitInstallGuide(): string {
 }
 
 /**
- * Run all dependency checks
+ * Run all dependency checks (with deduplication for concurrent requests)
  */
 export async function checkDependencies(): Promise<DependencyCheckResult> {
-  const dependencies = await Promise.all([
-    checkClaudeCode(),
-    checkNodeJs(),
-    checkGit(),
-    checkGitHubCLI(),
-  ]);
+  // Return cached result if still valid
+  if (cachedCheckResult && Date.now() - cachedCheckResult.timestamp < CACHE_TTL) {
+    console.log('[DependencyCheck] Returning cached result');
+    return cachedCheckResult;
+  }
 
-  // gh is optional, so only check critical deps for allAvailable
-  const criticalDeps = dependencies.filter(d => d.name !== 'GitHub CLI');
-  const allAvailable = criticalDeps.every((d) => d.available);
+  // If a check is already in progress, wait for it
+  if (pendingCheckPromise) {
+    console.log('[DependencyCheck] Check already in progress, waiting...');
+    return pendingCheckPromise;
+  }
 
-  return {
-    allAvailable,
-    dependencies,
-    platform: os.platform(),
-    timestamp: Date.now(),
-  };
+  // Create and store the promise to deduplicate concurrent calls
+  pendingCheckPromise = (async () => {
+    try {
+      // Pre-warm shell env cache (single call, shared by all checks)
+      console.log('[DependencyCheck] Pre-warming shell environment...');
+      const shellEnv = await getShellEnv();
+
+      const dependencies = await Promise.all([
+        checkClaudeCode(shellEnv),
+        checkNodeJs(),
+        checkGit(),
+        checkGitHubCLI(),
+      ]);
+
+      // gh is optional, so only check critical deps for allAvailable
+      const criticalDeps = dependencies.filter(d => d.name !== 'GitHub CLI');
+      const allAvailable = criticalDeps.every((d) => d.available);
+
+      const result: DependencyCheckResult = {
+        allAvailable,
+        dependencies,
+        platform: os.platform(),
+        timestamp: Date.now(),
+      };
+
+      // Cache the result
+      cachedCheckResult = result;
+      return result;
+    } finally {
+      pendingCheckPromise = null;
+    }
+  })();
+
+  return pendingCheckPromise;
 }
 
 /**
  * Check only critical dependencies (Claude Code)
  */
 export async function checkCriticalDependencies(): Promise<DependencyCheckResult> {
-  const claudeResult = await checkClaudeCode();
+  // Pre-warm shell env cache
+  const shellEnv = await getShellEnv();
+  const claudeResult = await checkClaudeCode(shellEnv);
 
   return {
     allAvailable: claudeResult.available,

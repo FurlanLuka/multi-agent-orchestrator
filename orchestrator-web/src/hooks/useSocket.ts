@@ -480,6 +480,19 @@ export function useSocket() {
       }));
     });
 
+    // Flow update: Update an existing flow's result and optionally type
+    // Used to mutate completed flows (e.g., "Plan ready for review" → "Plan approved")
+    socket.on('flowUpdate', ({ flowId, result, type }: {
+      flowId: string;
+      result: { passed: boolean; summary?: string; details?: string };
+      type?: string;
+    }) => {
+      setFlows(prev => prev.map(f => {
+        if (f.id !== flowId) return f;
+        return { ...f, result, ...(type ? { type } : {}) };
+      }));
+    });
+
     // Test status events for real-time E2E test tracking
     socket.on('testStatus', (event: TestStatusEvent) => {
       setTestStates(prev => {

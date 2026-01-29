@@ -267,8 +267,8 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
     <GlassCard
       p="sm"
       style={{
-        backgroundColor: `rgba(245, 133, 101, 0.08)`,
-        borderColor: `rgba(245, 133, 101, 0.2)`,
+        backgroundColor: 'rgba(160, 130, 110, 0.06)',
+        borderColor: 'rgba(160, 130, 110, 0.15)',
       }}
     >
       {/* Current active step with spinner - shown when no question pending */}
@@ -277,7 +277,7 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
           <Group gap="sm" justify="space-between" wrap="nowrap">
             <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
               <Loader size={16} color={color} />
-              <Text size="sm" style={{ color: 'var(--color-primary)' }}>
+              <Text size="sm" style={{ color: 'var(--text-body)' }}>
                 {statusMessage}
               </Text>
             </Group>
@@ -300,8 +300,8 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
         <Stack gap="xs">
           <Group gap="xs" justify="space-between">
             <Group gap="xs">
-              <IconQuestionMark size={16} style={{ color: 'var(--color-primary)' }} />
-              <Text size="sm" fw={500} style={{ color: 'var(--color-primary)' }}>
+              <IconQuestionMark size={16} style={{ color: 'var(--text-heading)' }} />
+              <Text size="sm" fw={500} style={{ color: 'var(--text-heading)' }}>
                 Clarification Needed
               </Text>
             </Group>

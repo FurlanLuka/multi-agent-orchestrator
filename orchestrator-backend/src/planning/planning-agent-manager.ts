@@ -1038,12 +1038,11 @@ ${prompt}`;
       console.log(`[PlanningAgent] Persistent planning completed, result length: ${result.length}`);
       this.processOutput(result);
 
-      // Emit flow complete
+      // Mark final step as complete
+      // Note: The flow is completed by /api/plan-approval when plan is submitted,
+      // before blocking for user approval. This ensures the flow shows all steps
+      // and gets updated to "Plan approved" when user approves.
       this.emitFlowStep(flowId, 'complete', 'completed', 'Plan created');
-      this.emitFlowComplete(flowId, 'completed', {
-        passed: true,
-        summary: 'Plan ready for review'
-      });
     } catch (err) {
       // Emit flow failure
       this.emitFlowComplete(flowId, 'failed', {

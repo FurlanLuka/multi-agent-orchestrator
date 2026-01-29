@@ -1,5 +1,5 @@
 import { Group, Badge, Text, Stack, Button } from '@mantine/core';
-import { IconCheck, IconMessage } from '@tabler/icons-react';
+import { IconClipboardList, IconMessage } from '@tabler/icons-react';
 import type { Plan } from '@aio/types';
 import { TabbedPlanView } from './TabbedPlanView';
 import { GlassCard } from '../theme';
@@ -18,20 +18,20 @@ export function PlanApprovalCard({ plan, onApprove }: PlanApprovalCardProps) {
     <GlassCard
       p="sm"
       style={{
-        backgroundColor: 'rgba(74, 145, 73, 0.08)',
-        borderColor: 'rgba(74, 145, 73, 0.25)',
+        backgroundColor: 'rgba(160, 130, 110, 0.06)',
+        borderColor: 'rgba(160, 130, 110, 0.15)',
       }}
     >
       <Stack gap="md">
         {/* Header */}
         <Group gap="sm" justify="space-between">
           <Group gap="sm">
-            <IconCheck size={20} style={{ color: 'var(--color-success)' }} />
-            <Text size="sm" fw={600} style={{ color: 'var(--color-success)' }}>
+            <IconClipboardList size={20} style={{ color: 'var(--text-heading)' }} />
+            <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>
               Plan Ready for Review
             </Text>
           </Group>
-          <Badge size="sm" variant="light" color="sage">
+          <Badge size="sm" variant="light" color="gray">
             {taskCount} task{taskCount !== 1 ? 's' : ''} · {projectCount} project{projectCount !== 1 ? 's' : ''}
           </Badge>
         </Group>
@@ -56,7 +56,7 @@ export function PlanApprovalCard({ plan, onApprove }: PlanApprovalCardProps) {
         <Group justify="flex-end">
           <Button
             variant="filled"
-            color="sage"
+            color="peach"
             size="sm"
             onClick={onApprove}
           >
