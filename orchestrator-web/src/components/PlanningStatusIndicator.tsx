@@ -1,6 +1,6 @@
 import { Card, Group, Text, Loader, Badge, Button, Stack } from '@mantine/core';
 import { IconAlertCircle, IconRefresh } from '@tabler/icons-react';
-import type { PlanningStatusEvent } from '@aio/types';
+import type { PlanningStatusEvent } from '@orchy/types';
 
 interface Props {
   status: PlanningStatusEvent;

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import { LogEntry } from '@aio/types';
+import { LogEntry } from '@orchy/types';
 import { SessionStore } from './session-store';
 
 export class LogAggregator extends EventEmitter {

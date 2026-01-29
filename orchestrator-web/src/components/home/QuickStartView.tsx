@@ -101,7 +101,7 @@ export function QuickStartView({
                 {i < selectedTemplates.length - 1 && ' and '}
               </span>
             ))}
-            {' '}in ~/Documents/aio-{appName}/
+            {' '}in ~/orchy/{appName}/
           </Text>
         )}
 

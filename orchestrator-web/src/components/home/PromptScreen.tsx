@@ -10,7 +10,7 @@ import {
   Loader,
 } from '@mantine/core';
 import { IconArrowLeft, IconRocket, IconGitBranch, IconSettings } from '@tabler/icons-react';
-import type { WorkspaceConfig, ProjectConfig } from '@aio/types';
+import type { WorkspaceConfig, ProjectConfig } from '@orchy/types';
 import { GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
 
 interface PromptScreenProps {

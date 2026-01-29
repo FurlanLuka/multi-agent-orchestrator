@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '@aio/types';
+import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '@orchy/types';
 import { SessionStore } from './session-store';
-import { getHookTemplatesDir } from '../config/paths';
+import { getHookTemplatesDir, ensureProjectSessionDir, getProjectSessionDir } from '../config/paths';
 
 export class SessionManager {
   private config: Config;
@@ -40,7 +40,7 @@ export class SessionManager {
     // Persist to SessionStore
     this.sessionStore.createSession(id, feature, projects);
 
-    // Create session directories in each project
+    // Create centralized session directories and install hooks in each project
     for (const projectName of projects) {
       const projectConfig = this.config.projects[projectName];
       if (!projectConfig) {
@@ -49,19 +49,18 @@ export class SessionManager {
       }
 
       const projectPath = this.expandPath(projectConfig.path);
-      const sessionDir = path.join(projectPath, '.aio', `session_${id}`);
 
-      // Create directories
-      fs.mkdirSync(path.join(sessionDir, 'outbox'), { recursive: true });
-      fs.mkdirSync(path.join(sessionDir, 'logs'), { recursive: true });
+      // Create centralized project session directory
+      // Path: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
+      const sessionDir = ensureProjectSessionDir(id, projectName);
 
-      // Set up Claude Code hooks via .claude/settings.json
+      // Set up Claude Code hooks via .claude/settings.json (only thing we add to project)
       this.ensureHooksConfigured(projectPath);
 
       // Copy hook scripts to project's .claude/hooks/ directory
       this.ensureHookScripts(projectPath);
 
-      // Create initial status file
+      // Create initial status file in centralized location
       fs.writeFileSync(
         path.join(sessionDir, 'status.json'),
         JSON.stringify({
@@ -71,7 +70,7 @@ export class SessionManager {
         }, null, 2)
       );
 
-      // Create metadata
+      // Create metadata in centralized location
       fs.writeFileSync(
         path.join(sessionDir, 'metadata.json'),
         JSON.stringify({
@@ -83,7 +82,7 @@ export class SessionManager {
         }, null, 2)
       );
 
-      console.log(`[SessionManager] Created session directory for ${projectName}: ${sessionDir}`);
+      console.log(`[SessionManager] Created centralized session directory for ${projectName}: ${sessionDir}`);
     }
 
     // Register session globally (legacy - kept for compatibility)
@@ -115,23 +114,23 @@ export class SessionManager {
     // Create .claude directory if it doesn't exist
     fs.mkdirSync(claudeDir, { recursive: true });
 
-    // Define hook configuration (aio- prefix identifies AIO Orchestrator hooks)
+    // Define hook configuration (orchy- prefix identifies Orchy hooks)
     const hookConfig: HookConfig = {
       hooks: {
         Stop: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/aio-stop.sh' }] }
+          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-stop.sh' }] }
         ],
         Notification: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/aio-notification.sh' }] }
+          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-notification.sh' }] }
         ],
         PostToolUse: [
-          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/aio-postToolUse.sh' }] }
+          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-postToolUse.sh' }] }
         ],
         PreToolUse: [
-          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/aio-preToolUse.sh' }] }
+          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-preToolUse.sh' }] }
         ],
         SubagentStop: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/aio-subagentStop.sh' }] }
+          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-subagentStop.sh' }] }
         ]
       }
     };
@@ -169,8 +168,8 @@ export class SessionManager {
     // Create hooks directory
     fs.mkdirSync(hooksDir, { recursive: true });
 
-    // List of hooks to copy (aio- prefix identifies AIO Orchestrator hooks)
-    const hooks = ['aio-stop.sh', 'aio-notification.sh', 'aio-postToolUse.sh', 'aio-preToolUse.sh', 'aio-subagentStop.sh'];
+    // List of hooks to copy (orchy- prefix identifies Orchy hooks)
+    const hooks = ['orchy-stop.sh', 'orchy-notification.sh', 'orchy-postToolUse.sh', 'orchy-preToolUse.sh', 'orchy-subagentStop.sh'];
 
     for (const hook of hooks) {
       const src = path.join(templatesDir, hook);
@@ -233,7 +232,8 @@ export class SessionManager {
   }
 
   /**
-   * Gets the session directory for a project
+   * Gets the centralized session directory for a project
+   * Returns: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
    */
   getSessionDir(project: string): string | null {
     if (!this.currentSession) return null;
@@ -241,8 +241,7 @@ export class SessionManager {
     const projectConfig = this.config.projects[project];
     if (!projectConfig) return null;
 
-    const projectPath = this.expandPath(projectConfig.path);
-    return path.join(projectPath, '.aio', `session_${this.currentSession.id}`);
+    return getProjectSessionDir(this.currentSession.id, project);
   }
 
   /**
@@ -255,11 +254,12 @@ export class SessionManager {
   }
 
   /**
-   * Cleans up session directories
+   * Cleans up session directories (centralized location)
    */
   cleanupSession(): void {
     if (!this.currentSession) return;
 
+    // Clean up centralized project session directories
     for (const projectName of this.currentSession.projects) {
       const sessionDir = this.getSessionDir(projectName);
       if (sessionDir && fs.existsSync(sessionDir)) {
@@ -316,21 +316,17 @@ export class SessionManager {
     // Convert persisted session to Session type
     this.currentSession = this.sessionStore.toSession(fullData.session);
 
-    // Set up project directories if they don't exist (for resuming)
+    // Set up centralized project directories and hooks for resuming
     for (const projectName of this.currentSession.projects) {
       const projectConfig = this.config.projects[projectName];
       if (!projectConfig) continue;
 
       const projectPath = this.expandPath(projectConfig.path);
-      const sessionDir = path.join(projectPath, '.aio', `session_${sessionId}`);
 
-      // Create directories if they don't exist
-      if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(path.join(sessionDir, 'outbox'), { recursive: true });
-        fs.mkdirSync(path.join(sessionDir, 'logs'), { recursive: true });
-      }
+      // Ensure centralized session directory exists
+      ensureProjectSessionDir(sessionId, projectName);
 
-      // Ensure hooks are configured
+      // Ensure hooks are configured in project directory
       this.ensureHooksConfigured(projectPath);
       this.ensureHookScripts(projectPath);
     }

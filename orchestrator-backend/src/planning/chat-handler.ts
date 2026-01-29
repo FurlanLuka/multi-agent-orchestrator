@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@aio/types';
+import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@orchy/types';
 import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {

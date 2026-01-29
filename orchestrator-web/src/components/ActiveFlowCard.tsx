@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Group, Badge, Text, Loader, Stack, Button, Radio, Checkbox } from '@mantine/core';
 import { IconCheck, IconQuestionMark } from '@tabler/icons-react';
-import type { RequestFlow, PlanningQuestion, PlanningStatusEvent, PlanningQuestionItem } from '@aio/types';
+import type { RequestFlow, PlanningQuestion, PlanningStatusEvent, PlanningQuestionItem } from '@orchy/types';
 import { GlassCard, GlassTextarea, GlassTextInput } from '../theme';
 
 interface ActiveFlowCardProps {

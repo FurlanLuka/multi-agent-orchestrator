@@ -6,7 +6,7 @@ import {
   Loader,
 } from '@mantine/core';
 import { IconRocket, IconGitBranch } from '@tabler/icons-react';
-import type { ProjectConfig } from '@aio/types';
+import type { ProjectConfig } from '@orchy/types';
 import {
   GlassTextInput,
   GlassMultiSelect,

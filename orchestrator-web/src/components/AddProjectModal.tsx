@@ -36,7 +36,7 @@ import {
   IconTerminal2,
   IconShieldOff,
 } from '@tabler/icons-react';
-import type { ProjectTemplateConfig, ProjectTemplate, ProjectConfig } from '@aio/types';
+import type { ProjectTemplateConfig, ProjectTemplate, ProjectConfig } from '@orchy/types';
 
 import { FeatureSection } from './FeatureSection';
 import { DirectoryPicker } from './DirectoryPicker';

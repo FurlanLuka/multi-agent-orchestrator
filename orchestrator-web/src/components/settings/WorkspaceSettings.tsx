@@ -14,7 +14,7 @@ import {
   GlassMultiSelect,
 } from '../../theme';
 import { IconTrash, IconEdit, IconPlus } from '@tabler/icons-react';
-import type { WorkspaceConfig } from '@aio/types';
+import type { WorkspaceConfig } from '@orchy/types';
 import { GlassCard } from '../../theme';
 
 interface WorkspaceSettingsProps {

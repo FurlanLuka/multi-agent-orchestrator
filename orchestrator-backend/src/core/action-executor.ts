@@ -6,7 +6,7 @@ import {
   SendE2EAction,
   RestartServerAction,
   CompleteAction
-} from '@aio/types';
+} from '@orchy/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';

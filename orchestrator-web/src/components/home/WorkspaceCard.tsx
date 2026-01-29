@@ -1,5 +1,5 @@
 import { Text } from '@mantine/core';
-import type { WorkspaceConfig } from '@aio/types';
+import type { WorkspaceConfig } from '@orchy/types';
 import { GlassCard } from '../../theme';
 
 interface WorkspaceCardProps {

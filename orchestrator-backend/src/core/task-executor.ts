@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';

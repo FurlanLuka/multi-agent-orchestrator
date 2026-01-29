@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import chokidar, { FSWatcher } from 'chokidar';
-import { OutboxEvent } from '@aio/types';
+import { OutboxEvent } from '@orchy/types';
 
 export class EventWatcher extends EventEmitter {
   private watchers: Map<string, FSWatcher> = new Map();

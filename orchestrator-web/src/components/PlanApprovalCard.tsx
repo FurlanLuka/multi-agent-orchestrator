@@ -1,6 +1,6 @@
 import { Group, Badge, Text, Stack, Button } from '@mantine/core';
 import { IconClipboardList, IconMessage } from '@tabler/icons-react';
-import type { Plan } from '@aio/types';
+import type { Plan } from '@orchy/types';
 import { TabbedPlanView } from './TabbedPlanView';
 import { GlassCard } from '../theme';
 

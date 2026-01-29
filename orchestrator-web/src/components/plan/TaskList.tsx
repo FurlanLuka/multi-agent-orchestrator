@@ -16,7 +16,7 @@ import {
   IconChevronRight,
   IconChevronDown,
 } from '@tabler/icons-react';
-import type { TaskState, TaskStatus } from '@aio/types';
+import type { TaskState, TaskStatus } from '@orchy/types';
 import { MarkdownMessage } from '../MarkdownMessage';
 
 // Get status icon for tasks

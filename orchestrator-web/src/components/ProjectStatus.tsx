@@ -8,7 +8,7 @@ import {
   IconClock,
   IconLock,
 } from '@tabler/icons-react';
-import type { ProjectState, AgentStatus } from '@aio/types';
+import type { ProjectState, AgentStatus } from '@orchy/types';
 
 interface ProjectStatusProps {
   statuses: Record<string, ProjectState>;

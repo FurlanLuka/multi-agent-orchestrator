@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import type { WorkspaceConfig } from '@aio/types';
+import type { WorkspaceConfig } from '@orchy/types';
 import type { ProjectManager } from './project-manager';
 
 /**

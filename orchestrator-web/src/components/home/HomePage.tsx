@@ -8,7 +8,7 @@ import {
   Badge,
 } from '@mantine/core';
 import { IconSparkles } from '@tabler/icons-react';
-import type { WorkspaceConfig } from '@aio/types';
+import type { WorkspaceConfig } from '@orchy/types';
 import { GlassBar } from '../../theme';
 import { WorkspaceCard } from './WorkspaceCard';
 import { AddWorkspaceCard } from './AddWorkspaceCard';
@@ -59,7 +59,7 @@ export function HomePage({
         <Stack align="center" gap="xl">
           <Stack align="center" gap={4}>
             <Title order={1} ta="center" style={{ letterSpacing: '-.02em' }}>
-              AIO Orchestrator
+              Orchy
             </Title>
             <Text c="dimmed" size="sm" ta="center">
               Select a workspace to start building

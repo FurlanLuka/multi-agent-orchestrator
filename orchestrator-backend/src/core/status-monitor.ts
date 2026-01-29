@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { AgentStatus, ProjectState, TaskState, TaskStatus, TaskDefinition } from '@aio/types';
+import { AgentStatus, ProjectState, TaskState, TaskStatus, TaskDefinition } from '@orchy/types';
 import { SessionStore } from './session-store';
 
 export class StatusMonitor extends EventEmitter {

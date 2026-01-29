@@ -17,7 +17,7 @@ import {
   IconTrash,
   IconEdit,
 } from '@tabler/icons-react';
-import type { ProjectTemplateConfig, ProjectConfig } from '@aio/types';
+import type { ProjectTemplateConfig, ProjectConfig } from '@orchy/types';
 import { GlassCard } from '../theme';
 
 import { AddProjectModal } from './AddProjectModal';

@@ -1,5 +1,5 @@
 import { ProjectManager } from '../ProjectManager';
-import type { ProjectConfig, ProjectTemplateConfig } from '@aio/types';
+import type { ProjectConfig, ProjectTemplateConfig } from '@orchy/types';
 
 interface ProjectSettingsProps {
   projects: Record<string, ProjectConfig>;

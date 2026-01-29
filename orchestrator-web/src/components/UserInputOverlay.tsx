@@ -11,7 +11,7 @@ import {
   ThemeIcon,
 } from '@mantine/core';
 import { IconKey, IconCheck, IconX } from '@tabler/icons-react';
-import type { UserInputRequest } from '@aio/types';
+import type { UserInputRequest } from '@orchy/types';
 
 interface UserInputOverlayProps {
   request: UserInputRequest;

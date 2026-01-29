@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@aio/types';
+import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@orchy/types';
 import { GitManager } from './git-manager';
 import { getHookTemplatesDir, getProjectTemplatesDir } from '../config/paths';
 import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
@@ -116,13 +116,13 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
-   * Ensures all AIO Orchestrator related entries are in .gitignore
+   * Ensures all Orchy related entries are in .gitignore
    * This keeps the project repo clean from orchestrator artifacts
+   * Only .claude/ is needed since all session data is centralized in ~/.orchy-config/
    */
-  private ensureAioGitignoreEntries(projectPath: string): void {
-    const aioEntries = [
-      '# AIO Orchestrator',
-      '.aio/',
+  private ensureOrchyGitignoreEntries(projectPath: string): void {
+    const orchyEntries = [
+      '# Orchy',
       '.claude/',
     ];
 
@@ -136,7 +136,7 @@ export class ProjectManager extends EventEmitter {
     const lines = content.split('\n').map(l => l.trim());
     const entriesToAdd: string[] = [];
 
-    for (const entry of aioEntries) {
+    for (const entry of orchyEntries) {
       if (!lines.includes(entry)) {
         entriesToAdd.push(entry);
       }
@@ -146,14 +146,14 @@ export class ProjectManager extends EventEmitter {
       return; // All entries already present
     }
 
-    // Add a blank line before AIO section if content exists and doesn't end with newlines
+    // Add a blank line before Orchy section if content exists and doesn't end with newlines
     const separator = content && !content.endsWith('\n\n') ? '\n' : '';
     const newContent = content.endsWith('\n') || content === ''
       ? `${content}${separator}${entriesToAdd.join('\n')}\n`
       : `${content}\n${separator}${entriesToAdd.join('\n')}\n`;
 
     fs.writeFileSync(gitignorePath, newContent);
-    console.log(`[ProjectManager] Added AIO entries to .gitignore`);
+    console.log(`[ProjectManager] Added Orchy entries to .gitignore`);
   }
 
   /**
@@ -460,8 +460,8 @@ ${fullCommand}
 
     const projectPath = this.expandPath(projectConfig.path);
 
-    // Add AIO-related entries to .gitignore
-    this.ensureAioGitignoreEntries(projectPath);
+    // Add Orchy-related entries to .gitignore
+    this.ensureOrchyGitignoreEntries(projectPath);
 
     // Ensure .claude directory exists
     const claudeDir = path.join(projectPath, '.claude');
@@ -471,9 +471,9 @@ ${fullCommand}
     const hooksDir = path.join(claudeDir, 'hooks');
     fs.mkdirSync(hooksDir, { recursive: true });
 
-    // Copy hook templates (aio- prefix identifies AIO Orchestrator hooks)
+    // Copy hook templates (orchy- prefix identifies Orchy hooks)
     const templatesDir = getHookTemplatesDir();
-    const hooks = ['aio-stop.sh', 'aio-notification.sh', 'aio-postToolUse.sh', 'aio-preToolUse.sh', 'aio-subagentStop.sh'];
+    const hooks = ['orchy-stop.sh', 'orchy-notification.sh', 'orchy-postToolUse.sh', 'orchy-preToolUse.sh', 'orchy-subagentStop.sh'];
 
     for (const hook of hooks) {
       const src = path.join(templatesDir, hook);
@@ -489,11 +489,11 @@ ${fullCommand}
     const settingsPath = path.join(claudeDir, 'settings.json');
     const hookConfig = {
       hooks: {
-        Stop: [{ hooks: [{ type: 'command', command: '.claude/hooks/aio-stop.sh' }] }],
-        Notification: [{ hooks: [{ type: 'command', command: '.claude/hooks/aio-notification.sh' }] }],
-        PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/aio-postToolUse.sh' }] }],
-        PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/aio-preToolUse.sh' }] }],
-        SubagentStop: [{ hooks: [{ type: 'command', command: '.claude/hooks/aio-subagentStop.sh' }] }]
+        Stop: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-stop.sh' }] }],
+        Notification: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-notification.sh' }] }],
+        PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-postToolUse.sh' }] }],
+        PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-preToolUse.sh' }] }],
+        SubagentStop: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-subagentStop.sh' }] }]
       }
     };
 

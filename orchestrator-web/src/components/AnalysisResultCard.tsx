@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, Group, Text, ActionIcon, Collapse, Stack, Badge } from '@mantine/core';
 import { IconCheck, IconX, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { MarkdownMessage } from './MarkdownMessage';
-import type { AnalysisResultEvent } from '@aio/types';
+import type { AnalysisResultEvent } from '@orchy/types';
 
 interface Props {
   result: AnalysisResultEvent;

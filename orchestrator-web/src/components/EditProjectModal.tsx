@@ -23,7 +23,7 @@ import {
   IconTerminal2,
   IconShieldOff,
 } from '@tabler/icons-react';
-import type { ProjectConfig } from '@aio/types';
+import type { ProjectConfig } from '@orchy/types';
 
 import { FeatureSection } from './FeatureSection';
 import { CollapsiblePermissions } from './CollapsiblePermissions';

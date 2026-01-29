@@ -1,7 +1,7 @@
 import { Group, Badge, Text, Stack, Code, Box, Collapse, ActionIcon } from '@mantine/core';
 import { IconCheck, IconX, IconChevronUp, IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
-import type { RequestFlow } from '@aio/types';
+import type { RequestFlow } from '@orchy/types';
 import { GlassCard } from '../theme';
 
 interface CompletedFlowCardProps {

@@ -10,13 +10,13 @@ export type RuntimeEnvironment = 'development' | 'production';
 /**
  * App configuration constants
  */
-const APP_NAME = 'aio-config';
+const APP_NAME = 'orchy-config';
 
 /**
  * Centralized path resolver for cross-platform support
  * Handles both development and production (compiled binary) modes
  *
- * All platforms use ~/.aio-config/ for consistency
+ * All platforms use ~/.orchy-config/ for consistency
  */
 export class PathResolver {
   private static instance: PathResolver;
@@ -95,7 +95,7 @@ export class PathResolver {
 
   /**
    * Resolve standard paths based on environment
-   * All platforms (including dev) use ~/.aio-config/ for consistency
+   * All platforms (including dev) use ~/.orchy-config/ for consistency
    */
   private resolvePaths(): {
     dataDir: string;
@@ -116,7 +116,7 @@ export class PathResolver {
       };
     }
 
-    // All modes use ~/.aio-config/ for consistency
+    // All modes use ~/.orchy-config/ for consistency
     const baseDir = path.join(homeDir, `.${APP_NAME}`);
     return {
       dataDir: path.join(baseDir, 'sessions'),
@@ -198,7 +198,7 @@ export class PathResolver {
       // Development: use setup directly from source
       return path.join(__dirname, '..', '..', 'setup');
     }
-    // Production: extract to ~/.aio-config/setup/
+    // Production: extract to ~/.orchy-config/setup/
     return path.join(this._configDir, 'setup');
   }
 
@@ -221,8 +221,40 @@ export class PathResolver {
 
   /** Path to projects.json config file */
   getProjectsConfigPath(): string {
-    // Always use ~/.aio-config/projects.json
+    // Always use ~/.orchy-config/projects.json
     return path.join(this._configDir, 'projects.json');
+  }
+
+  /**
+   * Get project session directory for a specific session and project.
+   * This is where all project-specific session data is stored centrally.
+   * Path: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
+   */
+  getProjectSessionDir(sessionId: string, projectName: string): string {
+    return path.join(this._dataDir, sessionId, 'projects', projectName);
+  }
+
+  /**
+   * Ensure project session directory exists and return the path.
+   * Creates: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
+   * With subdirectories: outbox/, logs/
+   */
+  ensureProjectSessionDir(sessionId: string, projectName: string): string {
+    const projectDir = this.getProjectSessionDir(sessionId, projectName);
+    const outboxDir = path.join(projectDir, 'outbox');
+    const logsDir = path.join(projectDir, 'logs');
+
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true });
+    }
+    if (!fs.existsSync(outboxDir)) {
+      fs.mkdirSync(outboxDir, { recursive: true });
+    }
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+
+    return projectDir;
   }
 
   /**
@@ -286,7 +318,7 @@ export class PathResolver {
    * Called on startup in production mode.
    *
    * Always re-syncs to ensure the latest setup files are used.
-   * This handles cases where the user updates AIO but the version number
+   * This handles cases where the user updates Orchy but the version number
    * hasn't changed (e.g., during development or quick patches).
    */
   ensureSetupExtracted(): void {
@@ -484,22 +516,22 @@ export function getMcpDir(): string {
 }
 
 /**
- * Get the path to the AIO MCP server in setup directory.
- * The AIO MCP server provides tools for permission prompts and planning questions.
+ * Get the path to the Orchy MCP server in setup directory.
+ * The Orchy MCP server provides tools for permission prompts and planning questions.
  */
 export function getBundledMcpServerPath(): string {
-  return path.join(getSetupDir(), 'mcp', 'aio-mcp-server.js');
+  return path.join(getSetupDir(), 'mcp', 'orchy-mcp-server.js');
 }
 
 /**
- * Get the path where the AIO MCP server should be copied to
+ * Get the path where the Orchy MCP server should be copied to
  */
 export function getExtractedMcpServerPath(): string {
-  return path.join(getMcpDir(), 'aio-mcp-server.js');
+  return path.join(getMcpDir(), 'orchy-mcp-server.js');
 }
 
 /**
- * Ensure the AIO MCP server is copied to the cache directory.
+ * Ensure the Orchy MCP server is copied to the cache directory.
  * We copy it so that node can execute it (bundled resources may be read-only).
  */
 export function ensureMcpServerExtracted(): string {
@@ -514,7 +546,7 @@ export function ensureMcpServerExtracted(): string {
 
   // Check if source file exists
   if (!fs.existsSync(bundledPath)) {
-    throw new Error(`AIO MCP server not found at: ${bundledPath}. Check that resources are properly bundled.`);
+    throw new Error(`Orchy MCP server not found at: ${bundledPath}. Check that resources are properly bundled.`);
   }
 
   // Check if we need to copy/update the file
@@ -535,14 +567,29 @@ export function ensureMcpServerExtracted(): string {
     try {
       const content = fs.readFileSync(bundledPath, 'utf-8');
       fs.writeFileSync(extractedPath, content, { mode: 0o755 });
-      console.log(`[PathResolver] Copied AIO MCP server to: ${extractedPath}`);
+      console.log(`[PathResolver] Copied Orchy MCP server to: ${extractedPath}`);
     } catch (err) {
       console.error(`[PathResolver] Failed to copy MCP server:`, err);
-      throw new Error(`Failed to copy AIO MCP server: ${err}`);
+      throw new Error(`Failed to copy Orchy MCP server: ${err}`);
     }
   }
 
   return extractedPath;
+}
+
+/**
+ * Get project session directory for a specific session and project.
+ * Returns: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
+ */
+export function getProjectSessionDir(sessionId: string, projectName: string): string {
+  return getPaths().getProjectSessionDir(sessionId, projectName);
+}
+
+/**
+ * Ensure project session directory exists and return the path.
+ */
+export function ensureProjectSessionDir(sessionId: string, projectName: string): string {
+  return getPaths().ensureProjectSessionDir(sessionId, projectName);
 }
 
 export function isDevelopmentEnvironment(): boolean {

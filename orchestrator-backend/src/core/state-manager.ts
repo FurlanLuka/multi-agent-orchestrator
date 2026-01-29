@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { AgentStatus, OrchestratorState } from '@aio/types';
+import { AgentStatus, OrchestratorState } from '@orchy/types';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
 

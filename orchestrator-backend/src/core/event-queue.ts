@@ -8,7 +8,7 @@ import {
   E2ECompleteEvent,
   E2EPromptRequestEvent,
   FailureAnalysisEvent
-} from '@aio/types';
+} from '@orchy/types';
 import { StateMachine } from './state-machine';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 import { parseMarkedResponse, MARKERS } from '../planning/response-parser';

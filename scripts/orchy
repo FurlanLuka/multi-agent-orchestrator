@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# AIO Orchestrator - Development wrapper
-# For production, run the binary directly: ./dist/aio-macos-arm64
+# Orchy - Development wrapper
+# For production, run the binary directly: ./dist/orchy-macos-arm64
 
 set -e
 
@@ -31,7 +31,7 @@ else
 fi
 
 # Check for production binary
-BINARY="$ROOT_DIR/dist/aio-${PLATFORM}"
+BINARY="$ROOT_DIR/dist/orchy-${PLATFORM}"
 
 if [ -x "$BINARY" ]; then
   exec "$BINARY" "$@"

@@ -4,8 +4,10 @@
 
 INPUT=$(cat)
 
-SESSION_DIR=$(find "$(pwd)/.aio" -maxdepth 1 -name "session_*" 2>/dev/null | head -1)
+# Use ORCHY_SESSION_DIR environment variable (set by orchestrator)
+SESSION_DIR="$ORCHY_SESSION_DIR"
 [ -z "$SESSION_DIR" ] && exit 0
+[ ! -d "$SESSION_DIR/outbox" ] && exit 0
 
 # Get timestamp in milliseconds (works on both macOS and Linux)
 if command -v gdate >/dev/null 2>&1; then

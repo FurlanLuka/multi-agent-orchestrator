@@ -1,7 +1,7 @@
 {
-  "name": "@aio/backend",
+  "name": "@orchy/backend",
   "version": "1.0.0",
-  "description": "AIO Orchestrator backend server",
+  "description": "Orchy backend server",
   "main": "dist/index.js",
   "bin": "dist/index.js",
   "scripts": {
@@ -9,14 +9,14 @@
     "build": "tsc",
     "obfuscate": "javascript-obfuscator dist --output dist --config obfuscator.config.json",
     "build:release": "npm run clean && npm run build && npm run obfuscate",
-    "build:pkg-macos-arm64": "pkg . --targets node18-macos-arm64 --output ../dist/aio-macos-arm64",
-    "build:pkg-macos-x64": "pkg . --targets node18-macos-x64 --output ../dist/aio-macos-x64",
-    "build:pkg-linux-x64": "pkg . --targets node18-linux-x64 --output ../dist/aio-linux-x64",
-    "build:pkg-windows-x64": "pkg . --targets node18-win-x64 --output ../dist/aio-windows-x64.exe",
+    "build:pkg-macos-arm64": "pkg . --targets node18-macos-arm64 --output ../dist/orchy-macos-arm64",
+    "build:pkg-macos-x64": "pkg . --targets node18-macos-x64 --output ../dist/orchy-macos-x64",
+    "build:pkg-linux-x64": "pkg . --targets node18-linux-x64 --output ../dist/orchy-linux-x64",
+    "build:pkg-windows-x64": "pkg . --targets node18-win-x64 --output ../dist/orchy-windows-x64.exe",
     "clean": "rm -rf dist web-dist"
   },
   "dependencies": {
-    "@aio/types": "*",
+    "@orchy/types": "*",
     "chokidar": "^3.5.3",
     "cors": "^2.8.5",
     "express": "^4.18.2",

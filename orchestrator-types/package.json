@@ -1,13 +1,13 @@
 {
-  "name": "@aio/types",
+  "name": "@orchy/types",
   "version": "1.0.0",
-  "description": "Shared TypeScript types for AIO Orchestrator",
+  "description": "Shared TypeScript types for Orchy",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist"
   },
-  "keywords": ["aio", "orchestrator", "types"],
+  "keywords": ["orchy", "orchestrator", "types"],
   "license": "MIT"
 }

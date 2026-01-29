@@ -12,7 +12,7 @@ import {
   Group,
 } from '@mantine/core';
 import { IconTool, IconBrain } from '@tabler/icons-react';
-import type { ContentBlock } from '@aio/types';
+import type { ContentBlock } from '@orchy/types';
 
 // Types for markdown components
 interface MarkdownCodeProps {

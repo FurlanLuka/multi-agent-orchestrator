@@ -12,7 +12,7 @@ import {
   Divider,
   Box,
 } from '@mantine/core';
-import type { StreamingMessage, RequestFlow } from '@aio/types';
+import type { StreamingMessage, RequestFlow } from '@orchy/types';
 import { useOrchestrator } from '../context/OrchestratorContext';
 import { ChatMessage } from './chat/ChatMessage';
 import { ChatInput } from './chat/ChatInput';

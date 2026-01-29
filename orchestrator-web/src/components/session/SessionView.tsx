@@ -97,7 +97,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                 <IconRocket size={20} />
               </ThemeIcon>
               <Title order={3} style={{ fontWeight: 700, color: 'var(--text-heading)' }}>
-                AIO Orchestrator
+                Orchy
               </Title>
             </Group>
             <Button

@@ -30,7 +30,7 @@ import type {
   PermissionPrompt,
   PlanningQuestion,
   WorkspaceConfig,
-} from '@aio/types';
+} from '@orchy/types';
 
 // Default port for standalone mode (fallback only)
 const DEFAULT_PORT = 3456;

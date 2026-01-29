@@ -54,7 +54,7 @@ function App() {
   }, [port]);
 
   useEffect(() => {
-    const shutdownOnClose = localStorage.getItem('aio-shutdown-on-close') === 'true';
+    const shutdownOnClose = localStorage.getItem('orchy-shutdown-on-close') === 'true';
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (shutdownOnClose && session) {

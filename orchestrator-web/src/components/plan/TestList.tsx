@@ -11,7 +11,7 @@ import {
   IconCircleX,
   IconLoader,
 } from '@tabler/icons-react';
-import type { TaskState, ProjectTestState, TestScenarioStatus } from '@aio/types';
+import type { TaskState, ProjectTestState, TestScenarioStatus } from '@orchy/types';
 
 // Get status icon for tests
 function getTestStatusIcon(status?: TestScenarioStatus) {

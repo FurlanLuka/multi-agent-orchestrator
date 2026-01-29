@@ -10,7 +10,7 @@ export class SessionLogger {
   private logFile: string;
 
   constructor(sessionId: string) {
-    // Use central sessions directory from path resolver (~/.aio-config/sessions/)
+    // Use central sessions directory from path resolver (~/.orchy-config/sessions/)
     this.logDir = path.join(getSessionsDir(), sessionId, 'logs');
     fs.mkdirSync(this.logDir, { recursive: true });
     this.logFile = path.join(this.logDir, 'events.log');

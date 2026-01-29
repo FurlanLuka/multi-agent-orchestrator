@@ -16,7 +16,7 @@ import {
   TaskState,
   TaskDefinition,
   ExplorationAnalysisResult,
-} from '@aio/types';
+} from '@orchy/types';
 
 /**
  * Central persistence layer for session data

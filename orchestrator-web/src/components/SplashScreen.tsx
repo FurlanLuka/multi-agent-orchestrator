@@ -9,7 +9,7 @@ import {
   Group,
 } from '@mantine/core';
 import { IconAlertCircle, IconRefresh, IconTerminal2, IconPlugConnectedX } from '@tabler/icons-react';
-import type { DependencyCheckResult } from '@aio/types';
+import type { DependencyCheckResult } from '@orchy/types';
 import { GlassCard, pageBg } from '../theme';
 
 interface SplashScreenProps {
@@ -64,7 +64,7 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
                   Try the following:
                 </Text>
                 <Text size="sm" c="dimmed">
-                  1. Close other AIO Orchestrator instances
+                  1. Close other Orchy instances
                 </Text>
                 <Text size="sm" c="dimmed">
                   2. Check if port 3456 is in use by another application

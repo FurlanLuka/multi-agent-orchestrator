@@ -3,8 +3,8 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Config } from '@aio/types';
-import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
+import { Config } from '@orchy/types';
+import { getCacheDir, ensureMcpServerExtracted, getProjectSessionDir } from '../config/paths';
 import { spawnWithShellEnv } from '../utils/shell-env';
 
 interface ManagedProcess {
@@ -38,10 +38,18 @@ export class ProcessManager extends EventEmitter {
   private currentAgentProcess: Map<string, ChildProcess> = new Map();
   private readonly LOG_BUFFER_SIZE = 200;
   private orchestratorPort: number = 3456;
+  private currentSessionId: string | null = null;
 
   constructor(config: Config) {
     super();
     this.config = config;
+  }
+
+  /**
+   * Sets the current session ID for ORCHY_SESSION_DIR environment variable
+   */
+  setCurrentSessionId(sessionId: string | null): void {
+    this.currentSessionId = sessionId;
   }
 
   /**
@@ -53,7 +61,7 @@ export class ProcessManager extends EventEmitter {
 
   /**
    * Gets the path to the MCP permission server.
-   * Extracts from bundled assets to ~/.aio-config/mcp/ if needed,
+   * Extracts from bundled assets to ~/.orchy-config/mcp/ if needed,
    * since pkg bundles can't be accessed by external node processes.
    */
   private getPermissionServerPath(): string {
@@ -344,14 +352,22 @@ export class ProcessManager extends EventEmitter {
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
     }
 
+    // Build environment variables for agent
+    const extraEnv: Record<string, string> = {
+      ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
+      ORCHESTRATOR_PROJECT: project,
+    };
+
+    // Add ORCHY_SESSION_DIR for hooks to write centralized data
+    if (this.currentSessionId) {
+      extraEnv.ORCHY_SESSION_DIR = getProjectSessionDir(this.currentSessionId, project);
+    }
+
     // Spawn claude directly with args array (no shell parsing - avoids escaping issues with prompts)
     const proc = await spawnWithShellEnv('claude', {
       cwd: projectPath,
       args: args,  // Pass args directly, no shell escaping needed
-      extraEnv: {
-        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
-        ORCHESTRATOR_PROJECT: project,
-      },
+      extraEnv,
     });
 
     this.currentAgentProcess.set(project, proc);
@@ -545,13 +561,21 @@ export class ProcessManager extends EventEmitter {
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
     }
 
+    // Build environment variables for agent
+    const extraEnv: Record<string, string> = {
+      ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
+      ORCHESTRATOR_PROJECT: project,
+    };
+
+    // Add ORCHY_SESSION_DIR for hooks to write centralized data
+    if (this.currentSessionId) {
+      extraEnv.ORCHY_SESSION_DIR = getProjectSessionDir(this.currentSessionId, project);
+    }
+
     const proc = await spawnWithShellEnv('claude', {
       cwd: projectPath,
       args,
-      extraEnv: {
-        ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
-        ORCHESTRATOR_PROJECT: project,
-      },
+      extraEnv,
     });
 
     this.currentAgentProcess.set(project, proc);

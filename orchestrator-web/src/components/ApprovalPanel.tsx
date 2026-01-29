@@ -1,6 +1,6 @@
 import { Modal, Text, Button, Group, Stack, Badge } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
-import type { ApprovalRequest } from '@aio/types';
+import type { ApprovalRequest } from '@orchy/types';
 import { GlassSurface } from '../theme';
 
 interface ApprovalPanelProps {

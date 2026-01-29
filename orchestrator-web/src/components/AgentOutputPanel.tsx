@@ -10,7 +10,7 @@ import {
   Stack,
 } from '@mantine/core';
 import { IconTerminal2 } from '@tabler/icons-react';
-import type { LogEntry } from '@aio/types';
+import type { LogEntry } from '@orchy/types';
 
 interface AgentOutputPanelProps {
   logs: LogEntry[];

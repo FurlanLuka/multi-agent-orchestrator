@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { OrchestratorState } from '@aio/types';
+import { OrchestratorState } from '@orchy/types';
 
 /**
  * Manages orchestrator state transitions

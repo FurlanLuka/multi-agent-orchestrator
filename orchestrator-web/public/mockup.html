@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Designer Agent Flow Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f0ed;
+    color: #2d2a27;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Navigation */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    gap: 0;
+    background: #2d2a27;
+    padding: 0 24px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .nav-tab {
+    padding: 14px 22px;
+    cursor: pointer;
+    color: rgba(255,255,255,.5);
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+  }
+  .nav-tab:hover { color: rgba(255,255,255,.8); }
+  .nav-tab.active { color: #fff; border-bottom-color: #f58565; }
+
+  /* Panels */
+  .panel { display: none; padding: 48px 40px; max-width: 1000px; margin: 0 auto; }
+  .panel.active { display: block; }
+
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 32px 0 16px; color: #2d2a27; }
+  .subtitle { font-size: 15px; color: #8a8480; margin-bottom: 32px; }
+
+  /* Step indicator */
+  .steps {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 48px;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #a39e9a;
+  }
+  .step.active { color: #2d2a27; font-weight: 600; }
+  .step.completed { color: #4a9149; }
+  .step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e5e0dc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #8a8480;
+  }
+  .step.active .step-dot { background: #f58565; color: white; }
+  .step.completed .step-dot { background: #4a9149; color: white; }
+  .step-line {
+    width: 40px;
+    height: 2px;
+    background: #e5e0dc;
+  }
+  .step.completed + .step-line,
+  .step-line.completed { background: #4a9149; }
+
+  /* Mode selection cards */
+  .mode-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  .mode-card {
+    background: white;
+    border-radius: 20px;
+    padding: 40px 32px;
+    text-align: center;
+    cursor: pointer;
+    border: 2px solid transparent;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+    transition: all .2s;
+  }
+  .mode-card:hover {
+    border-color: #f58565;
+    box-shadow: 0 8px 32px rgba(245,133,101,.12);
+    transform: translateY(-2px);
+  }
+  .mode-card .icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+  }
+  .mode-card.design .icon { background: linear-gradient(135deg, #ffd4c4, #f58565); }
+  .mode-card.build .icon { background: linear-gradient(135deg, #c4e3c4, #4a9149); }
+  .mode-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .mode-card p { font-size: 14px; color: #8a8480; line-height: 1.6; }
+
+  /* Category cards */
+  .category-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .category-card {
+    background: white;
+    border-radius: 16px;
+    padding: 24px 20px;
+    text-align: center;
+    cursor: pointer;
+    border: 2px solid transparent;
+    box-shadow: 0 1px 4px rgba(0,0,0,.04);
+    transition: all .2s;
+  }
+  .category-card:hover { border-color: #f58565; transform: translateY(-2px); }
+  .category-card.selected { border-color: #f58565; background: #fff5f2; }
+  .category-card .emoji { font-size: 32px; margin-bottom: 12px; }
+  .category-card h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .category-card p { font-size: 12px; color: #a39e9a; }
+
+  /* Chat interface */
+  .chat-container {
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    max-width: 600px;
+    margin: 0 auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+  }
+  .chat-messages {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+  }
+  .chat-bubble {
+    padding: 12px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    max-width: 85%;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .chat-bubble.assistant {
+    background: #f5f0ed;
+    color: #2d2a27;
+    border-bottom-left-radius: 4px;
+  }
+  .chat-bubble.user {
+    background: #f58565;
+    color: white;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .chat-input-row {
+    display: flex;
+    gap: 12px;
+  }
+  .chat-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1.5px solid #e5e0dc;
+    border-radius: 12px;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+  }
+  .chat-input:focus { border-color: #f58565; }
+  .chat-send {
+    padding: 12px 24px;
+    background: #f58565;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .chat-send:hover { background: #e06b4a; }
+
+  /* Preview overlay */
+  .preview-overlay {
+    background: white;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  }
+  .preview-tabs {
+    display: flex;
+    background: #faf7f5;
+    border-bottom: 1px solid #e5e0dc;
+  }
+  .preview-tab {
+    padding: 16px 28px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #8a8480;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all .15s;
+  }
+  .preview-tab:hover { color: #2d2a27; }
+  .preview-tab.active { color: #f58565; border-bottom-color: #f58565; background: white; }
+  .preview-content {
+    padding: 32px;
+    min-height: 400px;
+  }
+
+  /* Color swatches */
+  .swatch-section { margin-bottom: 24px; }
+  .swatch-label { font-size: 11px; font-weight: 600; color: #8a8480; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .swatch-row { display: flex; gap: 4px; }
+  .swatch {
+    flex: 1;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: flex-end;
+    padding: 4px 6px;
+    font-size: 9px;
+    font-weight: 600;
+  }
+  .swatch.light { color: #333; }
+  .swatch.dark { color: white; }
+
+  /* Component demos */
+  .component-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .demo-btn {
+    padding: 10px 24px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+  }
+  .demo-btn.primary { background: #f58565; color: white; }
+  .demo-btn.secondary { background: transparent; border: 1.5px solid #f58565; color: #f58565; }
+  .demo-btn.success { background: #4a9149; color: white; }
+  .demo-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .demo-input {
+    padding: 10px 16px;
+    border: 1.5px solid #e5e0dc;
+    border-radius: 10px;
+    font-size: 14px;
+    width: 250px;
+  }
+  .demo-card {
+    background: white;
+    border: 1px solid rgba(0,0,0,.04);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+    width: 200px;
+  }
+  .demo-card h5 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .demo-card p { font-size: 13px; color: #8a8480; }
+
+  /* Browser mockup frame */
+  .browser-frame {
+    background: #2d2a27;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,.15);
+  }
+  .browser-bar {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .browser-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #4d4945;
+  }
+  .browser-content {
+    background: #fdfcfb;
+    min-height: 350px;
+  }
+
+  /* Mockup content - Blog minimal */
+  .mockup-blog-minimal {
+    padding: 48px 60px;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+  .mockup-blog-minimal .blog-header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .mockup-blog-minimal .blog-title {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .mockup-blog-minimal .blog-subtitle {
+    font-size: 14px;
+    color: #a39e9a;
+  }
+  .mockup-blog-minimal .article {
+    margin-bottom: 40px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid #f0ebe8;
+  }
+  .mockup-blog-minimal .article-date {
+    font-size: 12px;
+    color: #a39e9a;
+    margin-bottom: 8px;
+  }
+  .mockup-blog-minimal .article-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    line-height: 1.3;
+  }
+  .mockup-blog-minimal .article-excerpt {
+    font-size: 15px;
+    color: #6b6560;
+    line-height: 1.7;
+  }
+
+  /* Mockup content - Blog magazine */
+  .mockup-blog-magazine {
+    padding: 32px;
+  }
+  .mockup-blog-magazine .mag-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #2d2a27;
+  }
+  .mockup-blog-magazine .mag-logo {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .mockup-blog-magazine .mag-nav {
+    display: flex;
+    gap: 24px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .mockup-blog-magazine .mag-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+  }
+  .mockup-blog-magazine .mag-featured {
+    background: #f0ebe8;
+    border-radius: 12px;
+    height: 200px;
+    display: flex;
+    align-items: flex-end;
+    padding: 20px;
+  }
+  .mockup-blog-magazine .mag-featured-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2d2a27;
+  }
+  .mockup-blog-magazine .mag-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .mockup-blog-magazine .mag-small {
+    background: #f5f0ed;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .mockup-blog-magazine .mag-small-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Feedback bar */
+  .feedback-bar {
+    padding: 20px 32px;
+    background: #faf7f5;
+    border-top: 1px solid #e5e0dc;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .feedback-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1.5px solid #e5e0dc;
+    border-radius: 10px;
+    font-size: 14px;
+    outline: none;
+    background: white;
+    font-family: inherit;
+  }
+  .feedback-input:focus { border-color: #f58565; }
+  .feedback-btn {
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+  }
+  .feedback-btn.reject {
+    background: #f5f0ed;
+    color: #8a8480;
+  }
+  .feedback-btn.reject:hover { background: #ebe5e0; }
+  .feedback-btn.select {
+    background: #4a9149;
+    color: white;
+  }
+  .feedback-btn.select:hover { background: #3d7a3c; }
+
+  /* Complete screen */
+  .complete-card {
+    background: white;
+    border-radius: 20px;
+    padding: 48px;
+    max-width: 500px;
+    margin: 0 auto;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,.06);
+  }
+  .complete-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #c4e3c4, #4a9149);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    margin: 0 auto 24px;
+  }
+  .complete-card h2 { margin-bottom: 8px; }
+  .complete-card p { color: #8a8480; margin-bottom: 24px; }
+  .complete-path {
+    background: #f5f0ed;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #6b6560;
+    margin-bottom: 24px;
+  }
+  .complete-actions { display: flex; gap: 12px; justify-content: center; }
+
+  /* Design library */
+  .library-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .library-card {
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .library-card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,.08);
+    transform: translateY(-2px);
+  }
+  .library-preview {
+    height: 120px;
+    background: linear-gradient(135deg, #fff5f2, #ffd4c4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .library-preview .color-dots {
+    display: flex;
+    gap: 8px;
+  }
+  .library-preview .color-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0,0,0,.1);
+  }
+  .library-info {
+    padding: 16px;
+  }
+  .library-info h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .library-info p { font-size: 12px; color: #a39e9a; }
+  .library-info .date { font-size: 11px; color: #c4c0bc; margin-top: 8px; }
+
+  /* Add new card */
+  .library-card.add-new {
+    border: 2px dashed #e0dbd7;
+    background: transparent;
+    box-shadow: none;
+  }
+  .library-card.add-new .library-preview {
+    background: transparent;
+    flex-direction: column;
+    gap: 8px;
+    color: #a39e9a;
+  }
+  .library-card.add-new .plus { font-size: 32px; font-weight: 300; }
+  .library-card.add-new .label { font-size: 13px; font-weight: 500; }
+  .library-card.add-new:hover {
+    border-color: #f58565;
+    background: #fff5f2;
+  }
+  .library-card.add-new:hover .library-preview { color: #f58565; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-tab active" onclick="showPanel('mode')">1. Mode Selection</div>
+  <div class="nav-tab" onclick="showPanel('category')">2. Category</div>
+  <div class="nav-tab" onclick="showPanel('chat')">3. Discovery</div>
+  <div class="nav-tab" onclick="showPanel('palette')">4. Palette</div>
+  <div class="nav-tab" onclick="showPanel('components')">5. Components</div>
+  <div class="nav-tab" onclick="showPanel('mockups')">6. Mockups</div>
+  <div class="nav-tab" onclick="showPanel('complete')">7. Complete</div>
+  <div class="nav-tab" onclick="showPanel('library')">Design Library</div>
+</nav>
+
+<!-- PANEL 1: MODE SELECTION -->
+<div class="panel active" id="mode">
+  <div style="text-align: center; margin-bottom: 48px;">
+    <h1>Welcome to AIO</h1>
+    <p class="subtitle">Choose how you'd like to start</p>
+  </div>
+
+  <div class="mode-cards">
+    <div class="mode-card design">
+      <div class="icon">🎨</div>
+      <h3>Design First</h3>
+      <p>Create a design system with colors, typography, and component styles before building</p>
+    </div>
+    <div class="mode-card build">
+      <div class="icon">🔨</div>
+      <h3>Build Feature</h3>
+      <p>Jump straight into planning and building a feature across your projects</p>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 2: CATEGORY SELECTION -->
+<div class="panel" id="category">
+  <div class="steps">
+    <div class="step active"><div class="step-dot">1</div><span>Category</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">2</div><span>Discovery</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">3</div><span>Palette</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">4</div><span>Components</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">5</div><span>Mockups</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1>What are you building?</h1>
+    <p class="subtitle">Select the type of project to get tailored design suggestions</p>
+  </div>
+
+  <div class="category-grid">
+    <div class="category-card selected">
+      <div class="emoji">📝</div>
+      <h4>Blog</h4>
+      <p>Personal or company blog</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">🚀</div>
+      <h4>Landing Page</h4>
+      <p>Product or marketing page</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">🛒</div>
+      <h4>E-commerce</h4>
+      <p>Online store or catalog</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">📊</div>
+      <h4>Dashboard</h4>
+      <p>Admin or analytics panel</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">💬</div>
+      <h4>Chat / Messaging</h4>
+      <p>Real-time communication</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">📚</div>
+      <h4>Documentation</h4>
+      <p>Docs or knowledge base</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">🏢</div>
+      <h4>SaaS Marketing</h4>
+      <p>B2B product website</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">🎨</div>
+      <h4>Portfolio</h4>
+      <p>Personal or agency showcase</p>
+    </div>
+    <div class="category-card">
+      <div class="emoji">✨</div>
+      <h4>Other</h4>
+      <p>Something else entirely</p>
+    </div>
+  </div>
+
+  <div style="text-align: center;">
+    <button class="demo-btn primary">Continue</button>
+  </div>
+</div>
+
+<!-- PANEL 3: DISCOVERY CHAT -->
+<div class="panel" id="chat">
+  <div class="steps">
+    <div class="step completed"><div class="step-dot">✓</div><span>Category</span></div>
+    <div class="step-line completed"></div>
+    <div class="step active"><div class="step-dot">2</div><span>Discovery</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">3</div><span>Palette</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">4</div><span>Components</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">5</div><span>Mockups</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1>Tell me about your blog</h1>
+    <p class="subtitle">I'll use this to create the perfect design system</p>
+  </div>
+
+  <div class="chat-container">
+    <div class="chat-messages">
+      <div class="chat-bubble assistant">
+        Great, you're building a blog! Tell me more about it. What's the topic or niche? Who's your target audience?
+      </div>
+      <div class="chat-bubble user">
+        It's a tech blog about AI and machine learning. Target audience is developers and tech enthusiasts.
+      </div>
+      <div class="chat-bubble assistant">
+        Perfect! A tech blog for developers. Do you prefer a dark theme, light theme, or would you like both options?
+      </div>
+      <div class="chat-bubble user">
+        I'd like both, but primarily dark mode.
+      </div>
+      <div class="chat-bubble assistant">
+        Got it! Dark-first with light mode option. Any color preferences? Modern and techy, warm and approachable, or something else?
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" class="chat-input" placeholder="Type your response...">
+      <button class="chat-send">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 4: PALETTE SELECTION -->
+<div class="panel" id="palette">
+  <div class="steps">
+    <div class="step completed"><div class="step-dot">✓</div><span>Category</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Discovery</span></div>
+    <div class="step-line completed"></div>
+    <div class="step active"><div class="step-dot">3</div><span>Palette</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">4</div><span>Components</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">5</div><span>Mockups</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1>Choose your color palette</h1>
+    <p class="subtitle">Select a palette or provide feedback for refinements</p>
+  </div>
+
+  <div class="preview-overlay">
+    <div class="preview-tabs">
+      <div class="preview-tab active">Cyber Teal</div>
+      <div class="preview-tab">Electric Purple</div>
+      <div class="preview-tab">Warm Amber</div>
+    </div>
+    <div class="preview-content">
+      <div class="swatch-section">
+        <div class="swatch-label">Primary</div>
+        <div class="swatch-row">
+          <div class="swatch light" style="background: #e6fffa;">50</div>
+          <div class="swatch light" style="background: #b2f5ea;">100</div>
+          <div class="swatch light" style="background: #81e6d9;">200</div>
+          <div class="swatch light" style="background: #4fd1c5;">300</div>
+          <div class="swatch dark" style="background: #38b2ac;">400</div>
+          <div class="swatch dark" style="background: #319795;">500</div>
+          <div class="swatch dark" style="background: #2c7a7b;">600</div>
+          <div class="swatch dark" style="background: #285e61;">700</div>
+          <div class="swatch dark" style="background: #234e52;">800</div>
+          <div class="swatch dark" style="background: #1d4044;">900</div>
+        </div>
+      </div>
+      <div class="swatch-section">
+        <div class="swatch-label">Semantic</div>
+        <div class="swatch-row" style="max-width: 400px;">
+          <div class="swatch dark" style="background: #38a169;">Success</div>
+          <div class="swatch dark" style="background: #e53e3e;">Error</div>
+          <div class="swatch dark" style="background: #d69e2e;">Warning</div>
+          <div class="swatch dark" style="background: #3182ce;">Info</div>
+        </div>
+      </div>
+      <div class="swatch-section">
+        <div class="swatch-label">Surface (Dark Mode)</div>
+        <div class="swatch-row" style="max-width: 500px;">
+          <div class="swatch dark" style="background: #0d1117;">BG</div>
+          <div class="swatch dark" style="background: #161b22;">Surface</div>
+          <div class="swatch dark" style="background: #21262d;">Elevated</div>
+          <div class="swatch dark" style="background: #30363d;">Border</div>
+          <div class="swatch dark" style="background: #8b949e;">Text</div>
+        </div>
+      </div>
+      <h2 style="font-size: 16px; margin-top: 24px;">Preview</h2>
+      <div class="component-row">
+        <button class="demo-btn" style="background: #319795; color: white;">Primary Button</button>
+        <button class="demo-btn" style="background: transparent; border: 1.5px solid #319795; color: #319795;">Secondary</button>
+        <span class="demo-badge" style="background: #e6fffa; color: #285e61;">New</span>
+        <span class="demo-badge" style="background: #c6f6d5; color: #276749;">Published</span>
+      </div>
+    </div>
+    <div class="feedback-bar">
+      <input type="text" class="feedback-input" placeholder="I'd like the primary color to be more vibrant...">
+      <button class="feedback-btn reject">None of these ↺</button>
+      <button class="feedback-btn select">Select this one ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 5: COMPONENT STYLES -->
+<div class="panel" id="components">
+  <div class="steps">
+    <div class="step completed"><div class="step-dot">✓</div><span>Category</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Discovery</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Palette</span></div>
+    <div class="step-line completed"></div>
+    <div class="step active"><div class="step-dot">4</div><span>Components</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">5</div><span>Mockups</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1>Choose component style</h1>
+    <p class="subtitle">How should your UI elements look and feel?</p>
+  </div>
+
+  <div class="preview-overlay">
+    <div class="preview-tabs">
+      <div class="preview-tab active">Sharp & Modern</div>
+      <div class="preview-tab">Soft & Rounded</div>
+      <div class="preview-tab">Minimal & Flat</div>
+    </div>
+    <div class="preview-content">
+      <h2 style="font-size: 14px; margin-bottom: 16px;">Buttons</h2>
+      <div class="component-row">
+        <button class="demo-btn" style="background: #319795; color: white; border-radius: 6px;">Primary</button>
+        <button class="demo-btn" style="background: transparent; border: 2px solid #319795; color: #319795; border-radius: 6px;">Secondary</button>
+        <button class="demo-btn" style="background: #38a169; color: white; border-radius: 6px;">Success</button>
+        <button class="demo-btn" style="background: #e53e3e; color: white; border-radius: 6px;">Danger</button>
+      </div>
+
+      <h2 style="font-size: 14px; margin-bottom: 16px;">Inputs</h2>
+      <div class="component-row">
+        <input type="text" class="demo-input" style="border-radius: 6px;" placeholder="Enter text...">
+        <input type="text" class="demo-input" style="border-radius: 6px; border-color: #319795; box-shadow: 0 0 0 3px rgba(49,151,149,.15);" placeholder="Focused state">
+      </div>
+
+      <h2 style="font-size: 14px; margin-bottom: 16px;">Cards</h2>
+      <div class="component-row">
+        <div class="demo-card" style="border-radius: 8px;">
+          <h5>Card Title</h5>
+          <p>Card description goes here with some text.</p>
+        </div>
+        <div class="demo-card" style="border-radius: 8px; border-left: 3px solid #319795;">
+          <h5>Accented Card</h5>
+          <p>With a colored left border accent.</p>
+        </div>
+        <div class="demo-card" style="border-radius: 8px; background: linear-gradient(135deg, #f7fafc, #edf2f7);">
+          <h5>Gradient Card</h5>
+          <p>Subtle gradient background.</p>
+        </div>
+      </div>
+
+      <h2 style="font-size: 14px; margin-bottom: 16px;">Badges</h2>
+      <div class="component-row">
+        <span class="demo-badge" style="background: #e6fffa; color: #285e61; border-radius: 4px;">Default</span>
+        <span class="demo-badge" style="background: #c6f6d5; color: #276749; border-radius: 4px;">Success</span>
+        <span class="demo-badge" style="background: #fed7d7; color: #c53030; border-radius: 4px;">Error</span>
+        <span class="demo-badge" style="background: #fefcbf; color: #975a16; border-radius: 4px;">Warning</span>
+      </div>
+    </div>
+    <div class="feedback-bar">
+      <input type="text" class="feedback-input" placeholder="I want more rounded corners...">
+      <button class="feedback-btn reject">None of these ↺</button>
+      <button class="feedback-btn select">Select this one ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 6: FULL MOCKUPS -->
+<div class="panel" id="mockups">
+  <div class="steps">
+    <div class="step completed"><div class="step-dot">✓</div><span>Category</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Discovery</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Palette</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Components</span></div>
+    <div class="step-line completed"></div>
+    <div class="step active"><div class="step-dot">5</div><span>Mockups</span></div>
+    <div class="step-line"></div>
+    <div class="step"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1>Choose your layout style</h1>
+    <p class="subtitle">Full page mockups with your selected palette and components</p>
+  </div>
+
+  <div class="preview-overlay">
+    <div class="preview-tabs">
+      <div class="preview-tab active">Minimal</div>
+      <div class="preview-tab">Magazine</div>
+      <div class="preview-tab">Portfolio</div>
+    </div>
+    <div class="preview-content" style="padding: 24px; background: #f5f0ed;">
+      <!-- Browser frame mockup -->
+      <div class="browser-frame">
+        <div class="browser-bar">
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+          <div class="browser-dot"></div>
+        </div>
+        <div class="browser-content mockup-blog-minimal">
+          <div class="blog-header">
+            <div class="blog-title" style="color: #319795;">AI Horizons</div>
+            <div class="blog-subtitle">Exploring the future of machine learning</div>
+          </div>
+          <div class="article">
+            <div class="article-date">January 28, 2025</div>
+            <div class="article-title">Understanding Transformer Architectures</div>
+            <div class="article-excerpt">
+              Deep dive into the attention mechanisms that power modern language models. We explore how self-attention enables models to capture long-range dependencies...
+            </div>
+          </div>
+          <div class="article" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+            <div class="article-date">January 22, 2025</div>
+            <div class="article-title">The Rise of Multimodal AI</div>
+            <div class="article-excerpt">
+              How combining vision and language is creating more capable AI systems that can understand and reason about the world...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="feedback-bar">
+      <input type="text" class="feedback-input" placeholder="I'd like a sidebar with categories...">
+      <button class="feedback-btn reject">None of these ↺</button>
+      <button class="feedback-btn select">Select this one ✓</button>
+    </div>
+  </div>
+
+  <h2>Magazine Style Preview</h2>
+  <div class="browser-frame" style="margin-top: 16px;">
+    <div class="browser-bar">
+      <div class="browser-dot"></div>
+      <div class="browser-dot"></div>
+      <div class="browser-dot"></div>
+    </div>
+    <div class="browser-content mockup-blog-magazine">
+      <div class="mag-header">
+        <div class="mag-logo" style="color: #319795;">AI Horizons</div>
+        <div class="mag-nav">
+          <span>Latest</span>
+          <span>Tutorials</span>
+          <span>Research</span>
+          <span>About</span>
+        </div>
+      </div>
+      <div class="mag-grid">
+        <div class="mag-featured">
+          <div class="mag-featured-title">Understanding Transformer Architectures</div>
+        </div>
+        <div class="mag-sidebar">
+          <div class="mag-small">
+            <div class="mag-small-title">The Rise of Multimodal AI</div>
+          </div>
+          <div class="mag-small">
+            <div class="mag-small-title">GPT-5: What We Know So Far</div>
+          </div>
+          <div class="mag-small">
+            <div class="mag-small-title">Building RAG Applications</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 7: COMPLETE -->
+<div class="panel" id="complete">
+  <div class="steps">
+    <div class="step completed"><div class="step-dot">✓</div><span>Category</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Discovery</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Palette</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Components</span></div>
+    <div class="step-line completed"></div>
+    <div class="step completed"><div class="step-dot">✓</div><span>Mockups</span></div>
+    <div class="step-line completed"></div>
+    <div class="step active"><div class="step-dot">6</div><span>Complete</span></div>
+  </div>
+
+  <div class="complete-card">
+    <div class="complete-icon">✓</div>
+    <h2>Design System Created!</h2>
+    <p>Your design tokens and guidelines have been saved.</p>
+    <div class="complete-path">designs/ai-horizons-blog.md</div>
+    <div class="complete-actions">
+      <button class="demo-btn secondary" style="border-radius: 10px;">View Design File</button>
+      <button class="demo-btn primary" style="border-radius: 10px;">Start Building →</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL 8: DESIGN LIBRARY -->
+<div class="panel" id="library">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+    <div>
+      <h1>Design Library</h1>
+      <p class="subtitle" style="margin-bottom: 0;">Your saved design systems</p>
+    </div>
+  </div>
+
+  <div class="library-grid">
+    <div class="library-card add-new">
+      <div class="library-preview">
+        <div class="plus">+</div>
+        <div class="label">New Design</div>
+      </div>
+    </div>
+
+    <div class="library-card">
+      <div class="library-preview" style="background: linear-gradient(135deg, #e6fffa, #81e6d9);">
+        <div class="color-dots">
+          <div class="color-dot" style="background: #319795;"></div>
+          <div class="color-dot" style="background: #38a169;"></div>
+          <div class="color-dot" style="background: #0d1117;"></div>
+        </div>
+      </div>
+      <div class="library-info">
+        <h4>AI Horizons Blog</h4>
+        <p>Tech blog • Dark mode</p>
+        <div class="date">Created Jan 28, 2025</div>
+      </div>
+    </div>
+
+    <div class="library-card">
+      <div class="library-preview" style="background: linear-gradient(135deg, #fff5f2, #ffd4c4);">
+        <div class="color-dots">
+          <div class="color-dot" style="background: #f58565;"></div>
+          <div class="color-dot" style="background: #4a9149;"></div>
+          <div class="color-dot" style="background: #faf7f5;"></div>
+        </div>
+      </div>
+      <div class="library-info">
+        <h4>AIO Dashboard</h4>
+        <p>Dashboard • Light mode</p>
+        <div class="date">Created Jan 15, 2025</div>
+      </div>
+    </div>
+
+    <div class="library-card">
+      <div class="library-preview" style="background: linear-gradient(135deg, #ebe5f8, #c2b1ea);">
+        <div class="color-dots">
+          <div class="color-dot" style="background: #7e5fc4;"></div>
+          <div class="color-dot" style="background: #d14343;"></div>
+          <div class="color-dot" style="background: #fdfcfb;"></div>
+        </div>
+      </div>
+      <div class="library-info">
+        <h4>Creative Portfolio</h4>
+        <p>Portfolio • Both themes</p>
+        <div class="date">Created Jan 10, 2025</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>

@@ -11,7 +11,7 @@ import {
   Code,
 } from '@mantine/core';
 import { IconTrash, IconArrowDown } from '@tabler/icons-react';
-import type { LogEntry } from '@aio/types';
+import type { LogEntry } from '@orchy/types';
 
 interface LogViewerProps {
   logs: LogEntry[];

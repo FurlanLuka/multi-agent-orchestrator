@@ -11,7 +11,7 @@ import {
   Collapse,
 } from '@mantine/core';
 import { IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
-import type { AgentStatus, LogEntry, ProjectTestState } from '@aio/types';
+import type { AgentStatus, LogEntry, ProjectTestState } from '@orchy/types';
 import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { GlassCard, GlassTextInput, GlassSegmentedControl } from '../theme';
 

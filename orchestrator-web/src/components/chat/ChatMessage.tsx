@@ -8,7 +8,7 @@ import {
   Button,
 } from '@mantine/core';
 import { IconUser, IconRobot, IconClock, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
-import type { StreamingMessage, ContentBlock } from '@aio/types';
+import type { StreamingMessage, ContentBlock } from '@orchy/types';
 import { MessageContent } from './MessageContent';
 import { GlassCard } from '../../theme';
 

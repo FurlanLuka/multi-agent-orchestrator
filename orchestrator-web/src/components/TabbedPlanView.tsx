@@ -16,7 +16,7 @@ import {
   IconChevronRight,
   IconChevronDown,
 } from '@tabler/icons-react';
-import type { Plan, TaskState, ProjectTestState } from '@aio/types';
+import type { Plan, TaskState, ProjectTestState } from '@orchy/types';
 import { MarkdownMessage } from './MarkdownMessage';
 import { MermaidDiagram } from './MermaidDiagram';
 import { TaskList } from './plan/TaskList';

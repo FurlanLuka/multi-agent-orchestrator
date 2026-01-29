@@ -5,7 +5,7 @@ import * as os from 'os';
 import { exec } from 'child_process';
 
 // Setup file logging for GUI app debugging
-const LOG_DIR = path.join(os.homedir(), '.aio-config', 'logs');
+const LOG_DIR = path.join(os.homedir(), '.orchy-config', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'orchestrator.log');
 
 // Ensure log directory exists
@@ -92,7 +92,7 @@ const banner = `
   \x1b[33mVersion:\x1b[0m     ${VERSION}
   \x1b[33mAuthor:\x1b[0m      Luka Furlan
   \x1b[33mTo stop:\x1b[0m     Press Ctrl+C
-  \x1b[33mLogs:\x1b[0m        ~/.aio-config/logs/orchestrator.log
+  \x1b[33mLogs:\x1b[0m        ~/.orchy-config/logs/orchestrator.log
 
 `;
 process.stdout.write(banner);
@@ -106,7 +106,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@aio/types';
+import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -124,7 +124,7 @@ import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
-import { TEMPLATE_PERMISSIONS } from '@aio/types';
+import { TEMPLATE_PERMISSIONS } from '@orchy/types';
 import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
 
@@ -177,9 +177,9 @@ function parseArgs(): CLIOptions {
  */
 function printHelp(): void {
   console.log(`
-AIO Orchestrator - Multi-agent orchestrator for Claude Code
+Orchy - Multi-agent orchestrator for Claude Code
 
-Usage: aio [options]
+Usage: orchy [options]
 
 Options:
   --port, -p PORT    Specify port to run on (default: 3456)
@@ -190,9 +190,9 @@ Environment variables:
   ORCHESTRATOR_PORT  Default port (default: 3456)
 
 Examples:
-  aio                    Start server, open browser
-  aio --port 8080        Use specific port
-  aio --no-browser       Don't open browser
+  orchy                    Start server, open browser
+  orchy --port 8080        Use specific port
+  orchy --no-browser       Don't open browser
 `);
 }
 
@@ -2472,7 +2472,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Quick start: create frontend + backend app with git and e2e enabled
     socket.on('quickStartApp', async ({ appName }: { appName: string }) => {
       try {
-        const targetPath = `~/Documents/aio-${appName}`;
+        const targetPath = `~/orchy/${appName}`;
         const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
         const frontendName = `frontend`;
         const backendName = `backend`;
@@ -2515,7 +2515,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Quick start with session: create projects, workspace, and start session in one go
     socket.on('quickStartSession', async ({ appName, feature, templateNames }: { appName: string; feature: string; templateNames: string[] }) => {
       try {
-        const targetPath = `~/Documents/aio-${appName}`;
+        const targetPath = `~/orchy/${appName}`;
         const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
         const createdProjectNames: string[] = [];
 
