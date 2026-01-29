@@ -1,6 +1,5 @@
 import { useMemo, memo } from 'react';
 import {
-  Card,
   Group,
   Text,
   Badge,
@@ -11,6 +10,7 @@ import {
 import { IconUser, IconRobot, IconClock, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import type { StreamingMessage, ContentBlock } from '@aio/types';
 import { MessageContent } from './MessageContent';
+import { GlassCard } from '../../theme';
 
 // Format timestamp
 function formatTimestamp(timestamp: number): string {
@@ -49,6 +49,7 @@ function CollapsibleContent({ content, expanded, onToggle }: CollapsibleContentP
           size="xs"
           onClick={onToggle}
           leftSection={<IconChevronDown size={14} />}
+          color="peach"
         >
           Show full message
         </Button>
@@ -65,6 +66,7 @@ function CollapsibleContent({ content, expanded, onToggle }: CollapsibleContentP
         onClick={onToggle}
         leftSection={<IconChevronUp size={14} />}
         mt="sm"
+        color="peach"
       >
         Hide details
       </Button>
@@ -86,14 +88,11 @@ export const ChatMessage = memo(function ChatMessage({ message, isExpanded, onTo
   const isLongContent = useMemo(() => !isUser && isLongPlanContent(message.content), [isUser, message.content]);
 
   return (
-    <Card
+    <GlassCard
       p="md"
-      withBorder
-      shadow="sm"
-      radius="md"
       style={{
-        backgroundColor: isUser ? 'var(--mantine-color-blue-0)' : 'white',
-        borderColor: isUser ? 'var(--mantine-color-blue-2)' : 'var(--mantine-color-gray-3)',
+        backgroundColor: isUser ? 'rgba(245, 133, 101, 0.08)' : undefined,
+        borderColor: isUser ? 'rgba(245, 133, 101, 0.2)' : undefined,
         opacity: isQueued ? 0.8 : 1,
       }}
     >
@@ -101,33 +100,33 @@ export const ChatMessage = memo(function ChatMessage({ message, isExpanded, onTo
       <Group justify="space-between" mb="sm">
         <Group gap="xs">
           {isUser ? (
-            <IconUser size={18} color="var(--mantine-color-blue-6)" />
+            <IconUser size={18} style={{ color: 'var(--color-primary)' }} />
           ) : (
-            <IconRobot size={18} color="var(--mantine-color-gray-6)" />
+            <IconRobot size={18} style={{ color: 'var(--text-muted)' }} />
           )}
-          <Text size="sm" fw={600} c={isUser ? 'blue.7' : 'gray.7'}>
+          <Text size="sm" fw={600} style={{ color: isUser ? 'var(--color-primary)' : 'var(--text-label)' }}>
             {isUser ? 'You' : 'Planning Agent'}
           </Text>
           {isStreaming && (
-            <Badge size="xs" color="yellow" variant="dot">
+            <Badge size="xs" color="honey" variant="dot">
               Streaming...
             </Badge>
           )}
           {isQueued && (
-            <Badge size="xs" color="orange" variant="light">
+            <Badge size="xs" color="honey" variant="light">
               Queued
             </Badge>
           )}
         </Group>
         <Group gap="xs">
-          <IconClock size={12} color="var(--mantine-color-gray-5)" />
+          <IconClock size={12} style={{ color: 'var(--text-placeholder)' }} />
           <Text size="xs" c="dimmed">
             {formatTimestamp(message.createdAt)}
           </Text>
         </Group>
       </Group>
 
-      <Divider mb="sm" color={isUser ? 'blue.1' : 'gray.2'} />
+      <Divider mb="sm" color={isUser ? 'rgba(245, 133, 101, 0.15)' : 'var(--border-subtle)'} />
 
       {/* Message content - collapsible for very long messages */}
       {isLongContent ? (
@@ -139,6 +138,6 @@ export const ChatMessage = memo(function ChatMessage({ message, isExpanded, onTo
       ) : (
         <MessageContent content={message.content} />
       )}
-    </Card>
+    </GlassCard>
   );
 });

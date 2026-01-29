@@ -1,7 +1,8 @@
-import { Card, Group, Badge, Text, Stack, Code, Box, Collapse, ActionIcon } from '@mantine/core';
+import { Group, Badge, Text, Stack, Code, Box, Collapse, ActionIcon } from '@mantine/core';
 import { IconCheck, IconX, IconChevronUp, IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
 import type { RequestFlow } from '@aio/types';
+import { GlassCard } from '../theme';
 
 interface CompletedFlowCardProps {
   flow: RequestFlow;
@@ -23,12 +24,34 @@ function getFlowLabel(type: string, passed?: boolean): string {
 // Get color for flow type (some types use non-pass/fail colors)
 function getFlowColor(type: string, passed?: boolean): string {
   if (type === 'info' || type === 'planning') {
-    return 'blue';  // Neutral color for info/planning flows
+    return 'gray';  // Neutral color for info/planning flows
   }
   if (type === 'success') {
-    return 'green';  // Always green for success type
+    return 'sage';  // Always green for success type
   }
-  return passed ? 'green' : 'red';
+  return passed ? 'sage' : 'rose';
+}
+
+// Get background color for flow type
+function getFlowBgColor(type: string, passed?: boolean): string {
+  if (type === 'info' || type === 'planning') {
+    return 'rgba(160, 130, 110, 0.06)';  // Warm gray tint
+  }
+  if (type === 'success' || passed) {
+    return 'rgba(74, 145, 73, 0.08)';  // Sage tint
+  }
+  return 'rgba(209, 67, 67, 0.08)';  // Rose tint
+}
+
+// Get border color for flow type
+function getFlowBorderColor(type: string, passed?: boolean): string {
+  if (type === 'info' || type === 'planning') {
+    return 'rgba(160, 130, 110, 0.15)';  // Warm gray border
+  }
+  if (type === 'success' || passed) {
+    return 'rgba(74, 145, 73, 0.2)';
+  }
+  return 'rgba(209, 67, 67, 0.2)';
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -58,21 +81,19 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
   const Icon = passed ? IconCheck : IconX;
 
   return (
-    <Card
+    <GlassCard
       p="sm"
-      radius="md"
-      withBorder
       style={{
-        backgroundColor: `var(--mantine-color-${color}-0)`,
-        borderColor: `var(--mantine-color-${color}-3)`,
+        backgroundColor: getFlowBgColor(flow.type, passed),
+        borderColor: getFlowBorderColor(flow.type, passed),
       }}
     >
       <Group justify="space-between" wrap="nowrap">
         <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
           {showIcon && (
-            <Icon size={18} color={`var(--mantine-color-${color}-6)`} style={{ flexShrink: 0 }} />
+            <Icon size={18} style={{ color: `var(--color-${passed ? 'success' : 'error'})`, flexShrink: 0 }} />
           )}
-          <Text size="sm" c={`${color}.7`} lineClamp={1} style={{ flex: 1 }}>
+          <Text size="sm" lineClamp={1} style={{ flex: 1, color: 'var(--text-body)' }}>
             {displayText}
           </Text>
           {flow.project && (
@@ -96,7 +117,7 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
       {/* Expandable details */}
       {hasDetails && (
         <Collapse in={expanded}>
-          <Stack mt="sm" gap="sm" pt="sm" style={{ borderTop: `1px solid var(--mantine-color-${color}-2)` }}>
+          <Stack mt="sm" gap="sm" pt="sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
             {/* Summary */}
             {flow.result?.summary && (
               <Text size="sm" c="dimmed">
@@ -112,9 +133,9 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
                   {flow.steps.map((step) => (
                     <Group key={step.id} gap="xs">
                       {step.status === 'completed' ? (
-                        <IconCheck size={12} color={`var(--mantine-color-green-6)`} />
+                        <IconCheck size={12} style={{ color: 'var(--color-success)' }} />
                       ) : step.status === 'failed' ? (
-                        <IconX size={12} color={`var(--mantine-color-red-6)`} />
+                        <IconX size={12} style={{ color: 'var(--color-error)' }} />
                       ) : (
                         <Box w={12} />
                       )}
@@ -129,8 +150,8 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
             {flow.result?.details && (
               <Box
                 style={{
-                  backgroundColor: 'var(--mantine-color-dark-8)',
-                  borderRadius: 'var(--mantine-radius-sm)',
+                  backgroundColor: '#1e1e1e',
+                  borderRadius: 8,
                   padding: '8px',
                 }}
               >
@@ -141,7 +162,7 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
                     maxHeight: '150px',
                     overflow: 'auto',
                     backgroundColor: 'transparent',
-                    color: 'var(--mantine-color-gray-4)',
+                    color: '#abb2bf',
                     whiteSpace: 'pre-wrap',
                   }}
                 >
@@ -152,6 +173,6 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
           </Stack>
         </Collapse>
       )}
-    </Card>
+    </GlassCard>
   );
 }

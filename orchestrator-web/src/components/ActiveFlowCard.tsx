@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Card, Group, Badge, Text, Loader, Stack, Textarea, Button, Radio, Checkbox, TextInput } from '@mantine/core';
+import { Group, Badge, Text, Loader, Stack, Button, Radio, Checkbox } from '@mantine/core';
 import { IconCheck, IconQuestionMark } from '@tabler/icons-react';
 import type { RequestFlow, PlanningQuestion, PlanningStatusEvent, PlanningQuestionItem } from '@aio/types';
+import { GlassCard, GlassTextarea, GlassTextInput } from '../theme';
 
 interface ActiveFlowCardProps {
   flow: RequestFlow;
@@ -12,13 +13,14 @@ interface ActiveFlowCardProps {
 
 function getFlowColor(type: string): string {
   switch (type) {
-    case 'e2e': return 'blue';
-    case 'task': return 'blue';
-    case 'planning': return 'blue';
-    case 'fix': return 'orange';
+    case 'e2e': return 'peach';
+    case 'task': return 'peach';
+    case 'planning': return 'peach';
+    case 'fix': return 'honey';
     case 'info': return 'gray';
-    case 'success': return 'green';
-    default: return 'blue';
+    case 'success': return 'sage';
+    case 'waiting': return 'peach';
+    default: return 'peach';
   }
 }
 
@@ -101,7 +103,7 @@ function QuestionInput({
   if (questionType === 'text') {
     return (
       <>
-        <Textarea
+        <GlassTextarea
           placeholder="Your answer..."
           value={textAnswer}
           onChange={(e) => setTextAnswer(e.target.value)}
@@ -112,7 +114,7 @@ function QuestionInput({
         />
         <Group justify="space-between" align="center">
           <Text size="xs" c="dimmed">Cmd+Enter to submit</Text>
-          <Button size="xs" onClick={handleSubmit} disabled={!canSubmit()}>
+          <Button size="xs" color="peach" onClick={handleSubmit} disabled={!canSubmit()}>
             {isLastQuestion ? 'Submit Answer' : 'Next Question'}
           </Button>
         </Group>
@@ -133,13 +135,13 @@ function QuestionInput({
         >
           <Stack gap="xs">
             {options.map((option) => (
-              <Radio key={option} value={option} label={option} size="sm" />
+              <Radio key={option} value={option} label={option} size="sm" color="peach" />
             ))}
-            <Radio value="__custom__" label="Custom..." size="sm" />
+            <Radio value="__custom__" label="Custom..." size="sm" color="peach" />
           </Stack>
         </Radio.Group>
         {showCustomInput && (
-          <TextInput
+          <GlassTextInput
             placeholder="Enter custom answer..."
             value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
@@ -150,7 +152,7 @@ function QuestionInput({
         )}
         <Group justify="space-between" align="center" mt="xs">
           <Text size="xs" c="dimmed">Cmd+Enter to submit</Text>
-          <Button size="xs" onClick={handleSubmit} disabled={!canSubmit()}>
+          <Button size="xs" color="peach" onClick={handleSubmit} disabled={!canSubmit()}>
             {isLastQuestion ? 'Submit Answer' : 'Next Question'}
           </Button>
         </Group>
@@ -186,6 +188,7 @@ function QuestionInput({
               onChange={() => toggleOption(option)}
               label={option}
               size="sm"
+              color="peach"
             />
           ))}
           <Checkbox
@@ -193,10 +196,11 @@ function QuestionInput({
             onChange={() => toggleOption('__custom__')}
             label="Custom..."
             size="sm"
+            color="peach"
           />
         </Stack>
         {showCustomInput && (
-          <TextInput
+          <GlassTextInput
             placeholder="Enter custom answer..."
             value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
@@ -209,7 +213,7 @@ function QuestionInput({
           <Text size="xs" c="dimmed">
             {selectedOptions.size > 0 ? `${selectedOptions.size} selected` : 'Select options'} · Cmd+Enter to submit
           </Text>
-          <Button size="xs" onClick={handleSubmit} disabled={!canSubmit()}>
+          <Button size="xs" color="peach" onClick={handleSubmit} disabled={!canSubmit()}>
             {isLastQuestion ? 'Submit Answer' : 'Next Question'}
           </Button>
         </Group>
@@ -260,13 +264,11 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
   };
 
   return (
-    <Card
+    <GlassCard
       p="sm"
-      radius="md"
-      withBorder
       style={{
-        backgroundColor: `var(--mantine-color-${color}-0)`,
-        borderColor: `var(--mantine-color-${color}-3)`,
+        backgroundColor: `rgba(245, 133, 101, 0.08)`,
+        borderColor: `rgba(245, 133, 101, 0.2)`,
       }}
     >
       {/* Current active step with spinner - shown when no question pending */}
@@ -275,7 +277,7 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
           <Group gap="sm" justify="space-between" wrap="nowrap">
             <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
               <Loader size={16} color={color} />
-              <Text size="sm" c={`${color}.7`}>
+              <Text size="sm" style={{ color: 'var(--color-primary)' }}>
                 {statusMessage}
               </Text>
             </Group>
@@ -298,8 +300,8 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
         <Stack gap="xs">
           <Group gap="xs" justify="space-between">
             <Group gap="xs">
-              <IconQuestionMark size={16} color="var(--mantine-color-blue-6)" />
-              <Text size="sm" fw={500} c="blue.7">
+              <IconQuestionMark size={16} style={{ color: 'var(--color-primary)' }} />
+              <Text size="sm" fw={500} style={{ color: 'var(--color-primary)' }}>
                 Clarification Needed
               </Text>
             </Group>
@@ -310,13 +312,13 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
                 </Badge>
               )}
               {pendingQuestion.questions.length > 1 && (
-                <Badge size="xs" variant="light" color="blue">
+                <Badge size="xs" variant="light" color="peach">
                   Question {questionProgress}
                 </Badge>
               )}
             </Group>
           </Group>
-          <Text size="sm">{currentQuestion.question}</Text>
+          <Text size="sm" style={{ color: 'var(--text-body)' }}>{currentQuestion.question}</Text>
           {currentQuestion.context && (
             <Text size="xs" c="dimmed" fs="italic">
               Context: {currentQuestion.context}
@@ -335,12 +337,12 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
         <Stack gap={4} mt={statusMessage || showQuestion ? 'xs' : 0}>
           {completedSteps.map((step) => (
             <Group key={step.id} gap="xs">
-              <IconCheck size={12} color="var(--mantine-color-green-6)" />
+              <IconCheck size={12} style={{ color: 'var(--color-success)' }} />
               <Text size="xs" c="dimmed">{step.message}</Text>
             </Group>
           ))}
         </Stack>
       )}
-    </Card>
+    </GlassCard>
   );
 }

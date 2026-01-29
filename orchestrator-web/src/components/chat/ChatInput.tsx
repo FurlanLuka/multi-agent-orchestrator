@@ -1,11 +1,10 @@
 import { useRef } from 'react';
 import {
-  Paper,
   Group,
-  TextInput,
   ActionIcon,
 } from '@mantine/core';
 import { IconSend } from '@tabler/icons-react';
+import { GlassSurface, GlassTextInput } from '../../theme';
 
 interface ChatInputProps {
   placeholder: string;
@@ -33,21 +32,20 @@ export function ChatInput({ placeholder, disabled, actionColor, onSend }: ChatIn
   };
 
   return (
-    <Paper p="sm" withBorder radius="md" shadow="sm">
+    <GlassSurface p="sm">
       <Group gap="xs">
-        <TextInput
+        <GlassTextInput
           ref={inputRef}
           placeholder={placeholder}
           style={{ flex: 1 }}
           disabled={disabled}
           onKeyDown={handleKeyDown}
-          radius="md"
           size="md"
         />
         <ActionIcon
           size="xl"
           variant="filled"
-          color={actionColor}
+          color={actionColor === 'blue' ? 'peach' : actionColor}
           radius="md"
           onClick={handleSend}
           disabled={disabled}
@@ -55,6 +53,6 @@ export function ChatInput({ placeholder, disabled, actionColor, onSend }: ChatIn
           <IconSend size={20} />
         </ActionIcon>
       </Group>
-    </Paper>
+    </GlassSurface>
   );
 }

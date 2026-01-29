@@ -22,6 +22,7 @@ interface HomePageProps {
   onSettings: () => void;
   onResumeSession: () => void;
   onStartWithoutWorkspace: () => void;
+  onQuickStart: () => void;
 }
 
 export function HomePage({
@@ -32,6 +33,7 @@ export function HomePage({
   onSettings,
   onResumeSession,
   onStartWithoutWorkspace,
+  onQuickStart,
 }: HomePageProps) {
   const workspaceList = Object.values(workspaces);
 
@@ -80,15 +82,24 @@ export function HomePage({
           </SimpleGrid>
 
           <Text c="dimmed" size="sm" ta="center">
-            Or{' '}
             <Text
               span
               c="peach.6"
               fw={500}
-              style={{ textDecoration: 'underline', cursor: 'pointer' }}
+              style={{ cursor: 'pointer' }}
+              onClick={onQuickStart}
+            >
+              Quick start a new app
+            </Text>
+            {' or '}
+            <Text
+              span
+              c="peach.6"
+              fw={500}
+              style={{ cursor: 'pointer' }}
               onClick={onStartWithoutWorkspace}
             >
-              start a session without a workspace
+              start without workspace
             </Text>
           </Text>
         </Stack>

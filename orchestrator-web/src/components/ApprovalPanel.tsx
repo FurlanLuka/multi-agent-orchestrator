@@ -1,6 +1,7 @@
-import { Modal, Text, Button, Group, Stack, Badge, Paper } from '@mantine/core';
+import { Modal, Text, Button, Group, Stack, Badge } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import type { ApprovalRequest } from '@aio/types';
+import { GlassSurface } from '../theme';
 
 interface ApprovalPanelProps {
   approval: ApprovalRequest | null;
@@ -16,35 +17,42 @@ export function ApprovalPanel({ approval, onRespond }: ApprovalPanelProps) {
       onClose={() => {}} // Don't allow closing without responding
       title={
         <Group gap="xs">
-          <IconAlertCircle size={20} color="orange" />
-          <Text fw={600}>Approval Required</Text>
+          <IconAlertCircle size={20} style={{ color: 'var(--color-warning)' }} />
+          <Text fw={600} style={{ color: 'var(--text-heading)' }}>Approval Required</Text>
         </Group>
       }
       closeOnClickOutside={false}
       closeOnEscape={false}
       withCloseButton={false}
       centered
+      radius="lg"
+      styles={{
+        content: {
+          background: 'rgba(255, 255, 255, 0.98)',
+          backdropFilter: 'blur(24px)',
+        },
+      }}
     >
       <Stack gap="md">
         <Group gap="xs">
-          <Badge color="blue">{approval.project}</Badge>
+          <Badge color="peach">{approval.project}</Badge>
           <Badge color="gray">{approval.approval_type}</Badge>
         </Group>
 
-        <Paper p="md" bg="gray.0" withBorder>
-          <Text style={{ whiteSpace: 'pre-wrap' }}>{approval.prompt}</Text>
-        </Paper>
+        <GlassSurface p="md">
+          <Text style={{ whiteSpace: 'pre-wrap', color: 'var(--text-body)' }}>{approval.prompt}</Text>
+        </GlassSurface>
 
         <Group justify="flex-end">
           <Button
             variant="light"
-            color="red"
+            color="rose"
             onClick={() => onRespond(approval.id, false)}
           >
             Reject
           </Button>
           <Button
-            color="green"
+            color="sage"
             onClick={() => onRespond(approval.id, true)}
           >
             Approve

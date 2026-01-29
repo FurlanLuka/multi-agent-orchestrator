@@ -818,11 +818,12 @@ export function useSocket() {
     }
   }, []);
 
-  // Quick start: create frontend + backend app with git and e2e enabled
-  const quickStartApp = useCallback((appName: string) => {
+  // Quick start with session: create projects from templates, workspace, and start session
+  const quickStartSession = useCallback((appName: string, feature: string, templateNames: string[]) => {
     if (socketRef.current) {
       setCreatingProject(true);
-      socketRef.current.emit('quickStartApp', { appName });
+      setStartingSession(true);
+      socketRef.current.emit('quickStartSession', { appName, feature, templateNames });
     }
   }, []);
 
@@ -1145,7 +1146,7 @@ export function useSocket() {
     clearStreamingMessages,
     clearFlows,
     createProjectFromTemplate,
-    quickStartApp,
+    quickStartSession,
     addProject,
     removeProject,
     updateProject,

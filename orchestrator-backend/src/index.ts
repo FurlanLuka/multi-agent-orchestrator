@@ -2514,6 +2514,133 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Quick start with session: create projects, workspace, and start session in one go
+    socket.on('quickStartSession', async ({ appName, feature, templateNames }: { appName: string; feature: string; templateNames: string[] }) => {
+      try {
+        const targetPath = `~/Documents/aio-${appName}`;
+        const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+        const createdProjectNames: string[] = [];
+
+        // Create parent directory if it doesn't exist
+        if (!fs.existsSync(expandedTargetPath)) {
+          fs.mkdirSync(expandedTargetPath, { recursive: true });
+        }
+
+        // Create projects from selected templates
+        for (const templateName of templateNames) {
+          // Determine project suffix from template name
+          const suffix = templateName.includes('frontend') ? 'frontend' :
+                        templateName.includes('backend') ? 'backend' :
+                        templateName.replace(/^(react|vite|vue|express|nestjs)-?/, '');
+          const projectName = `${appName}-${suffix}`;
+
+          // Check if this project depends on others (frontend depends on backend for E2E)
+          const dependsOn = templateName.includes('frontend') && createdProjectNames.some(p => p.includes('backend'))
+            ? [createdProjectNames.find(p => p.includes('backend'))!]
+            : undefined;
+
+          await projectManager.createFromTemplate({
+            name: projectName,
+            targetPath: `${targetPath}/${suffix}`,
+            template: templateName as any, // Template names come from registered templates
+            dependsOn,
+            permissions: {
+              allow: TEMPLATE_PERMISSIONS[templateName] || [],
+            },
+          });
+
+          createdProjectNames.push(projectName);
+        }
+
+        // Create workspace with the newly created projects
+        const workspace = workspaceManager.createWorkspace({
+          name: appName,
+          projects: createdProjectNames,
+        });
+
+        // Emit updated projects and workspaces
+        socket.emit('projects', projectManager.getProjects());
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+
+        // Now start the session with this workspace
+        const session = sessionManager.createSession(feature, createdProjectNames);
+        session.workspaceId = workspace.id;
+
+        // Initialize git branches for git-enabled projects
+        const gitBranches: Record<string, string> = {};
+        for (const project of createdProjectNames) {
+          const projectConfig = projectManager.getProjects()[project];
+          if (projectConfig?.gitEnabled) {
+            try {
+              let projectPath = projectConfig.path;
+              if (projectPath.startsWith('~')) {
+                projectPath = projectPath.replace('~', process.env.HOME || '');
+              }
+
+              const mainBranchForProject = projectConfig.mainBranch || 'main';
+              await gitManager.initRepo(projectPath, mainBranchForProject);
+
+              const actualBranchName = gitManager.generateBranchName(feature);
+              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
+              if (branchResult.success) {
+                gitBranches[project] = actualBranchName;
+                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+              }
+            } catch (gitErr) {
+              console.error(`[Orchestrator] Failed to initialize git for ${project}:`, gitErr);
+            }
+          }
+        }
+
+        // Store git branches in session
+        if (Object.keys(gitBranches).length > 0) {
+          session.gitBranches = gitBranches;
+          sessionStore.updateGitBranches(session.id, gitBranches);
+        }
+
+        // Set current session ID on StatusMonitor and LogAggregator for persistence
+        statusMonitor.setCurrentSessionId(session.id);
+        logAggregator.setCurrentSessionId(session.id);
+
+        // Create session logger for debugging
+        sessionLogger = new SessionLogger(session.id);
+        sessionLogger.log('SESSION_CREATE', { feature, projects: createdProjectNames });
+
+        // Initialize status for each project
+        for (const project of createdProjectNames) {
+          statusMonitor.initializeProject(project);
+          const sessionDir = sessionManager.getSessionDir(project);
+          if (sessionDir) {
+            logAggregator.registerProject(project, sessionDir);
+            eventWatcher.watchProject(project, sessionDir);
+          }
+        }
+
+        (ui.io as any).emitSessionCreated(session);
+        chatHandler.systemMessage(`Session created: ${session.id}`);
+        sessionLogger.chat('system', `Session created: ${session.id}`);
+
+        // Get project paths for Planning Agent to explore
+        const projectPaths: Record<string, string> = {};
+        for (const project of createdProjectNames) {
+          const projectConfig = projectManager.getProject(project);
+          if (projectConfig) {
+            projectPaths[project] = projectConfig.path;
+          }
+        }
+
+        // Request plan from Planning Agent with project paths
+        sessionLogger.chat('user', `Create a plan for: ${feature}`);
+        chatHandler.requestPlan(feature, createdProjectNames, projectPaths);
+
+        console.log(`[Orchestrator] Quick start session created: ${session.id} with workspace ${workspace.id}`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Quick start session failed:', error);
+        socket.emit('quickStartError', { error });
+      }
+    });
+
     // ═══════════════════════════════════════════════════════════════
     // Workspace Management Socket Events
     // ═══════════════════════════════════════════════════════════════

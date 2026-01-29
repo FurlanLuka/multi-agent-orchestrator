@@ -4,7 +4,6 @@ import {
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
 import {
-  Paper,
   ScrollArea,
   Group,
   Text,
@@ -21,6 +20,7 @@ import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
 import { PlanApprovalCard } from './PlanApprovalCard';
+import { GlassSurface } from '../theme';
 
 // Timeline item type for unified rendering
 type TimelineItem =
@@ -126,13 +126,14 @@ function ChatThread() {
 
   return (
     <Box style={{ position: 'relative', height: '100%' }}>
-      <Paper
+      <GlassSurface
         p="md"
         h="100%"
         style={{
           display: 'flex',
           flexDirection: 'column',
-          backgroundColor: 'var(--mantine-color-gray-0)',
+          borderRadius: 0,
+          border: 'none',
         }}
       >
         <Stack gap={0} style={{ flex: 1, minHeight: 0 }}>
@@ -172,13 +173,13 @@ function ChatThread() {
           {/* BOTTOM: Active Operations */}
           {activeFlows.length > 0 && (
             <>
-              <Divider my="sm" />
+              <Divider my="sm" color="var(--border-subtle)" />
               <Box p="xs">
                 <Group gap="xs" mb="xs">
-                  <Text size="xs" fw={600} c="blue">
+                  <Text size="xs" fw={600} style={{ color: 'var(--color-primary)' }}>
                     ACTIVE
                   </Text>
-                  <Badge size="xs" color="blue" variant="light">
+                  <Badge size="xs" color="peach" variant="light">
                     {activeFlows.length}
                   </Badge>
                 </Group>
@@ -202,12 +203,12 @@ function ChatThread() {
             <ChatInput
               placeholder={placeholder}
               disabled={!chatEnabled}
-              actionColor={pendingPlanApproval ? 'orange' : 'blue'}
+              actionColor="peach"
               onSend={handleSend}
             />
           </Box>
         </Stack>
-      </Paper>
+      </GlassSurface>
 
       {/* Planner permission overlay */}
       {isPlannerPermission && permissionPrompt && (

@@ -1,21 +1,19 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import {
-  Paper,
   Group,
   Text,
   Badge,
   Progress,
-  SegmentedControl,
   ScrollArea,
   Box,
   Code,
   Button,
-  TextInput,
   Collapse,
 } from '@mantine/core';
 import { IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '@aio/types';
 import { PermissionOverlay } from './overlay/PermissionOverlay';
+import { GlassCard, GlassTextInput, GlassSegmentedControl } from '../theme';
 
 interface ProjectCardProps {
   project: string;
@@ -37,15 +35,15 @@ interface ProjectCardProps {
 // Status configuration for colors and labels
 const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
   PENDING: { color: 'gray', label: 'Pending' },
-  IDLE: { color: 'green', label: 'Complete' },
-  WORKING: { color: 'blue', label: 'Working' },
-  DEBUGGING: { color: 'yellow', label: 'Debugging' },
-  FATAL_DEBUGGING: { color: 'red', label: 'Fatal Debug' },
-  READY: { color: 'teal', label: 'Ready' },
-  E2E: { color: 'violet', label: 'E2E Testing' },
-  E2E_FIXING: { color: 'grape', label: 'Fixing E2E' },
-  BLOCKED: { color: 'orange', label: 'Blocked' },
-  FAILED: { color: 'red', label: 'Failed' },
+  IDLE: { color: 'sage', label: 'Complete' },
+  WORKING: { color: 'peach', label: 'Working' },
+  DEBUGGING: { color: 'honey', label: 'Debugging' },
+  FATAL_DEBUGGING: { color: 'rose', label: 'Fatal Debug' },
+  READY: { color: 'sage', label: 'Ready' },
+  E2E: { color: 'lavender', label: 'E2E Testing' },
+  E2E_FIXING: { color: 'lavender', label: 'Fixing E2E' },
+  BLOCKED: { color: 'honey', label: 'Blocked' },
+  FAILED: { color: 'rose', label: 'Failed' },
 };
 
 // Progress mapping based on status
@@ -122,11 +120,13 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
   };
 
   return (
-    <Paper shadow="sm" radius="lg" p="md" withBorder style={{ position: 'relative' }}>
+    <GlassCard p="md" style={{ position: 'relative' }}>
       {/* Header: Project name + Status badge + Action buttons */}
       <Group justify="space-between" mb="xs">
         <Group gap="sm">
-          <Text fw={700} size="lg" tt="uppercase">{project.replace(/_/g, ' ')}</Text>
+          <Text fw={700} size="lg" tt="uppercase" style={{ color: 'var(--text-heading)' }}>
+            {project.replace(/_/g, ' ')}
+          </Text>
           <Text size="xs" c="dimmed">{getRelativeTime()}</Text>
         </Group>
         <Group gap="xs">
@@ -139,7 +139,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             <Button
               size="xs"
               variant="light"
-              color="orange"
+              color="honey"
               leftSection={<IconPlayerSkipForward size={14} />}
               onClick={onSkipE2E}
             >
@@ -152,7 +152,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             <Button
               size="xs"
               variant="light"
-              color="yellow"
+              color="honey"
               leftSection={<IconRotateClockwise size={14} />}
               onClick={onRestartServer}
             >
@@ -165,7 +165,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
             <Button
               size="xs"
               variant="light"
-              color="red"
+              color="rose"
               leftSection={<IconRefresh size={14} />}
               onClick={() => {
                 if (showRetryHint && retryHint.trim()) {
@@ -186,7 +186,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
       {/* Retry hint input (collapsible) */}
       <Collapse in={showRetryHint && (status === 'FATAL_DEBUGGING' || status === 'FAILED')}>
         <Group gap="xs" mb="xs">
-          <TextInput
+          <GlassTextInput
             placeholder="Optional hint for the agent (e.g., check the import path)"
             value={retryHint}
             onChange={(e) => setRetryHint(e.target.value)}
@@ -221,13 +221,14 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
         animated={isAnimated}
         size="sm"
         mb="xs"
+        radius="xl"
       />
 
       {/* Status message */}
       <Text size="sm" c="dimmed" mb="md">{message || 'Waiting...'}</Text>
 
       {/* Log type toggle */}
-      <SegmentedControl
+      <GlassSegmentedControl
         value={logType}
         onChange={setLogType}
         data={[
@@ -248,7 +249,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
           minHeight: 180,
         }}>
           {filteredLogs.length === 0 ? (
-            <Text size="xs" c="dimmed" ta="center" style={{ color: '#666' }}>
+            <Text size="xs" ta="center" style={{ color: '#666' }}>
               No {logType === 'agent' ? 'agent output' : 'dev server logs'} yet
             </Text>
           ) : (
@@ -282,7 +283,7 @@ function ProjectCardInner({ project, status, message, updatedAt, logs, testState
           compact={true}
         />
       )}
-    </Paper>
+    </GlassCard>
   );
 }
 

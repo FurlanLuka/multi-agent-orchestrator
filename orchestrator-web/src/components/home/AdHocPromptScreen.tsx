@@ -76,7 +76,6 @@ export function AdHocPromptScreen({
           value={selectedProjects}
           onChange={setSelectedProjects}
           searchable
-          size="md"
         />
 
         <GlassRichTextEditor
@@ -92,7 +91,6 @@ export function AdHocPromptScreen({
             description="Feature branch will be created for git-enabled projects"
             value={branchName}
             onChange={(e) => setBranchName(e.target.value)}
-            size="md"
             leftSection={<IconGitBranch size={16} />}
           />
         )}

@@ -1,24 +1,26 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  AppShell,
   Container,
   Stack,
   Group,
   Text,
   Grid,
-  Paper,
   Box,
   ThemeIcon,
   ScrollArea,
   Button,
   Collapse,
   Badge,
+  Title,
+  Modal,
 } from '@mantine/core';
 import {
   IconMessageCircle,
   IconClipboardList,
   IconChevronDown,
   IconChevronUp,
+  IconPlayerStop,
+  IconRocket,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { AssistantChat } from '../AssistantChat';
@@ -27,8 +29,8 @@ import { ProjectCard } from '../ProjectCard';
 import { TabbedPlanView } from '../TabbedPlanView';
 import { MarkdownMessage } from '../MarkdownMessage';
 import { UserInputOverlay } from '../UserInputOverlay';
-import { AppHeader } from '../layout/AppHeader';
 import { CompletionPanel } from './CompletionPanel';
+import { GlassCard } from '../../theme';
 
 interface SessionViewProps {
   onBackToHome: () => void;
@@ -44,28 +46,19 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     taskStates,
     currentApproval,
     allComplete,
-    activeSessionId,
     respondToApproval,
     submitUserInput,
     userInputRequest,
     permissionPrompt,
     respondToPermission,
     retryProject,
+    startNewSession,
   } = useOrchestrator();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const [showPlan, setShowPlan] = useState(true);
   const [showInitialPrompt, setShowInitialPrompt] = useState(false);
-
-  // Shutdown on close preference (persisted to localStorage)
-  const [shutdownOnClose, setShutdownOnClose] = useState(() => {
-    return localStorage.getItem('aio-shutdown-on-close') === 'true';
-  });
-
-  const handleShutdownOnCloseChange = useCallback((checked: boolean) => {
-    setShutdownOnClose(checked);
-    localStorage.setItem('aio-shutdown-on-close', String(checked));
-  }, []);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
 
   const isStreaming = useMemo(
     () => streamingMessages.some(m => m.status === 'streaming'),
@@ -87,52 +80,61 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     retryProject(project);
   }, [retryProject]);
 
-  return (
-    <AppShell
-      header={{ height: 64 }}
-      padding="md"
-      styles={{
-        root: { minHeight: '100%' },
-        main: { minHeight: 'calc(100vh - 64px)' },
-      }}
-    >
-      <AppShell.Header
-        p="md"
-        style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
-      >
-        <AppHeader
-          activeSessionId={activeSessionId}
-          shutdownOnClose={shutdownOnClose}
-          onShutdownOnCloseChange={handleShutdownOnCloseChange}
-          onBackToHome={onBackToHome}
-        />
-      </AppShell.Header>
+  const handleStopSession = useCallback(() => {
+    startNewSession();
+    onBackToHome();
+    setStopModalOpen(false);
+  }, [startNewSession, onBackToHome]);
 
-      <AppShell.Main>
-        <Container size="100%" py="md" h="calc(100vh - 80px)">
+  return (
+    <Box style={{ minHeight: '100vh' }}>
+      <Container size="100%" py="md" h="100vh">
+        <Stack gap="md" h="100%">
+          {/* Simple Header Row */}
+          <Group justify="space-between" px="xs">
+            <Group gap="sm">
+              <ThemeIcon size="lg" radius="md" color="peach" variant="light">
+                <IconRocket size={20} />
+              </ThemeIcon>
+              <Title order={3} style={{ fontWeight: 700, color: 'var(--text-heading)' }}>
+                AIO Orchestrator
+              </Title>
+            </Group>
+            <Button
+              variant="subtle"
+              color="rose"
+              leftSection={<IconPlayerStop size={16} />}
+              onClick={() => setStopModalOpen(true)}
+            >
+              Stop Session
+            </Button>
+          </Group>
+
           {allComplete && <CompletionPanel onBackToHome={onBackToHome} />}
 
           {session && (
-            <Grid gutter="lg" h="100%">
+            <Grid gutter="lg" style={{ flex: 1, minHeight: 0 }}>
               {/* LEFT PANEL: Planning Chat */}
               <Grid.Col
                 span={{ base: 12, lg: session.plan ? 5 : 12 }}
                 style={{ minWidth: 380 }}
               >
-                <Paper
-                  shadow="sm"
-                  radius="lg"
+                <GlassCard
                   p={0}
-                  h="calc(100vh - 120px)"
-                  style={{
-                    overflow: 'hidden',
-                    border: '1px solid var(--mantine-color-default-border)',
-                  }}
+                  h="calc(100vh - 100px)"
+                  style={{ overflow: 'hidden' }}
                 >
                   {/* Chat Header */}
-                  <Group justify="space-between" p="md" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+                  <Group
+                    justify="space-between"
+                    p="md"
+                    style={{
+                      borderBottom: '1px solid var(--border-subtle)',
+                      background: 'rgba(160, 130, 110, 0.03)',
+                    }}
+                  >
                     <Group gap="xs">
-                      <ThemeIcon size="sm" radius="md" variant="light" color="blue">
+                      <ThemeIcon size="sm" radius="md" variant="light" color="peach">
                         <IconMessageCircle size={14} />
                       </ThemeIcon>
                       <Text size="xs" tt="uppercase" fw={600} c="dimmed">
@@ -140,7 +142,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                       </Text>
                     </Group>
                     <Badge
-                      color={isStreaming ? 'blue' : 'gray'}
+                      color={isStreaming ? 'peach' : 'gray'}
                       variant="light"
                       size="sm"
                       radius="md"
@@ -151,33 +153,26 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                   <Box h="calc(100% - 57px)">
                     <AssistantChat />
                   </Box>
-                </Paper>
+                </GlassCard>
               </Grid.Col>
 
               {/* RIGHT PANEL: Status + Outputs */}
               {session.plan && (
                 <Grid.Col span={{ base: 12, lg: 7 }}>
-                  <ScrollArea h="calc(100vh - 120px)" type="auto" offsetScrollbars>
+                  <ScrollArea h="calc(100vh - 100px)" type="auto" offsetScrollbars>
                     <Stack gap="md">
                       {/* Feature Header Card */}
-                      <Paper
-                        shadow="sm"
-                        radius="lg"
-                        p="lg"
-                        style={{
-                          border: '1px solid var(--mantine-color-default-border)',
-                        }}
-                      >
+                      <GlassCard p="lg">
                         <Stack gap="xs">
                           <Group gap="xs">
-                            <ThemeIcon size="sm" radius="md" variant="light" color="violet">
+                            <ThemeIcon size="sm" radius="md" variant="light" color="lavender">
                               <IconClipboardList size={14} />
                             </ThemeIcon>
                             <Text size="xs" tt="uppercase" fw={600} c="dimmed">
                               Current Feature
                             </Text>
                           </Group>
-                          <Text fw={700} size="lg" style={{ lineHeight: 1.3 }}>
+                          <Text fw={700} size="lg" style={{ lineHeight: 1.3, color: 'var(--text-heading)' }}>
                             {session.plan?.feature || session.feature}
                           </Text>
                           <Group gap="sm">
@@ -216,17 +211,12 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                             <Box
                               mt="md"
                               pt="md"
-                              style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+                              style={{ borderTop: '1px solid var(--border-subtle)' }}
                             >
                               <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
                                 Initial Prompt
                               </Text>
-                              <Box
-                                p="sm"
-                                style={{
-                                  borderRadius: 'var(--mantine-radius-sm)',
-                                }}
-                              >
+                              <Box p="sm">
                                 <MarkdownMessage content={session.feature} />
                               </Box>
                             </Box>
@@ -239,7 +229,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                             <Box
                               mt="md"
                               pt="md"
-                              style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+                              style={{ borderTop: '1px solid var(--border-subtle)' }}
                             >
                               <TabbedPlanView
                                 plan={session.plan}
@@ -250,7 +240,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                             </Box>
                           </Collapse>
                         )}
-                      </Paper>
+                      </GlassCard>
 
                       {/* Project Cards */}
                       {sessionProjects.map(project => {
@@ -283,8 +273,37 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
               )}
             </Grid>
           )}
-        </Container>
-      </AppShell.Main>
+        </Stack>
+      </Container>
+
+      {/* Stop Session Confirmation Modal */}
+      <Modal
+        opened={stopModalOpen}
+        onClose={() => setStopModalOpen(false)}
+        title="Stop Session"
+        centered
+        radius="lg"
+        styles={{
+          content: {
+            background: 'rgba(255, 255, 255, 0.98)',
+            backdropFilter: 'blur(24px)',
+          },
+        }}
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Are you sure you want to stop the current session? This will end all running tasks and return you to the home screen.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="subtle" color="gray" onClick={() => setStopModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="rose" leftSection={<IconPlayerStop size={16} />} onClick={handleStopSession}>
+              Stop Session
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {/* Approval Modal */}
       <ApprovalPanel
@@ -310,6 +329,6 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
           />
         </Box>
       )}
-    </AppShell>
+    </Box>
   );
 }

@@ -22,13 +22,22 @@ function getTestStatusIcon(status?: TestScenarioStatus) {
   return <IconCircle size={14} />;
 }
 
-// Get status color for tests
+// Get status color for tests (warm palette)
 function getTestStatusColor(status?: TestScenarioStatus): string {
   if (!status || status === 'pending') return 'gray';
-  if (status === 'passed') return 'green';
-  if (status === 'failed') return 'red';
-  if (status === 'running') return 'blue';
+  if (status === 'passed') return 'sage';
+  if (status === 'failed') return 'rose';
+  if (status === 'running') return 'lavender';
   return 'gray';
+}
+
+// Get background color based on status
+function getTestBgColor(status?: TestScenarioStatus): string {
+  if (!status || status === 'pending') return 'rgba(160, 130, 110, 0.04)';
+  if (status === 'passed') return 'rgba(74, 145, 73, 0.08)';
+  if (status === 'failed') return 'rgba(209, 67, 67, 0.08)';
+  if (status === 'running') return 'rgba(126, 95, 196, 0.08)';
+  return 'rgba(160, 130, 110, 0.04)';
 }
 
 // Get E2E status for a project based on task states
@@ -79,9 +88,9 @@ export function TestList({ project, scenarios, taskStates, testStates, isApprova
           if (!e2eStatus) return null;
           const statusConfig = {
             waiting: { label: 'Waiting for Tasks', color: 'gray' },
-            in_progress: { label: 'E2E In Progress', color: 'blue' },
-            passed: { label: 'All Passed', color: 'green' },
-            failed: { label: 'Failed', color: 'red' },
+            in_progress: { label: 'E2E In Progress', color: 'lavender' },
+            passed: { label: 'All Passed', color: 'sage' },
+            failed: { label: 'Failed', color: 'rose' },
           };
           const config = statusConfig[e2eStatus];
           return (
@@ -93,8 +102,8 @@ export function TestList({ project, scenarios, taskStates, testStates, isApprova
       </Group>
       <Box
         style={{
-          border: '1px solid var(--mantine-color-gray-3)',
-          borderRadius: 'var(--mantine-radius-sm)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 12,
           overflow: 'hidden',
         }}
       >
@@ -103,6 +112,7 @@ export function TestList({ project, scenarios, taskStates, testStates, isApprova
           const status = testState?.status;
           const icon = isApproval ? <IconCircle size={14} /> : getTestStatusIcon(status);
           const color = isApproval ? 'gray' : getTestStatusColor(status);
+          const bgColor = isApproval ? 'rgba(160, 130, 110, 0.04)' : getTestBgColor(status);
           const isLast = idx === scenarios.length - 1;
 
           return (
@@ -110,19 +120,19 @@ export function TestList({ project, scenarios, taskStates, testStates, isApprova
               key={idx}
               p="xs"
               style={{
-                backgroundColor: `var(--mantine-color-${color}-0)`,
-                borderBottom: isLast ? 'none' : '1px solid var(--mantine-color-gray-2)',
+                backgroundColor: bgColor,
+                borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
               }}
             >
               <Group gap="xs" wrap="nowrap">
                 <ThemeIcon size="xs" variant="transparent" color={color}>
                   {icon}
                 </ThemeIcon>
-                <Text size="sm" style={{ flex: 1 }} lineClamp={1}>
+                <Text size="sm" style={{ flex: 1, color: 'var(--text-body)' }} lineClamp={1}>
                   {scenario}
                 </Text>
                 {testState?.error && (
-                  <Text size="xs" c="red" style={{ maxWidth: '150px' }} lineClamp={1}>
+                  <Text size="xs" style={{ maxWidth: '150px', color: 'var(--color-error)' }} lineClamp={1}>
                     {testState.error}
                   </Text>
                 )}

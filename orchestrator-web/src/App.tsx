@@ -5,6 +5,7 @@ import { HomePage } from './components/home/HomePage';
 import { PromptScreen } from './components/home/PromptScreen';
 import { CreateWorkspaceView } from './components/home/CreateWorkspaceView';
 import { AdHocPromptScreen } from './components/home/AdHocPromptScreen';
+import { QuickStartView } from './components/home/QuickStartView';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { SessionView } from './components/session/SessionView';
 import type { SettingsTab } from './components/settings/SettingsSidebar';
@@ -13,6 +14,7 @@ type View =
   | { page: 'home' }
   | { page: 'prompt'; workspaceId: string }
   | { page: 'prompt-adhoc' }
+  | { page: 'quickstart' }
   | { page: 'createWorkspace' }
   | { page: 'settings'; tab?: SettingsTab }
   | { page: 'session' };
@@ -25,10 +27,13 @@ function App() {
     backendError,
     session,
     projects,
+    templates,
     workspaces,
+    creatingProject,
     startingSession,
     startSession,
     createWorkspace,
+    quickStartSession,
     recheckDependencies,
   } = useOrchestrator();
 
@@ -113,6 +118,7 @@ function App() {
           onSettings={() => setView({ page: 'settings' })}
           onResumeSession={() => setView({ page: 'session' })}
           onStartWithoutWorkspace={() => setView({ page: 'prompt-adhoc' })}
+          onQuickStart={() => setView({ page: 'quickstart' })}
         />
       );
 
@@ -143,6 +149,22 @@ function App() {
           onBack={goHome}
           onStart={(feature, selectedProjects, branchName) => {
             startSession(feature, selectedProjects, branchName);
+          }}
+        />
+      );
+
+    case 'quickstart':
+      return (
+        <QuickStartView
+          templates={templates.map(t => ({
+            name: t.name,
+            displayName: t.displayName,
+            description: t.description,
+          }))}
+          creatingProject={creatingProject || startingSession}
+          onBack={goHome}
+          onStart={(appName, feature, selectedTemplates) => {
+            quickStartSession(appName, feature, selectedTemplates);
           }}
         />
       );

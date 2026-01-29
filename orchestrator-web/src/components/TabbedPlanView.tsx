@@ -55,22 +55,22 @@ function ProjectStatusBadge({ project, taskStates, testStates }: {
   const testsPending = hasTests && projectTests.some(s => s.status === 'pending');
 
   if (failedCount > 0 || anyTestFailed) {
-    return <Badge size="xs" color="red" variant="filled">{failedCount > 0 ? `${failedCount} failed` : 'tests failed'}</Badge>;
+    return <Badge size="xs" color="rose" variant="filled">{failedCount > 0 ? `${failedCount} failed` : 'tests failed'}</Badge>;
   }
   if (workingCount > 0) {
-    return <Badge size="xs" color="blue" variant="light">working...</Badge>;
+    return <Badge size="xs" color="peach" variant="light">working...</Badge>;
   }
   if (testsRunning) {
-    return <Badge size="xs" color="violet" variant="light">testing...</Badge>;
+    return <Badge size="xs" color="lavender" variant="light">testing...</Badge>;
   }
   if (completedCount === projectTasks.length) {
     if (hasTests && !allTestsPassed) {
       if (testsPending) {
-        return <Badge size="xs" color="yellow" variant="light">awaiting tests</Badge>;
+        return <Badge size="xs" color="honey" variant="light">awaiting tests</Badge>;
       }
       return <Badge size="xs" color="gray" variant="light">tasks done</Badge>;
     }
-    return <Badge size="xs" color="green" variant="filled">complete</Badge>;
+    return <Badge size="xs" color="sage" variant="filled">complete</Badge>;
   }
   return <Badge size="xs" color="gray" variant="light">{completedCount}/{projectTasks.length}</Badge>;
 }
@@ -166,7 +166,7 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
       {/* Header with feature and overview */}
       {isApproval && (
         <Box>
-          <Title order={4}>{plan.feature}</Title>
+          <Title order={4} style={{ color: 'var(--text-heading)' }}>{plan.feature}</Title>
           {plan.overview && (
             <Text size="sm" c="dimmed" mt="xs">
               {plan.overview}
@@ -200,10 +200,11 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
           <Collapse in={architectureExpanded}>
             <Box
               style={{
-                backgroundColor: 'var(--mantine-color-gray-0)',
+                backgroundColor: 'rgba(160, 130, 110, 0.04)',
                 padding: '8px',
-                borderRadius: 'var(--mantine-radius-sm)',
+                borderRadius: 12,
                 marginTop: '4px',
+                border: '1px solid var(--border-subtle)',
               }}
             >
               {plan.architecture.includes('```') ? (
@@ -216,10 +217,10 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
         </Box>
       )}
 
-      <Divider />
+      <Divider color="var(--border-subtle)" />
 
       {/* Project tabs */}
-      <Tabs value={activeTab} onChange={setActiveTab}>
+      <Tabs value={activeTab} onChange={setActiveTab} color="peach">
         <Tabs.List>
           {projects.map(project => (
             <Tabs.Tab key={project} value={project}>

@@ -31,17 +31,29 @@ function getTaskStatusIcon(status?: TaskStatus) {
   return <IconCircle size={14} />;
 }
 
-// Get status color for tasks
+// Get status color for tasks (warm palette)
 function getTaskStatusColor(status?: TaskStatus): string {
   if (!status || status === 'pending') return 'gray';
-  if (status === 'completed') return 'green';
-  if (status === 'failed' || status === 'e2e_failed') return 'red';
-  if (status === 'working') return 'blue';
-  if (status === 'verifying') return 'cyan';
-  if (status === 'fixing') return 'orange';
-  if (status === 'waiting') return 'yellow';
-  if (status === 'e2e') return 'violet';
+  if (status === 'completed') return 'sage';
+  if (status === 'failed' || status === 'e2e_failed') return 'rose';
+  if (status === 'working') return 'peach';
+  if (status === 'verifying') return 'peach';
+  if (status === 'fixing') return 'honey';
+  if (status === 'waiting') return 'honey';
+  if (status === 'e2e') return 'lavender';
   return 'gray';
+}
+
+// Get background color based on status
+function getStatusBgColor(status?: TaskStatus): string {
+  if (!status || status === 'pending') return 'rgba(160, 130, 110, 0.04)';
+  if (status === 'completed') return 'rgba(74, 145, 73, 0.08)';
+  if (status === 'failed' || status === 'e2e_failed') return 'rgba(209, 67, 67, 0.08)';
+  if (status === 'working' || status === 'verifying') return 'rgba(245, 133, 101, 0.08)';
+  if (status === 'fixing') return 'rgba(201, 138, 46, 0.08)';
+  if (status === 'waiting') return 'rgba(201, 138, 46, 0.06)';
+  if (status === 'e2e') return 'rgba(126, 95, 196, 0.08)';
+  return 'rgba(160, 130, 110, 0.04)';
 }
 
 interface TaskItem {
@@ -64,8 +76,8 @@ export function TaskList({ tasks, taskStates, isApproval }: TaskListProps) {
       <Text fw={600} size="xs" c="dimmed" tt="uppercase" mb={4}>Tasks</Text>
       <Box
         style={{
-          border: '1px solid var(--mantine-color-gray-3)',
-          borderRadius: 'var(--mantine-radius-sm)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 12,
           overflow: 'hidden',
         }}
       >
@@ -74,6 +86,7 @@ export function TaskList({ tasks, taskStates, isApproval }: TaskListProps) {
           const status = state?.status;
           const icon = isApproval ? <IconCircle size={14} /> : getTaskStatusIcon(status);
           const color = isApproval ? 'gray' : getTaskStatusColor(status);
+          const bgColor = isApproval ? 'rgba(160, 130, 110, 0.04)' : getStatusBgColor(status);
           const isExpanded = expandedTaskIdx === idx;
           const isLast = i === tasks.length - 1;
 
@@ -83,8 +96,8 @@ export function TaskList({ tasks, taskStates, isApproval }: TaskListProps) {
                 w="100%"
                 p="xs"
                 style={{
-                  backgroundColor: `var(--mantine-color-${color}-0)`,
-                  borderBottom: isLast && !isExpanded ? 'none' : '1px solid var(--mantine-color-gray-2)',
+                  backgroundColor: bgColor,
+                  borderBottom: isLast && !isExpanded ? 'none' : '1px solid var(--border-subtle)',
                 }}
                 onClick={() => setExpandedTaskIdx(isExpanded ? null : idx)}
               >
@@ -92,7 +105,7 @@ export function TaskList({ tasks, taskStates, isApproval }: TaskListProps) {
                   <ThemeIcon size="xs" variant="transparent" color={color}>
                     {icon}
                   </ThemeIcon>
-                  <Text size="sm" style={{ flex: 1 }} lineClamp={1}>
+                  <Text size="sm" style={{ flex: 1, color: 'var(--text-body)' }} lineClamp={1}>
                     {task.name}
                   </Text>
                   {status && !isApproval && (
@@ -112,8 +125,8 @@ export function TaskList({ tasks, taskStates, isApproval }: TaskListProps) {
                 <Box
                   p="xs"
                   style={{
-                    backgroundColor: 'var(--mantine-color-gray-0)',
-                    borderBottom: isLast ? 'none' : '1px solid var(--mantine-color-gray-2)',
+                    backgroundColor: 'rgba(160, 130, 110, 0.04)',
+                    borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
                   }}
                 >
                   <MarkdownMessage content={task.task} />

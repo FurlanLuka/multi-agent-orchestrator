@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import {
   Stack,
-  Paper,
   Group,
   ThemeIcon,
   Text,
   Button,
   Badge,
-  Select,
 } from '@mantine/core';
 import {
   IconCheck,
@@ -20,6 +18,7 @@ import {
   IconGitPullRequest,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
+import { GlassCard, GlassSelect } from '../../theme';
 
 interface CompletionPanelProps {
   onBackToHome?: () => void;
@@ -53,14 +52,20 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   return (
     <Stack gap="md" mb="md">
       {/* Card 1: Feature Complete + Start New Session */}
-      <Paper shadow="sm" radius="md" p="md" withBorder style={{ borderColor: 'var(--mantine-color-green-3)', backgroundColor: 'var(--mantine-color-green-0)' }}>
+      <GlassCard
+        p="md"
+        style={{
+          borderColor: 'rgba(74, 145, 73, 0.3)',
+          backgroundColor: 'rgba(74, 145, 73, 0.08)',
+        }}
+      >
         <Group justify="space-between" align="center">
           <Group gap="sm">
-            <ThemeIcon size="lg" radius="md" color="green" variant="light">
+            <ThemeIcon size="lg" radius="md" color="sage" variant="light">
               <IconCheck size={20} />
             </ThemeIcon>
             <div>
-              <Text fw={600} size="md">Feature Complete!</Text>
+              <Text fw={600} size="md" style={{ color: 'var(--text-heading)' }}>Feature Complete!</Text>
               <Text size="sm" c="dimmed">All projects have completed their tasks successfully.</Text>
             </div>
           </Group>
@@ -77,7 +82,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
             )}
             <Button
               variant="filled"
-              color="blue"
+              color="peach"
               leftSection={<IconRefresh size={16} />}
               onClick={startNewSession}
             >
@@ -85,17 +90,17 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
             </Button>
           </Group>
         </Group>
-      </Paper>
+      </GlassCard>
 
       {/* Card 2: Git Operations */}
       {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
-        <Paper shadow="sm" radius="md" p="md" withBorder>
+        <GlassCard p="md">
           <Stack gap="md">
             <Group gap="xs">
-              <ThemeIcon size="sm" radius="md" color="violet" variant="light">
+              <ThemeIcon size="sm" radius="md" color="lavender" variant="light">
                 <IconGitBranch size={14} />
               </ThemeIcon>
-              <Text size="sm" fw={600}>Git Operations</Text>
+              <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>Git Operations</Text>
             </Group>
 
             {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
@@ -120,19 +125,19 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               return (
                 <Stack key={projectName} gap="xs">
                   <Group gap="xs" wrap="wrap">
-                    <Badge variant="light" color="violet" leftSection={<IconGitBranch size={12} />}>
+                    <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
                       {projectName}: {branchName}
                     </Badge>
 
                     {/* If merge succeeded, show merged badge */}
                     {mergeResult?.success ? (
-                      <Badge color="green" variant="filled" leftSection={<IconGitMerge size={12} />}>
+                      <Badge color="sage" variant="filled" leftSection={<IconGitMerge size={12} />}>
                         Merged to {mainBranch}
                       </Badge>
                     ) : pushResult?.success ? (
                       // Push succeeded - show status and merge/PR options
                       <>
-                        <Badge color="green" variant="light" leftSection={<IconCheck size={12} />}>
+                        <Badge color="sage" variant="light" leftSection={<IconCheck size={12} />}>
                           Pushed
                         </Badge>
                         {/* Only show merge button for non-GitHub projects */}
@@ -140,7 +145,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                           <>
                             <Button
                               variant="light"
-                              color="teal"
+                              color="sage"
                               size="xs"
                               leftSection={isMerging ? undefined : <IconGitMerge size={14} />}
                               loading={isMerging}
@@ -157,7 +162,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                         {/* GitHub PR creation */}
                         {isGitHubProject && !prResult?.success && (
                           <>
-                            <Select
+                            <GlassSelect
                               size="xs"
                               w={140}
                               value={selectedBaseBranch}
@@ -171,11 +176,11 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                                   getBranches(projectName);
                                 }
                               }}
-                              rightSection={isLoadingBranches ? <Badge size="xs" variant="dot" color="blue">...</Badge> : undefined}
+                              rightSection={isLoadingBranches ? <Badge size="xs" variant="dot" color="peach">...</Badge> : undefined}
                             />
                             <Button
                               variant="filled"
-                              color="green"
+                              color="sage"
                               size="xs"
                               leftSection={isCreating ? undefined : <IconGitPullRequest size={14} />}
                               loading={isCreating}
@@ -188,7 +193,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                         )}
                         {prResult?.success && prResult.prUrl && (
                           <>
-                            <Badge color="green" variant="light" leftSection={<IconGitPullRequest size={12} />}>
+                            <Badge color="sage" variant="light" leftSection={<IconGitPullRequest size={12} />}>
                               PR Created
                             </Badge>
                             <Button
@@ -196,7 +201,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                               href={prResult.prUrl}
                               target="_blank"
                               variant="subtle"
-                              color="blue"
+                              color="peach"
                               size="xs"
                               leftSection={<IconExternalLink size={14} />}
                             >
@@ -210,7 +215,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                       <>
                         <Button
                           variant="filled"
-                          color="violet"
+                          color="lavender"
                           size="xs"
                           leftSection={isPushing ? undefined : <IconUpload size={14} />}
                           loading={isPushing}
@@ -232,18 +237,18 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               );
             })}
           </Stack>
-        </Paper>
+        </GlassCard>
       )}
 
       {/* Card 3: Dev Servers */}
       {session?.projects.some(p => projects[p]?.devServer?.url) && (
-        <Paper shadow="sm" radius="md" p="md" withBorder>
+        <GlassCard p="md">
           <Stack gap="md">
             <Group gap="xs">
-              <ThemeIcon size="sm" radius="md" color="blue" variant="light">
+              <ThemeIcon size="sm" radius="md" color="peach" variant="light">
                 <IconExternalLink size={14} />
               </ThemeIcon>
-              <Text size="sm" fw={600}>Dev Servers</Text>
+              <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>Dev Servers</Text>
             </Group>
 
             <Group gap="sm" align="center" wrap="wrap">
@@ -257,7 +262,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                     href={config.devServer.url}
                     target="_blank"
                     variant="light"
-                    color="blue"
+                    color="peach"
                     size="xs"
                     leftSection={<IconExternalLink size={14} />}
                   >
@@ -267,7 +272,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               })}
               <Button
                 variant="light"
-                color="red"
+                color="rose"
                 size="xs"
                 leftSection={<IconPlayerStop size={14} />}
                 onClick={stopSession}
@@ -276,7 +281,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               </Button>
             </Group>
           </Stack>
-        </Paper>
+        </GlassCard>
       )}
     </Stack>
   );
