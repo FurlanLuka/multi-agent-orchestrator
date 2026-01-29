@@ -865,16 +865,18 @@ export function useSocket() {
       setDesignPhase('complete');
     });
 
-    // Page added to session
+    // Page added to session (also sets phase to 'pages')
     socket.on('design:page_added', ({ page }: { page: { id: string; name: string; filename: string } }) => {
       console.log('[Design] Page added:', page.name);
       setDesignPages(prev => [...prev, page]);
+      setDesignPhase('pages');
     });
 
-    // Show pages panel (update full pages list)
+    // Show pages panel (update full pages list and set phase to 'pages')
     socket.on('design:show_pages_panel', ({ pages }: { pages: Array<{ id: string; name: string; filename: string }> }) => {
       console.log('[Design] Show pages panel:', pages.length, 'pages');
       setDesignPages(pages);
+      setDesignPhase('pages');
     });
 
     // Design error
@@ -1384,6 +1386,12 @@ export function useSocket() {
     setDesignRefine(null);
   }, []);
 
+  // Finish adding pages (transition to save screen)
+  const finishAddingPages = useCallback(() => {
+    console.log('[Design] Finishing page addition, showing save screen');
+    setDesignPhase('complete');
+  }, []);
+
   // Derived state: separate active flows from completed flows
   const { activeFlows, completedFlows } = useMemo(() => ({
     activeFlows: flows.filter(f => f.status === 'in_progress'),
@@ -1485,5 +1493,6 @@ export function useSocket() {
     submitDesignFeedback,
     clearDesignPreview,
     clearDesignRefine,
+    finishAddingPages,
   };
 }

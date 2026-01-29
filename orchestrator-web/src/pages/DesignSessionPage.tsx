@@ -82,6 +82,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     confirmDesignRefine,
     requestNewDesignOptions,
     submitDesignFeedback,
+    finishAddingPages,
   } = useOrchestrator();
 
   // Local state for category selection (before session starts)
@@ -240,9 +241,12 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
 
   // ─────────────────────────────────────────────────────────────────────────────
   // COMPLETE STAGE - Simple save card (no chat)
-  // Show when phase is 'pages' and we have at least one page
+  // Show only when phase is 'complete' and user has pages
   // ─────────────────────────────────────────────────────────────────────────────
-  const showCompleteStage = (designPhase === 'pages' || designPhase === 'complete') && designPages.length > 0 && !designComplete;
+  const showCompleteStage = designPhase === 'complete' && designPages.length > 0 && !designComplete;
+
+  // Show pages panel when in pages phase
+  const showPagesPanel = designPhase === 'pages' && designPages.length > 0;
 
   if (showCompleteStage) {
     return (
@@ -326,7 +330,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <>
-      <Container size={designRefine ? 'lg' : 'sm'} py={40}>
+      <Container size={(designRefine || showPagesPanel) ? 'lg' : 'sm'} py={40}>
         <Stack gap="lg">
           {/* Header with back + progress */}
           <Group justify="space-between" align="center">
@@ -599,6 +603,51 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                   title="Refine Preview"
                 />
               </Box>
+            </FormCard>
+          )}
+
+          {/* Pages Panel - appears on right when in pages phase */}
+          {showPagesPanel && !designRefine && (
+            <FormCard
+              style={{ width: 280, flexShrink: 0 }}
+              title={
+                <Group gap="xs">
+                  <IconFile size={16} color="var(--mantine-color-peach-6)" />
+                  <Text fw={600} size="lg">Pages</Text>
+                </Group>
+              }
+              footer={
+                <Button
+                  fullWidth
+                  color="peach"
+                  size="sm"
+                  leftSection={<IconCheck size={14} />}
+                  onClick={finishAddingPages}
+                >
+                  Done
+                </Button>
+              }
+            >
+              <Stack gap="xs">
+                {designPages.map((page) => (
+                  <Group
+                    key={page.id}
+                    gap="xs"
+                    p="xs"
+                    style={{
+                      borderRadius: radii.input,
+                      background: glass.surface.bg,
+                      border: glass.surface.border,
+                    }}
+                  >
+                    <IconFile size={14} color="var(--mantine-color-gray-5)" />
+                    <Text size="sm">{page.name}</Text>
+                  </Group>
+                ))}
+                <Text size="xs" c="dimmed" ta="center" mt="xs">
+                  Ask for more pages or click Done when finished
+                </Text>
+              </Stack>
             </FormCard>
           )}
           </Group>

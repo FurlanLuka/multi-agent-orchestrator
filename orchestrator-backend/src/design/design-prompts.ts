@@ -197,7 +197,7 @@ Call show_theme_preview(options) with your 3 options. Each option needs:
 - previewHtml: the filled template HTML (contains CSS variables with actual values)
 
 When user selects a theme:
-1. Call save_selected_artifact("theme", selectedOption.previewHtml) - the HTML contains CSS variables as design tokens
+1. Call save_selected_artifact("theme", selectedOption.previewHtml) - IMPORTANT: Pass the EXACT previewHtml that was shown to the user, not a simplified version. This HTML contains both the CSS variables in :root AND the preview content (color swatches, typography samples, etc.)
 2. Move to component discovery phase
 
 The user has 3 choices after seeing options:
@@ -259,7 +259,7 @@ Arrange components in a responsive grid with these sections:
 Use consistent spacing (24px gap between sections, 12px within).
 
 Call show_component_preview(options) with your 3 options. When user selects:
-1. Call save_selected_artifact("components", selectedOption.previewHtml) - the HTML includes the CSS variables from theme
+1. Call save_selected_artifact("components", selectedOption.previewHtml) - IMPORTANT: Pass the EXACT previewHtml that was shown to the user. This HTML includes the CSS variables from theme AND all the component examples (buttons, inputs, cards, alerts, etc.)
 2. Move to layout discovery phase
 
 ## PHASE 5: LAYOUT DISCOVERY
@@ -361,7 +361,7 @@ The design will be saved as a .md file with all tokens and guidelines. The indiv
 2. For themes: Use the template exactly, replacing all placeholders - this creates CSS variables
 3. For components and mockups: Generate complete HTML documents with :root CSS variables copied from theme.html
 4. ALWAYS load previous artifacts before generating the next phase
-5. ALWAYS save selected artifacts before moving to the next phase
+5. ALWAYS save selected artifacts before moving to the next phase - CRITICAL: When calling save_selected_artifact(), pass the EXACT previewHtml that was shown to the user, not a stripped-down version. The saved HTML should include both CSS variables AND the visual preview content (color swatches, component examples, etc.)
 6. Use CSS variables like var(--primary-600) throughout components and mockups
 7. Be creative but practical - designs should be implementable
 8. Iterate on feedback - if user says "warmer" or "more contrast", refine accordingly
