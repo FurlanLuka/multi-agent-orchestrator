@@ -1,3 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ─── CSS Variables (Design Tokens) ───────────────────────────────── */
+
+:root {
+  /* Text colors */
+  --text-heading: #3a3230;
+  --text-body: #4a4340;
+  --text-label: #5c504a;
+  --text-dimmed: #9a8e86;
+  --text-placeholder: #b8a8a0;
+  --text-muted: #b09080;
+  --text-link: #e06b4a;
+  --text-on-dark: #fffcfa;
+
+  /* Disabled state */
+  --disabled-bg: rgba(180, 170, 165, 0.3);
+  --disabled-bg-subtle: rgba(180, 170, 165, 0.15);
+  --disabled-text: #a09590;
+  --disabled-border: rgba(160, 150, 145, 0.2);
+
+  /* Primary (peach) */
+  --color-primary: #e06b4a;
+  --color-primary-light: #fff5f2;
+  --color-primary-hover: #d07050;
+  --color-primary-active: rgba(245, 133, 101, 0.2);
+
+  /* Success (sage) */
+  --color-success: #4a9149;
+  --color-success-light: #f2f8f2;
+
+  /* Error (rose) */
+  --color-error: #d14343;
+  --color-error-light: #fef2f2;
+
+  /* Warning (honey) */
+  --color-warning: #c98a2e;
+  --color-warning-light: #fef8ef;
+
+  /* Info (lavender) */
+  --color-info: #7e5fc4;
+  --color-info-light: #f5f3fc;
+
+  /* Borders */
+  --border-subtle: rgba(160, 130, 110, 0.1);
+  --border-input: rgba(90, 70, 55, 0.12);
+  --border-focus: rgba(245, 133, 101, 0.5);
+  --focus-ring: 0 0 0 4px rgba(245, 133, 101, 0.08);
+
+  /* Page background */
+  --page-bg: linear-gradient(145deg, #fef9f7 0%, #f5f0ed 40%, #f0ebe8 100%);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -6,9 +59,357 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background-color: var(--mantine-color-gray-0, #f8f9fa);
+  background: var(--page-bg);
+  background-attachment: fixed;
+  color: var(--text-body);
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* ─── Global Text Colors ──────────────────────────────────────────── */
+
+body,
+.mantine-Text-root,
+.mantine-Paper-root,
+.mantine-Card-root,
+.mantine-Modal-root {
+  color: var(--text-body);
+}
+
+h1, h2, h3, h4, h5, h6,
+.mantine-Title-root,
+.mantine-Modal-title {
+  color: var(--text-heading) !important;
+}
+
+[data-mantine-color-scheme] .mantine-Text-root[data-c="dimmed"],
+.mantine-Text-root[data-c="dimmed"] {
+  color: var(--text-dimmed) !important;
+}
+
+/* ─── Input Labels & Descriptions ─────────────────────────────────── */
+
+.mantine-InputWrapper-label,
+.mantine-TextInput-label,
+.mantine-Textarea-label,
+.mantine-Select-label,
+.mantine-MultiSelect-label,
+.mantine-NumberInput-label,
+.mantine-PasswordInput-label,
+.mantine-Checkbox-label,
+.mantine-Radio-label,
+.mantine-Switch-label {
+  color: var(--text-label) !important;
+}
+
+.mantine-InputWrapper-description,
+.mantine-TextInput-description,
+.mantine-Textarea-description,
+.mantine-Select-description,
+.mantine-MultiSelect-description,
+.mantine-Checkbox-description,
+.mantine-Radio-description,
+.mantine-Switch-description {
+  color: var(--text-dimmed) !important;
+}
+
+.mantine-InputWrapper-error,
+.mantine-TextInput-error,
+.mantine-Textarea-error,
+.mantine-Select-error,
+.mantine-MultiSelect-error {
+  color: var(--color-error) !important;
+}
+
+/* ─── Placeholders & Input Icons ──────────────────────────────────── */
+
+input::placeholder,
+textarea::placeholder,
+.mantine-TextInput-input::placeholder,
+.mantine-Textarea-input::placeholder,
+.mantine-Select-input::placeholder,
+.mantine-MultiSelect-input::placeholder,
+.tiptap p.is-editor-empty:first-child::before {
+  color: var(--text-placeholder) !important;
+  opacity: 1 !important;
+}
+
+.mantine-TextInput-section,
+.mantine-Textarea-section,
+.mantine-Select-section,
+.mantine-MultiSelect-section,
+.mantine-PasswordInput-section,
+.mantine-NumberInput-section {
+  color: var(--text-placeholder) !important;
+}
+
+/* ─── Navigation & Links ──────────────────────────────────────────── */
+
+.mantine-NavLink-label {
+  color: var(--text-label);
+}
+
+.mantine-NavLink-root[data-active] .mantine-NavLink-label {
+  color: var(--color-primary) !important;
+}
+
+.mantine-Tabs-tab {
+  color: var(--text-label);
+}
+
+.mantine-Tabs-tab[data-active] {
+  color: var(--color-primary) !important;
+}
+
+.mantine-Breadcrumbs-breadcrumb {
+  color: var(--text-label);
+}
+
+.mantine-Breadcrumbs-separator {
+  color: var(--text-dimmed);
+}
+
+.mantine-Pagination-control {
+  color: var(--text-label);
+}
+
+/* ─── Divider & Accordion ─────────────────────────────────────────── */
+
+.mantine-Divider-label {
+  color: var(--text-dimmed) !important;
+}
+
+.mantine-Accordion-control {
+  color: var(--text-body);
+}
+
+.mantine-Accordion-control:hover {
+  background-color: rgba(245, 235, 230, 0.5) !important;
+}
+
+.mantine-Accordion-item {
+  border-color: var(--border-subtle) !important;
+}
+
+.mantine-Accordion-item[data-active] {
+  background-color: rgba(250, 245, 242, 0.4) !important;
+}
+
+.mantine-Accordion-panel {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* ─── Table ───────────────────────────────────────────────────────── */
+
+.mantine-Table-th {
+  color: var(--text-label) !important;
+}
+
+.mantine-Table-td {
+  color: var(--text-body);
+}
+
+/* ─── Menu & Tooltip ──────────────────────────────────────────────── */
+
+.mantine-Menu-item,
+.mantine-Menu-itemLabel {
+  color: var(--text-body);
+}
+
+.mantine-Tooltip-tooltip {
+  color: var(--text-on-dark);
+}
+
+/* ─── List & Text Elements ────────────────────────────────────────── */
+
+.mantine-List-item {
+  color: var(--text-body);
+}
+
+.mantine-Blockquote-root {
+  color: var(--text-body);
+  border-color: var(--color-primary);
+}
+
+.mantine-Code-root {
+  color: var(--text-body);
+  background-color: var(--border-subtle);
+}
+
+.mantine-Kbd-root {
+  color: var(--text-body);
+  border-color: var(--disabled-border);
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ─── Stepper & Timeline ──────────────────────────────────────────── */
+
+.mantine-Stepper-stepLabel {
+  color: var(--text-body);
+}
+
+.mantine-Stepper-stepDescription {
+  color: var(--text-dimmed);
+}
+
+.mantine-Timeline-itemTitle {
+  color: var(--text-heading);
+}
+
+.mantine-Timeline-itemBody {
+  color: var(--text-body);
+}
+
+/* ─── Modal ───────────────────────────────────────────────────────── */
+
+.mantine-Modal-header {
+  background: transparent !important;
+  padding: 20px 24px 12px 24px !important;
+}
+
+.mantine-Modal-body {
+  padding: 24px !important;
+}
+
+.mantine-Modal-title {
+  font-weight: 600 !important;
+  color: var(--text-heading) !important;
+}
+
+.mantine-Modal-close {
+  color: var(--text-dimmed) !important;
+}
+
+.mantine-Modal-close:hover {
+  color: var(--text-body) !important;
+  background: var(--border-subtle) !important;
+}
+
+/* ─── Disabled States (All Components) ────────────────────────────── */
+
+.mantine-Button-root:disabled,
+.mantine-Button-root[data-disabled] {
+  background-color: var(--disabled-bg) !important;
+  color: var(--disabled-text) !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-ActionIcon-root:disabled,
+.mantine-ActionIcon-root[data-disabled] {
+  background-color: var(--disabled-bg-subtle) !important;
+  color: var(--disabled-text) !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-TextInput-input:disabled,
+.mantine-Textarea-input:disabled,
+.mantine-Select-input:disabled,
+.mantine-MultiSelect-input:disabled,
+.mantine-NumberInput-input:disabled,
+.mantine-PasswordInput-input:disabled {
+  background-color: var(--disabled-bg-subtle) !important;
+  color: var(--disabled-text) !important;
+  border-color: var(--disabled-border) !important;
+  opacity: 1 !important;
+}
+
+.mantine-TextInput-root[data-disabled] .mantine-TextInput-label,
+.mantine-Textarea-root[data-disabled] .mantine-Textarea-label,
+.mantine-Select-root[data-disabled] .mantine-Select-label,
+.mantine-MultiSelect-root[data-disabled] .mantine-MultiSelect-label {
+  color: var(--disabled-text) !important;
+}
+
+.mantine-Switch-root[data-disabled] .mantine-Switch-track {
+  background-color: var(--disabled-bg) !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-Switch-root[data-disabled] .mantine-Switch-label {
+  color: var(--disabled-text) !important;
+}
+
+.mantine-Checkbox-root[data-disabled] .mantine-Checkbox-input {
+  background-color: var(--disabled-bg-subtle) !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-Checkbox-root[data-disabled] .mantine-Checkbox-label {
+  color: var(--disabled-text) !important;
+}
+
+.mantine-Radio-root[data-disabled] .mantine-Radio-radio {
+  background-color: var(--disabled-bg-subtle) !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-Radio-root[data-disabled] .mantine-Radio-label {
+  color: var(--disabled-text) !important;
+}
+
+.mantine-SegmentedControl-root[data-disabled] {
+  background-color: var(--disabled-bg-subtle) !important;
+  opacity: 1 !important;
+}
+
+.mantine-SegmentedControl-root[data-disabled] .mantine-SegmentedControl-label {
+  color: var(--disabled-text) !important;
+}
+
+.mantine-Slider-root[data-disabled] .mantine-Slider-track {
+  background-color: var(--disabled-bg) !important;
+}
+
+.mantine-Slider-root[data-disabled] .mantine-Slider-thumb {
+  background-color: #c0b5b0 !important;
+  border-color: var(--disabled-border) !important;
+}
+
+.mantine-Tabs-tab:disabled,
+.mantine-Tabs-tab[data-disabled] {
+  color: var(--disabled-text) !important;
+  opacity: 1 !important;
+}
+
+.mantine-Badge-root[data-disabled] {
+  background-color: var(--disabled-bg-subtle) !important;
+  color: var(--disabled-text) !important;
+}
+
+/* ─── SegmentedControl ────────────────────────────────────────────── */
+
+.mantine-SegmentedControl-root {
+  background-color: rgba(160, 140, 130, 0.08) !important;
+  border: 1px solid var(--border-subtle) !important;
+}
+
+.mantine-SegmentedControl-label {
+  color: var(--text-label) !important;
+}
+
+.mantine-SegmentedControl-label[data-active] {
+  color: var(--text-heading) !important;
+}
+
+.mantine-SegmentedControl-indicator {
+  background-color: white !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ─── RichTextEditor ──────────────────────────────────────────────── */
+
+.mantine-RichTextEditor-control {
+  color: var(--text-muted) !important;
+}
+
+.mantine-RichTextEditor-control:hover {
+  background-color: var(--color-primary-active) !important;
+  color: var(--color-primary-hover) !important;
+}
+
+.mantine-RichTextEditor-control[data-active] {
+  background-color: var(--color-primary-active) !important;
+  color: var(--color-primary) !important;
 }

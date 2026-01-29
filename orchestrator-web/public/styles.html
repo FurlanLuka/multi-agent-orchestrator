@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIO Style Exploration</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f0ed;
+    color: #2d2a27;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Tab navigation ── */
+  .tabs {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; gap: 0;
+    background: #2d2a27;
+    padding: 0 24px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .tab {
+    padding: 14px 22px;
+    cursor: pointer;
+    color: rgba(255,255,255,.5);
+    font-size: 13px; font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+    letter-spacing: .01em;
+  }
+  .tab:hover { color: rgba(255,255,255,.8); }
+  .tab.active { color: #fff; border-bottom-color: #f58565; }
+
+  .panel { display: none; padding: 48px 40px; max-width: 1200px; margin: 0 auto; }
+  .panel.active { display: block; }
+
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 40px 0 16px; color: #2d2a27; }
+  h3 { font-size: 15px; font-weight: 600; margin: 24px 0 12px; color: #6b6560; }
+  .subtitle { font-size: 15px; color: #8a8480; margin-bottom: 32px; }
+
+  .row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 24px; }
+  .col { flex: 1; min-width: 280px; }
+
+  /* ── Semantic color swatches ── */
+  .palette-row { display: flex; gap: 4px; margin-bottom: 8px; align-items: center; }
+  .palette-row .label { width: 80px; font-size: 12px; font-weight: 600; color: #6b6560; text-transform: uppercase; letter-spacing: .05em; }
+  .swatch { width: 48px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: rgba(0,0,0,.4); font-weight: 600; }
+
+  /* ========================================
+     PANEL 1: SEMANTIC COLORS
+     ======================================== */
+
+  /* Peach primary (established) */
+  .peach-0 { background: #fff5f2; } .peach-1 { background: #ffe8e0; } .peach-2 { background: #ffd4c4; }
+  .peach-3 { background: #ffbda6; } .peach-4 { background: #ffa284; } .peach-5 { background: #f58565; }
+  .peach-6 { background: #e06b4a; color: #fff; } .peach-7 { background: #c4553a; color: #fff; }
+  .peach-8 { background: #a3432e; color: #fff; } .peach-9 { background: #833524; color: #fff; }
+
+  /* Success: Warm sage */
+  .sage-0 { background: #f2f8f2; } .sage-1 { background: #dff0df; } .sage-2 { background: #c4e3c4; }
+  .sage-3 { background: #a3d4a3; } .sage-4 { background: #7dc07d; } .sage-5 { background: #5ea85e; }
+  .sage-6 { background: #4a9149; color: #fff; } .sage-7 { background: #3a7a39; color: #fff; }
+  .sage-8 { background: #2d632d; color: #fff; } .sage-9 { background: #224d22; color: #fff; }
+
+  /* Error: Soft rose */
+  .rose-0 { background: #fef2f2; } .rose-1 { background: #fde2e2; } .rose-2 { background: #fbc8c8; }
+  .rose-3 { background: #f5a3a3; } .rose-4 { background: #ee7d7d; } .rose-5 { background: #e45c5c; }
+  .rose-6 { background: #d14343; color: #fff; } .rose-7 { background: #b53333; color: #fff; }
+  .rose-8 { background: #962828; color: #fff; } .rose-9 { background: #7a2020; color: #fff; }
+
+  /* Warning: Warm honey */
+  .honey-0 { background: #fef8ef; } .honey-1 { background: #fdefd8; } .honey-2 { background: #fae0b4; }
+  .honey-3 { background: #f5cc85; } .honey-4 { background: #efb65c; } .honey-5 { background: #e09e3a; }
+  .honey-6 { background: #c98a2e; color: #fff; } .honey-7 { background: #a87225; color: #fff; }
+  .honey-8 { background: #885c1e; color: #fff; } .honey-9 { background: #6b4818; color: #fff; }
+
+  /* Info: Soft lavender */
+  .lav-0 { background: #f5f3fc; } .lav-1 { background: #ebe5f8; } .lav-2 { background: #d8cdf2; }
+  .lav-3 { background: #c2b1ea; } .lav-4 { background: #ab94e0; } .lav-5 { background: #9478d4; }
+  .lav-6 { background: #7e5fc4; color: #fff; } .lav-7 { background: #6849a8; color: #fff; }
+  .lav-8 { background: #54398c; color: #fff; } .lav-9 { background: #412c70; color: #fff; }
+
+  /* ── Semantic alert cards ── */
+  .alert-demo {
+    padding: 14px 18px; border-radius: 12px; display: flex; gap: 12px; align-items: flex-start;
+    font-size: 14px; margin-bottom: 12px;
+  }
+  .alert-demo .icon { width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+  .alert-demo .content { flex: 1; }
+  .alert-demo .title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .alert-demo .desc { font-size: 13px; opacity: .8; }
+
+  .alert-success { background: #f2f8f2; border: 1px solid #c4e3c4; color: #2d632d; }
+  .alert-success .icon { background: #4a9149; color: #fff; }
+  .alert-error { background: #fef2f2; border: 1px solid #fbc8c8; color: #962828; }
+  .alert-error .icon { background: #d14343; color: #fff; }
+  .alert-warning { background: #fef8ef; border: 1px solid #fae0b4; color: #885c1e; }
+  .alert-warning .icon { background: #e09e3a; color: #fff; }
+  .alert-info { background: #f5f3fc; border: 1px solid #d8cdf2; color: #54398c; }
+  .alert-info .icon { background: #7e5fc4; color: #fff; }
+
+  /* ========================================
+     PANEL 2: STYLE A — "Soft Elevation"
+     Warm layered cards, gentle shadows, subtle depth
+     ======================================== */
+  .style-a-bg { background: #faf7f5; }
+
+  .style-a-card {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,.04);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(160,130,110,.06);
+    padding: 24px;
+    transition: all .25s ease;
+  }
+  .style-a-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,.06), 0 8px 32px rgba(160,130,110,.1);
+    transform: translateY(-2px);
+  }
+  .style-a-card.workspace {
+    cursor: pointer;
+    text-align: center;
+    padding: 32px 24px;
+  }
+  .style-a-card.workspace .ws-name {
+    font-size: 18px; font-weight: 600; color: #2d2a27; margin-bottom: 8px;
+  }
+  .style-a-card.workspace .ws-meta {
+    font-size: 12px; color: #a39e9a;
+  }
+  .style-a-card.workspace .ws-projects {
+    display: flex; gap: 6px; justify-content: center; margin-top: 12px; flex-wrap: wrap;
+  }
+  .style-a-badge {
+    font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px;
+    background: #fff5f2; color: #c4553a; border: 1px solid #ffe8e0;
+  }
+  .style-a-card.add-new {
+    border: 2px dashed #e0dbd7; background: transparent;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px;
+    color: #a39e9a; cursor: pointer; min-height: 140px;
+  }
+  .style-a-card.add-new:hover { border-color: #f58565; color: #f58565; background: #fff5f2; }
+  .style-a-card.add-new .plus { font-size: 28px; font-weight: 300; }
+  .style-a-card.add-new .label { font-size: 13px; font-weight: 500; }
+
+  .style-a-btn {
+    background: linear-gradient(135deg, #f58565 0%, #e06b4a 100%);
+    color: #fff; border: none; padding: 11px 24px; border-radius: 12px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(224,107,74,.25);
+    transition: all .2s;
+  }
+  .style-a-btn:hover { box-shadow: 0 4px 16px rgba(224,107,74,.35); transform: translateY(-1px); }
+  .style-a-btn.secondary {
+    background: #fff; color: #2d2a27; border: 1px solid #e0dbd7;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .style-a-btn.secondary:hover { border-color: #c4c0bc; }
+  .style-a-btn.ghost { background: none; color: #f58565; box-shadow: none; border: none; padding: 11px 16px; }
+  .style-a-btn.ghost:hover { background: #fff5f2; }
+
+  .style-a-input {
+    width: 100%; padding: 11px 16px; border-radius: 12px;
+    border: 1.5px solid #e8e3df; background: #fff; font-size: 14px;
+    font-family: inherit; color: #2d2a27; transition: all .2s;
+    outline: none;
+  }
+  .style-a-input:focus { border-color: #f58565; box-shadow: 0 0 0 3px rgba(245,133,101,.12); }
+  .style-a-input::placeholder { color: #c4c0bc; }
+
+  .style-a-input-label { font-size: 13px; font-weight: 500; color: #6b6560; margin-bottom: 6px; display: block; }
+
+  .style-a-toggle {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    background: #fff; border-radius: 14px; border: 1.5px solid #e8e3df;
+    cursor: pointer; transition: all .2s;
+  }
+  .style-a-toggle.active { border-color: #ffd4c4; background: #fff5f2; }
+  .style-a-toggle .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #e0dbd7;
+    transition: all .2s;
+  }
+  .style-a-toggle.active .dot { background: #f58565; box-shadow: 0 0 0 3px rgba(245,133,101,.2); }
+  .style-a-toggle .toggle-label { font-size: 13px; font-weight: 500; color: #2d2a27; }
+  .style-a-toggle .toggle-desc { font-size: 12px; color: #a39e9a; }
+
+  /* ========================================
+     PANEL 3: STYLE B — "Glass Warmth"
+     Frosted glass, warm tints, floating feel
+     ======================================== */
+  .style-b-bg { background: linear-gradient(145deg, #fef9f7 0%, #f5f0ed 40%, #f0ebe8 100%); min-height: 100vh; }
+
+  .style-b-card {
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,.6);
+    box-shadow: 0 4px 24px rgba(160,130,110,.07), inset 0 1px 0 rgba(255,255,255,.5);
+    padding: 24px;
+    transition: all .3s ease;
+  }
+  .style-b-card:hover {
+    background: rgba(255,255,255,.85);
+    box-shadow: 0 8px 40px rgba(160,130,110,.12), inset 0 1px 0 rgba(255,255,255,.6);
+    transform: translateY(-2px);
+  }
+  .style-b-card.workspace {
+    cursor: pointer; text-align: center; padding: 32px 24px;
+  }
+  .style-b-card.workspace .ws-name {
+    font-size: 18px; font-weight: 600; color: #2d2a27; margin-bottom: 6px;
+  }
+  .style-b-card.workspace .ws-meta { font-size: 12px; color: #a39e9a; }
+  .style-b-card.workspace .ws-projects {
+    display: flex; gap: 6px; justify-content: center; margin-top: 12px; flex-wrap: wrap;
+  }
+  .style-b-badge {
+    font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px;
+    background: rgba(245,133,101,.1); color: #c4553a; border: none;
+  }
+  .style-b-card.add-new {
+    border: 2px dashed rgba(0,0,0,.08); background: rgba(255,255,255,.35);
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px;
+    color: #a39e9a; cursor: pointer; min-height: 140px;
+    backdrop-filter: blur(10px);
+  }
+  .style-b-card.add-new:hover {
+    border-color: rgba(245,133,101,.4); color: #f58565;
+    background: rgba(255,245,242,.5);
+  }
+
+  .style-b-btn {
+    background: rgba(245,133,101,.9);
+    backdrop-filter: blur(10px);
+    color: #fff; border: none; padding: 11px 24px; border-radius: 14px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 12px rgba(224,107,74,.2);
+    transition: all .2s;
+  }
+  .style-b-btn:hover { background: rgba(224,107,74,.95); box-shadow: 0 4px 20px rgba(224,107,74,.3); }
+  .style-b-btn.secondary {
+    background: rgba(255,255,255,.65); color: #2d2a27; border: 1px solid rgba(0,0,0,.06);
+    backdrop-filter: blur(10px); box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  }
+
+  .style-b-input {
+    width: 100%; padding: 12px 16px; border-radius: 14px;
+    border: 1.5px solid rgba(0,0,0,.06);
+    background: rgba(255,255,255,.6); backdrop-filter: blur(10px);
+    font-size: 14px; font-family: inherit; color: #2d2a27;
+    transition: all .2s; outline: none;
+  }
+  .style-b-input:focus {
+    border-color: rgba(245,133,101,.5);
+    background: rgba(255,255,255,.85);
+    box-shadow: 0 0 0 4px rgba(245,133,101,.08);
+  }
+  .style-b-input::placeholder { color: #c4c0bc; }
+  .style-b-input-label { font-size: 13px; font-weight: 500; color: #6b6560; margin-bottom: 6px; display: block; }
+
+  .style-b-feature-card {
+    background: rgba(255,255,255,.5); backdrop-filter: blur(16px);
+    border-radius: 16px; border: 1px solid rgba(0,0,0,.04);
+    overflow: hidden; transition: all .2s;
+  }
+  .style-b-feature-card .feature-header {
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; transition: background .2s;
+  }
+  .style-b-feature-card .feature-header:hover { background: rgba(0,0,0,.02); }
+  .style-b-feature-card.active { border-color: rgba(245,133,101,.2); }
+  .style-b-feature-card.active .feature-header {
+    background: rgba(245,133,101,.04);
+  }
+  .style-b-feature-card .feature-body {
+    padding: 0 16px 16px; border-top: 1px solid rgba(0,0,0,.04);
+    padding-top: 14px;
+  }
+
+  /* ========================================
+     PANEL 4: STYLE C — "Refined Minimal"
+     Maximum whitespace, hairline borders, typography-driven
+     ======================================== */
+  .style-c-bg { background: #fdfcfb; }
+
+  .style-c-card {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #f0ece8;
+    padding: 28px;
+    transition: all .3s ease;
+  }
+  .style-c-card:hover {
+    border-color: #e0dbd7;
+    box-shadow: 0 2px 12px rgba(0,0,0,.03);
+  }
+  .style-c-card.workspace {
+    cursor: pointer; padding: 36px 28px; text-align: left;
+    position: relative; overflow: hidden;
+  }
+  .style-c-card.workspace::after {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: #f58565; opacity: 0; transition: opacity .2s;
+  }
+  .style-c-card.workspace:hover::after { opacity: 1; }
+  .style-c-card.workspace .ws-name {
+    font-size: 16px; font-weight: 600; color: #2d2a27; margin-bottom: 4px; letter-spacing: -.01em;
+  }
+  .style-c-card.workspace .ws-meta {
+    font-size: 12px; color: #b5b0ab; font-weight: 400;
+  }
+  .style-c-card.workspace .ws-projects {
+    display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap;
+  }
+  .style-c-badge {
+    font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px;
+    background: transparent; color: #a39e9a; border: 1px solid #e8e3df;
+  }
+  .style-c-card.add-new {
+    border: 1px dashed #e0dbd7; background: transparent;
+    display: flex; align-items: center; gap: 12px;
+    color: #b5b0ab; cursor: pointer; padding: 28px;
+  }
+  .style-c-card.add-new:hover { border-color: #f58565; color: #e06b4a; }
+  .style-c-card.add-new .plus { font-size: 20px; font-weight: 300; width: 32px; height: 32px; border-radius: 8px; border: 1px solid currentColor; display: flex; align-items: center; justify-content: center; }
+  .style-c-card.add-new .label { font-size: 14px; font-weight: 500; }
+
+  .style-c-btn {
+    background: #2d2a27; color: #fff; border: none;
+    padding: 10px 22px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    letter-spacing: .01em; transition: all .2s;
+  }
+  .style-c-btn:hover { background: #1a1816; }
+  .style-c-btn.primary { background: #e06b4a; }
+  .style-c-btn.primary:hover { background: #c4553a; }
+  .style-c-btn.secondary {
+    background: transparent; color: #2d2a27; border: 1px solid #e0dbd7;
+  }
+  .style-c-btn.secondary:hover { border-color: #c4c0bc; }
+  .style-c-btn.ghost { background: none; color: #a39e9a; border: none; }
+  .style-c-btn.ghost:hover { color: #2d2a27; }
+
+  .style-c-input {
+    width: 100%; padding: 10px 14px; border-radius: 8px;
+    border: 1px solid #e8e3df; background: #fff;
+    font-size: 14px; font-family: inherit; color: #2d2a27;
+    transition: all .2s; outline: none;
+  }
+  .style-c-input:focus { border-color: #2d2a27; box-shadow: none; }
+  .style-c-input::placeholder { color: #d0cbc7; }
+  .style-c-input-label { font-size: 12px; font-weight: 600; color: #a39e9a; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: .06em; }
+
+  .style-c-divider { height: 1px; background: #f0ece8; margin: 24px 0; }
+
+  /* ========================================
+     PANEL 5: STYLE D — "Warm Depth"
+     Rich warm backgrounds, layered surfaces, bold accents
+     ======================================== */
+  .style-d-bg { background: #f0ebe6; }
+
+  .style-d-card {
+    background: #faf7f5;
+    border-radius: 18px;
+    border: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(100,80,60,.05);
+    padding: 24px;
+    transition: all .25s ease;
+  }
+  .style-d-card:hover {
+    box-shadow: 0 4px 16px rgba(100,80,60,.08), 0 8px 32px rgba(100,80,60,.06);
+    transform: translateY(-2px);
+  }
+  .style-d-card.workspace {
+    cursor: pointer; padding: 0; overflow: hidden;
+  }
+  .style-d-card.workspace .ws-header {
+    padding: 20px 24px 16px;
+    background: linear-gradient(135deg, #fff5f2 0%, #ffeee6 100%);
+  }
+  .style-d-card.workspace .ws-body {
+    padding: 14px 24px 20px;
+  }
+  .style-d-card.workspace .ws-name {
+    font-size: 17px; font-weight: 700; color: #2d2a27; letter-spacing: -.02em;
+  }
+  .style-d-card.workspace .ws-meta {
+    font-size: 12px; color: #a39e9a; margin-top: 2px;
+  }
+  .style-d-card.workspace .ws-projects {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .style-d-badge {
+    font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
+    background: #f0ebe6; color: #6b6560;
+  }
+  .style-d-badge.accent { background: #ffd4c4; color: #a3432e; }
+
+  .style-d-card.add-new {
+    background: transparent; border: 2px dashed #d8d2cc;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+    color: #b5b0ab; cursor: pointer; min-height: 140px;
+  }
+  .style-d-card.add-new:hover { border-color: #f58565; color: #e06b4a; background: rgba(255,245,242,.5); }
+
+  .style-d-btn {
+    background: #2d2a27; color: #fff; border: none;
+    padding: 12px 28px; border-radius: 14px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: all .2s; letter-spacing: -.01em;
+    box-shadow: 0 2px 8px rgba(45,42,39,.15);
+  }
+  .style-d-btn:hover { background: #1a1816; box-shadow: 0 4px 16px rgba(45,42,39,.2); }
+  .style-d-btn.accent {
+    background: linear-gradient(135deg, #f58565, #e06b4a);
+    box-shadow: 0 2px 12px rgba(224,107,74,.25);
+  }
+  .style-d-btn.accent:hover { box-shadow: 0 4px 20px rgba(224,107,74,.35); }
+  .style-d-btn.secondary {
+    background: #faf7f5; color: #2d2a27; border: 1px solid #e0dbd7;
+    box-shadow: 0 1px 3px rgba(0,0,0,.03);
+  }
+  .style-d-btn.secondary:hover { background: #fff; }
+
+  .style-d-input {
+    width: 100%; padding: 12px 16px; border-radius: 14px;
+    border: 2px solid #e8e3df; background: #faf7f5;
+    font-size: 14px; font-family: inherit; color: #2d2a27;
+    transition: all .2s; outline: none;
+  }
+  .style-d-input:focus {
+    border-color: #f58565; background: #fff;
+    box-shadow: 0 0 0 4px rgba(245,133,101,.08);
+  }
+  .style-d-input::placeholder { color: #c4c0bc; }
+  .style-d-input-label { font-size: 13px; font-weight: 600; color: #6b6560; margin-bottom: 6px; display: block; }
+
+  .style-d-feature-card {
+    background: #faf7f5; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.03);
+  }
+  .style-d-feature-card .feature-header {
+    padding: 14px 18px; display: flex; align-items: center; gap: 12px;
+    cursor: pointer; background: #f0ebe6;
+    border-bottom: 1px solid rgba(0,0,0,.04);
+    transition: background .15s;
+  }
+  .style-d-feature-card .feature-header:hover { background: #ebe5e0; }
+  .style-d-feature-card.active .feature-header {
+    background: linear-gradient(135deg, #fff5f2, #ffe8e0);
+  }
+  .style-d-feature-card .feature-body {
+    padding: 16px 18px; background: #fff;
+  }
+
+  /* ========================================
+     PANEL 6: FULL MOCKUPS
+     ======================================== */
+  .mockup-frame {
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,.08);
+    margin-bottom: 40px;
+    border: 1px solid #e0dbd7;
+  }
+  .mockup-frame .frame-bar {
+    background: #faf7f5; padding: 10px 16px; display: flex; gap: 6px;
+    border-bottom: 1px solid #f0ece8;
+  }
+  .mockup-frame .frame-dot { width: 10px; height: 10px; border-radius: 50%; background: #e0dbd7; }
+  .mockup-frame .frame-content { padding: 0; background: #fdfcfb; }
+
+  /* Home mockup */
+  .mockup-home { padding: 48px 40px; text-align: center; }
+  .mockup-home .logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 32px; }
+  .mockup-home .logo img { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #ffd4c4, #f58565); }
+  .mockup-home .logo-placeholder { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #ffd4c4, #f58565); }
+  .mockup-home .logo span { font-size: 20px; font-weight: 700; color: #2d2a27; letter-spacing: -.02em; }
+  .mockup-home .subtitle-text { font-size: 14px; color: #a39e9a; margin-bottom: 28px; }
+  .mockup-home .ws-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 560px; margin: 0 auto 24px; }
+  .mockup-home .adhoc-link { font-size: 13px; color: #f58565; cursor: pointer; font-weight: 500; }
+  .mockup-home .adhoc-link:hover { text-decoration: underline; }
+  .mockup-home .settings-float {
+    position: absolute; bottom: 20px; left: 20px;
+    width: 40px; height: 40px; border-radius: 12px;
+    background: rgba(255,255,255,.8); backdrop-filter: blur(10px);
+    border: 1px solid rgba(0,0,0,.06);
+    display: flex; align-items: center; justify-content: center;
+    color: #a39e9a; cursor: pointer; font-size: 18px;
+  }
+
+  /* Prompt mockup */
+  .mockup-prompt { padding: 48px 60px; }
+  .mockup-prompt .back-arrow { font-size: 20px; color: #a39e9a; cursor: pointer; margin-bottom: 40px; display: inline-block; }
+  .mockup-prompt .prompt-center { max-width: 560px; margin: 0 auto; }
+  .mockup-prompt .ws-title { font-size: 24px; font-weight: 700; color: #2d2a27; margin-bottom: 4px; letter-spacing: -.02em; }
+  .mockup-prompt .ws-subtitle { font-size: 13px; color: #a39e9a; margin-bottom: 24px; }
+  .mockup-prompt .prompt-textarea {
+    width: 100%; min-height: 120px; padding: 16px 18px; border-radius: 16px;
+    border: 1.5px solid #e8e3df; background: #fff; resize: vertical;
+    font-size: 15px; font-family: inherit; color: #2d2a27; line-height: 1.6;
+    outline: none; transition: all .2s;
+  }
+  .mockup-prompt .prompt-textarea:focus { border-color: #f58565; box-shadow: 0 0 0 4px rgba(245,133,101,.08); }
+  .mockup-prompt .prompt-textarea::placeholder { color: #c4c0bc; }
+  .mockup-prompt .prompt-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+
+  /* ── Shared ── */
+  .icon-circle {
+    width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .feature-icon { font-size: 14px; }
+  .feature-info { flex: 1; }
+  .feature-name { font-size: 13px; font-weight: 600; color: #2d2a27; }
+  .feature-desc { font-size: 11px; color: #a39e9a; }
+  .switch-track {
+    width: 36px; height: 20px; border-radius: 10px; background: #e0dbd7;
+    position: relative; cursor: pointer; transition: background .2s;
+    flex-shrink: 0;
+  }
+  .switch-track.on { background: #f58565; }
+  .switch-track .switch-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    position: absolute; top: 2px; left: 2px; transition: left .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  .switch-track.on .switch-thumb { left: 18px; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" onclick="showPanel('colors')">Semantic Colors</div>
+  <div class="tab" onclick="showPanel('style-a')">A: Soft Elevation</div>
+  <div class="tab" onclick="showPanel('style-b')">B: Glass Warmth</div>
+  <div class="tab" onclick="showPanel('style-c')">C: Refined Minimal</div>
+  <div class="tab" onclick="showPanel('style-d')">D: Warm Depth</div>
+  <div class="tab" onclick="showPanel('mockups')">Full Mockups</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 1: SEMANTIC COLORS
+     ══════════════════════════════════════════ -->
+<div class="panel active" id="colors">
+  <h1>Semantic Color Palettes</h1>
+  <p class="subtitle">Warm, harmonized alternatives to Mantine defaults. Each scale has 10 shades (0-9).</p>
+
+  <h2>Primary — Peach (established)</h2>
+  <div class="palette-row">
+    <span class="label">Peach</span>
+    <div class="swatch peach-0">0</div><div class="swatch peach-1">1</div><div class="swatch peach-2">2</div>
+    <div class="swatch peach-3">3</div><div class="swatch peach-4">4</div><div class="swatch peach-5">5</div>
+    <div class="swatch peach-6">6</div><div class="swatch peach-7">7</div><div class="swatch peach-8">8</div>
+    <div class="swatch peach-9">9</div>
+  </div>
+
+  <h2>Success — Warm Sage</h2>
+  <p class="subtitle">Earthy green, less clinical than Mantine green. Feels natural alongside peach.</p>
+  <div class="palette-row">
+    <span class="label">Sage</span>
+    <div class="swatch sage-0">0</div><div class="swatch sage-1">1</div><div class="swatch sage-2">2</div>
+    <div class="swatch sage-3">3</div><div class="swatch sage-4">4</div><div class="swatch sage-5">5</div>
+    <div class="swatch sage-6">6</div><div class="swatch sage-7">7</div><div class="swatch sage-8">8</div>
+    <div class="swatch sage-9">9</div>
+  </div>
+
+  <h2>Error — Soft Rose</h2>
+  <p class="subtitle">Warm red that's distinct from peach. More rose than fire-engine.</p>
+  <div class="palette-row">
+    <span class="label">Rose</span>
+    <div class="swatch rose-0">0</div><div class="swatch rose-1">1</div><div class="swatch rose-2">2</div>
+    <div class="swatch rose-3">3</div><div class="swatch rose-4">4</div><div class="swatch rose-5">5</div>
+    <div class="swatch rose-6">6</div><div class="swatch rose-7">7</div><div class="swatch rose-8">8</div>
+    <div class="swatch rose-9">9</div>
+  </div>
+
+  <h2>Warning — Warm Honey</h2>
+  <p class="subtitle">Golden amber. Warm without clashing with peach primary.</p>
+  <div class="palette-row">
+    <span class="label">Honey</span>
+    <div class="swatch honey-0">0</div><div class="swatch honey-1">1</div><div class="swatch honey-2">2</div>
+    <div class="swatch honey-3">3</div><div class="swatch honey-4">4</div><div class="swatch honey-5">5</div>
+    <div class="swatch honey-6">6</div><div class="swatch honey-7">7</div><div class="swatch honey-8">8</div>
+    <div class="swatch honey-9">9</div>
+  </div>
+
+  <h2>Info — Soft Lavender</h2>
+  <p class="subtitle">Purple-leaning cool accent. Provides contrast to the warm palette without being harsh blue.</p>
+  <div class="palette-row">
+    <span class="label">Lavender</span>
+    <div class="swatch lav-0">0</div><div class="swatch lav-1">1</div><div class="swatch lav-2">2</div>
+    <div class="swatch lav-3">3</div><div class="swatch lav-4">4</div><div class="swatch lav-5">5</div>
+    <div class="swatch lav-6">6</div><div class="swatch lav-7">7</div><div class="swatch lav-8">8</div>
+    <div class="swatch lav-9">9</div>
+  </div>
+
+  <h2>In Context — Alerts</h2>
+  <div style="max-width: 520px;">
+    <div class="alert-demo alert-success">
+      <div class="icon">&#10003;</div>
+      <div class="content">
+        <div class="title">Project created successfully</div>
+        <div class="desc">Your workspace "Blog" is ready to go.</div>
+      </div>
+    </div>
+    <div class="alert-demo alert-error">
+      <div class="icon">!</div>
+      <div class="content">
+        <div class="title">Build failed</div>
+        <div class="desc">TypeScript compilation error in api/routes.ts</div>
+      </div>
+    </div>
+    <div class="alert-demo alert-warning">
+      <div class="icon">&#9888;</div>
+      <div class="content">
+        <div class="title">Git CLI not detected</div>
+        <div class="desc">Install Git to enable branch management features.</div>
+      </div>
+    </div>
+    <div class="alert-demo alert-info">
+      <div class="icon">i</div>
+      <div class="content">
+        <div class="title">Planning in progress</div>
+        <div class="desc">The agent is analyzing your project structure.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 2: STYLE A — Soft Elevation
+     ══════════════════════════════════════════ -->
+<div class="panel" id="style-a">
+  <h1>Style A: Soft Elevation</h1>
+  <p class="subtitle">White cards on warm off-white. Gentle shadows create depth. Clean and approachable.</p>
+
+  <h2>Workspace Cards</h2>
+  <div class="row">
+    <div class="col" style="max-width:200px;">
+      <div class="style-a-card workspace">
+        <div class="ws-name">Blog</div>
+        <div class="ws-meta">2 projects</div>
+        <div class="ws-projects">
+          <span class="style-a-badge">frontend</span>
+          <span class="style-a-badge">api</span>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:200px;">
+      <div class="style-a-card workspace">
+        <div class="ws-name">Dashboard</div>
+        <div class="ws-meta">3 projects</div>
+        <div class="ws-projects">
+          <span class="style-a-badge">web</span>
+          <span class="style-a-badge">api</span>
+          <span class="style-a-badge">admin</span>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:200px;">
+      <div class="style-a-card add-new">
+        <span class="plus">+</span>
+        <span class="label">New Workspace</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Buttons</h2>
+  <div class="row" style="align-items: center; gap: 12px;">
+    <button class="style-a-btn">Start Planning</button>
+    <button class="style-a-btn secondary">Cancel</button>
+    <button class="style-a-btn ghost">Skip this step</button>
+  </div>
+
+  <h2>Inputs</h2>
+  <div style="max-width: 400px;">
+    <label class="style-a-input-label">Workspace Name</label>
+    <input class="style-a-input" placeholder="e.g., My Blog" />
+    <div style="height: 16px;"></div>
+    <label class="style-a-input-label">Feature Description</label>
+    <textarea class="style-a-input" placeholder="Describe what you want to build..." style="min-height: 80px; resize: vertical;"></textarea>
+  </div>
+
+  <h2>Feature Toggles</h2>
+  <div style="max-width: 400px; display: flex; flex-direction: column; gap: 8px;">
+    <div class="style-a-toggle active">
+      <div class="dot"></div>
+      <div style="flex:1;">
+        <div class="toggle-label">Dev Server</div>
+        <div class="toggle-desc">Live reload during development</div>
+      </div>
+    </div>
+    <div class="style-a-toggle">
+      <div class="dot"></div>
+      <div style="flex:1;">
+        <div class="toggle-label">Build Verification</div>
+        <div class="toggle-desc">Compile-check after changes</div>
+      </div>
+    </div>
+    <div class="style-a-toggle">
+      <div class="dot"></div>
+      <div style="flex:1;">
+        <div class="toggle-label">E2E Testing</div>
+        <div class="toggle-desc">Agent-driven verification</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 3: STYLE B — Glass Warmth
+     ══════════════════════════════════════════ -->
+<div class="panel style-b-bg" id="style-b">
+  <h1>Style B: Glass Warmth</h1>
+  <p class="subtitle">Frosted glass on warm gradient. Floating, airy feel. Premium and modern.</p>
+
+  <h2>Workspace Cards</h2>
+  <div class="row">
+    <div class="col" style="max-width:200px;">
+      <div class="style-b-card workspace">
+        <div class="ws-name">Blog</div>
+        <div class="ws-meta">2 projects</div>
+        <div class="ws-projects">
+          <span class="style-b-badge">frontend</span>
+          <span class="style-b-badge">api</span>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:200px;">
+      <div class="style-b-card workspace">
+        <div class="ws-name">Dashboard</div>
+        <div class="ws-meta">3 projects</div>
+        <div class="ws-projects">
+          <span class="style-b-badge">web</span>
+          <span class="style-b-badge">api</span>
+          <span class="style-b-badge">admin</span>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:200px;">
+      <div class="style-b-card add-new">
+        <span style="font-size:28px; font-weight:300;">+</span>
+        <span style="font-size:13px; font-weight:500;">New Workspace</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Buttons</h2>
+  <div class="row" style="align-items: center; gap: 12px;">
+    <button class="style-b-btn">Start Planning</button>
+    <button class="style-b-btn secondary">Cancel</button>
+  </div>
+
+  <h2>Inputs</h2>
+  <div style="max-width: 400px;">
+    <label class="style-b-input-label">Workspace Name</label>
+    <input class="style-b-input" placeholder="e.g., My Blog" />
+    <div style="height: 16px;"></div>
+    <label class="style-b-input-label">Feature Description</label>
+    <textarea class="style-b-input" placeholder="Describe what you want to build..." style="min-height: 80px; resize: vertical;"></textarea>
+  </div>
+
+  <h2>Feature Toggles</h2>
+  <div style="max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
+    <div class="style-b-feature-card active">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(76,175,80,.1); color:#4a9149;">&#9654;</div>
+        <div class="feature-info"><div class="feature-name">Dev Server</div><div class="feature-desc">Live reload during development</div></div>
+        <div class="switch-track on"><div class="switch-thumb"></div></div>
+      </div>
+      <div class="feature-body">
+        <label class="style-b-input-label">Command</label>
+        <input class="style-b-input" value="npm run dev" style="margin-bottom:8px;" />
+        <label class="style-b-input-label">URL</label>
+        <input class="style-b-input" value="http://localhost:3000" />
+      </div>
+    </div>
+    <div class="style-b-feature-card">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(224,158,58,.1); color:#c98a2e;">&#9881;</div>
+        <div class="feature-info"><div class="feature-name">Build Verification</div><div class="feature-desc">Compile-check after changes</div></div>
+        <div class="switch-track"><div class="switch-thumb"></div></div>
+      </div>
+    </div>
+    <div class="style-b-feature-card">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(126,95,196,.1); color:#7e5fc4;">&#9733;</div>
+        <div class="feature-info"><div class="feature-name">E2E Testing</div><div class="feature-desc">Agent-driven verification</div></div>
+        <div class="switch-track"><div class="switch-thumb"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 4: STYLE C — Refined Minimal
+     ══════════════════════════════════════════ -->
+<div class="panel style-c-bg" id="style-c">
+  <h1>Style C: Refined Minimal</h1>
+  <p class="subtitle">Typography-driven. Maximum whitespace. Hairline borders. Left-aligned workspace cards with accent bar on hover.</p>
+
+  <h2>Workspace Cards</h2>
+  <div style="display: flex; flex-direction: column; gap: 8px; max-width: 460px;">
+    <div class="style-c-card workspace">
+      <div class="ws-name">Blog</div>
+      <div class="ws-meta">Last used 2 hours ago</div>
+      <div class="ws-projects">
+        <span class="style-c-badge">frontend</span>
+        <span class="style-c-badge">api</span>
+      </div>
+    </div>
+    <div class="style-c-card workspace">
+      <div class="ws-name">Dashboard</div>
+      <div class="ws-meta">Last used yesterday</div>
+      <div class="ws-projects">
+        <span class="style-c-badge">web</span>
+        <span class="style-c-badge">api</span>
+        <span class="style-c-badge">admin</span>
+      </div>
+    </div>
+    <div class="style-c-card add-new">
+      <span class="plus">+</span>
+      <span class="label">New Workspace</span>
+    </div>
+  </div>
+
+  <h2>Buttons</h2>
+  <div class="row" style="align-items: center; gap: 12px;">
+    <button class="style-c-btn primary">Start Planning</button>
+    <button class="style-c-btn">Continue</button>
+    <button class="style-c-btn secondary">Cancel</button>
+    <button class="style-c-btn ghost">Skip</button>
+  </div>
+
+  <h2>Inputs</h2>
+  <div style="max-width: 400px;">
+    <label class="style-c-input-label">Workspace Name</label>
+    <input class="style-c-input" placeholder="e.g., My Blog" />
+    <div style="height: 16px;"></div>
+    <label class="style-c-input-label">Feature Description</label>
+    <textarea class="style-c-input" placeholder="Describe what you want to build..." style="min-height: 80px; resize: vertical;"></textarea>
+  </div>
+
+  <div class="style-c-divider"></div>
+
+  <h2>Inline Alert</h2>
+  <div style="max-width: 460px;">
+    <div style="padding: 14px 18px; border-radius: 10px; border: 1px solid #f0ece8; display: flex; gap: 12px; align-items: center;">
+      <div style="width: 6px; height: 6px; border-radius: 50%; background: #5ea85e; flex-shrink: 0;"></div>
+      <span style="font-size: 13px; color: #3a7a39; font-weight: 500;">Project "Blog" created successfully</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 5: STYLE D — Warm Depth
+     ══════════════════════════════════════════ -->
+<div class="panel style-d-bg" id="style-d">
+  <h1>Style D: Warm Depth</h1>
+  <p class="subtitle">Layered warm surfaces. Peach gradient headers on cards. Rich, cozy, editorial feel.</p>
+
+  <h2>Workspace Cards</h2>
+  <div class="row">
+    <div class="col" style="max-width:220px;">
+      <div class="style-d-card workspace">
+        <div class="ws-header">
+          <div class="ws-name">Blog</div>
+          <div class="ws-meta">2 projects</div>
+        </div>
+        <div class="ws-body">
+          <div class="ws-projects">
+            <span class="style-d-badge">frontend</span>
+            <span class="style-d-badge accent">api</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:220px;">
+      <div class="style-d-card workspace">
+        <div class="ws-header">
+          <div class="ws-name">Dashboard</div>
+          <div class="ws-meta">3 projects</div>
+        </div>
+        <div class="ws-body">
+          <div class="ws-projects">
+            <span class="style-d-badge">web</span>
+            <span class="style-d-badge">api</span>
+            <span class="style-d-badge accent">admin</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col" style="max-width:220px;">
+      <div class="style-d-card add-new">
+        <span style="font-size:28px; font-weight:300;">+</span>
+        <span style="font-size:13px; font-weight:500;">New Workspace</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Buttons</h2>
+  <div class="row" style="align-items: center; gap: 12px;">
+    <button class="style-d-btn accent">Start Planning</button>
+    <button class="style-d-btn">Continue</button>
+    <button class="style-d-btn secondary">Cancel</button>
+  </div>
+
+  <h2>Inputs</h2>
+  <div style="max-width: 400px;">
+    <label class="style-d-input-label">Workspace Name</label>
+    <input class="style-d-input" placeholder="e.g., My Blog" />
+    <div style="height: 16px;"></div>
+    <label class="style-d-input-label">Feature Description</label>
+    <textarea class="style-d-input" placeholder="Describe what you want to build..." style="min-height: 80px; resize: vertical;"></textarea>
+  </div>
+
+  <h2>Feature Toggles</h2>
+  <div style="max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
+    <div class="style-d-feature-card active">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(76,175,80,.12); color:#4a9149;">&#9654;</div>
+        <div class="feature-info"><div class="feature-name">Dev Server</div><div class="feature-desc">Live reload during development</div></div>
+        <div class="switch-track on"><div class="switch-thumb"></div></div>
+      </div>
+      <div class="feature-body">
+        <label class="style-d-input-label">Command</label>
+        <input class="style-d-input" value="npm run dev" style="margin-bottom:8px;" />
+        <label class="style-d-input-label">URL</label>
+        <input class="style-d-input" value="http://localhost:3000" />
+      </div>
+    </div>
+    <div class="style-d-feature-card">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(224,158,58,.12); color:#c98a2e;">&#9881;</div>
+        <div class="feature-info"><div class="feature-name">Build Verification</div><div class="feature-desc">Compile-check after changes</div></div>
+        <div class="switch-track"><div class="switch-thumb"></div></div>
+      </div>
+    </div>
+    <div class="style-d-feature-card">
+      <div class="feature-header">
+        <div class="icon-circle" style="background:rgba(126,95,196,.12); color:#7e5fc4;">&#9733;</div>
+        <div class="feature-info"><div class="feature-name">E2E Testing</div><div class="feature-desc">Agent-driven verification</div></div>
+        <div class="switch-track"><div class="switch-thumb"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PANEL 6: FULL MOCKUPS
+     ══════════════════════════════════════════ -->
+<div class="panel" id="mockups">
+  <h1>Full Page Mockups</h1>
+  <p class="subtitle">How these styles work at the page level. Using "Soft Elevation" + "Warm Depth" hybrid.</p>
+
+  <h2>Home Screen</h2>
+  <div class="mockup-frame" style="position:relative;">
+    <div class="frame-bar">
+      <div class="frame-dot"></div><div class="frame-dot"></div><div class="frame-dot"></div>
+    </div>
+    <div class="frame-content mockup-home" style="background: linear-gradient(180deg, #fdfcfb 0%, #faf7f5 100%); min-height: 380px; position: relative;">
+      <div class="logo">
+        <div class="logo-placeholder"></div>
+        <span>AIO Orchestrator</span>
+      </div>
+      <div class="subtitle-text">Select a workspace to get started</div>
+      <div class="ws-grid">
+        <div class="style-a-card workspace" style="padding:24px 16px;">
+          <div class="ws-name" style="font-size:16px;">Blog</div>
+          <div class="ws-meta" style="font-size:11px;">2 projects</div>
+        </div>
+        <div class="style-a-card workspace" style="padding:24px 16px;">
+          <div class="ws-name" style="font-size:16px;">Dashboard</div>
+          <div class="ws-meta" style="font-size:11px;">3 projects</div>
+        </div>
+        <div class="style-a-card add-new" style="min-height:auto; padding:24px 16px;">
+          <span class="plus">+</span>
+          <span class="label" style="font-size:12px;">New</span>
+        </div>
+      </div>
+      <div class="adhoc-link">Or start a session without a workspace</div>
+      <div class="settings-float">&#9881;</div>
+    </div>
+  </div>
+
+  <h2>Prompt Screen</h2>
+  <div class="mockup-frame">
+    <div class="frame-bar">
+      <div class="frame-dot"></div><div class="frame-dot"></div><div class="frame-dot"></div>
+    </div>
+    <div class="frame-content mockup-prompt" style="background: #fdfcfb; min-height: 420px;">
+      <div class="back-arrow">&larr;</div>
+      <div class="prompt-center">
+        <div style="display:flex; align-items: center; gap: 8px; margin-bottom:4px;">
+          <div class="ws-title">Blog</div>
+          <div style="font-size:16px; color:#c4c0bc; cursor:pointer;" title="Edit workspace">&#9881;</div>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:24px;">
+          <span class="style-a-badge">frontend</span>
+          <span class="style-a-badge">api</span>
+        </div>
+        <textarea class="prompt-textarea" placeholder="Describe what you want to build...
+
+e.g., Add a blog post editor with markdown support, image uploads, and a preview panel. The editor should auto-save drafts."></textarea>
+        <div class="prompt-footer">
+          <div>
+            <label class="style-a-input-label" style="margin-bottom:4px;">Branch name (optional)</label>
+            <input class="style-a-input" placeholder="feature/blog-editor" style="width:240px; padding: 8px 12px; font-size:13px;" />
+          </div>
+          <button class="style-a-btn" style="align-self:flex-end;">Start Planning &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Create Workspace</h2>
+  <div class="mockup-frame">
+    <div class="frame-bar">
+      <div class="frame-dot"></div><div class="frame-dot"></div><div class="frame-dot"></div>
+    </div>
+    <div class="frame-content mockup-prompt" style="background: #fdfcfb; min-height: 380px;">
+      <div class="back-arrow">&larr;</div>
+      <div class="prompt-center">
+        <div class="ws-title" style="margin-bottom:24px;">Create Workspace</div>
+
+        <label class="style-a-input-label">Name</label>
+        <input class="style-a-input" placeholder="e.g., Blog" style="margin-bottom:16px;" />
+
+        <label class="style-a-input-label">Projects</label>
+        <div style="padding: 10px 14px; border-radius: 12px; border: 1.5px solid #e8e3df; background: #fff; margin-bottom: 6px; display: flex; gap: 6px; flex-wrap: wrap; min-height: 42px;">
+          <span style="background: #fff5f2; color: #c4553a; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+            frontend <span style="cursor:pointer; opacity:.5;">&times;</span>
+          </span>
+          <span style="background: #fff5f2; color: #c4553a; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+            api <span style="cursor:pointer; opacity:.5;">&times;</span>
+          </span>
+        </div>
+        <div style="font-size: 12px; color: #a39e9a; margin-bottom: 16px;">
+          Don't see your project? <span style="color: #f58565; cursor: pointer; font-weight: 500;">Add one in Settings</span>
+        </div>
+
+        <label class="style-a-input-label">Context <span style="font-weight: 400; color: #c4c0bc;">(optional)</span></label>
+        <textarea class="style-a-input" placeholder="Planning context, rules, or notes for this workspace..." style="min-height: 60px; resize: vertical; margin-bottom: 20px;"></textarea>
+
+        <button class="style-a-btn" style="width:100%;">Create Workspace</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>Settings — Projects</h2>
+  <div class="mockup-frame">
+    <div class="frame-bar">
+      <div class="frame-dot"></div><div class="frame-dot"></div><div class="frame-dot"></div>
+    </div>
+    <div class="frame-content" style="background: #fdfcfb; display: flex; min-height: 360px;">
+      <!-- Sidebar -->
+      <div style="width: 180px; background: #faf7f5; border-right: 1px solid #f0ece8; padding: 20px 0;">
+        <div style="padding: 8px 20px; font-size: 14px; color: #a39e9a; cursor: pointer; margin-bottom: 8px;">&larr; Back</div>
+        <div style="padding: 10px 20px; font-size: 13px; font-weight: 600; color: #e06b4a; background: #fff5f2; border-right: 2px solid #f58565;">Projects</div>
+        <div style="padding: 10px 20px; font-size: 13px; font-weight: 500; color: #6b6560; cursor: pointer;">Workspaces</div>
+      </div>
+      <!-- Content -->
+      <div style="flex: 1; padding: 28px 32px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <div style="font-size: 18px; font-weight: 700; color: #2d2a27;">Projects</div>
+          <button class="style-a-btn" style="padding: 8px 18px; font-size: 13px;">+ Add Project</button>
+        </div>
+        <!-- Project list -->
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="style-a-card" style="padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-size: 14px; font-weight: 600; color: #2d2a27;">blog-frontend</div>
+              <div style="font-size: 12px; color: #a39e9a;">~/Documents/blog/frontend</div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span class="style-a-badge" style="background: #f2f8f2; color: #4a9149; border-color: #dff0df;">Dev</span>
+              <span class="style-a-badge" style="background: #fef8ef; color: #c98a2e; border-color: #fae0b4;">Build</span>
+              <button class="style-a-btn secondary" style="padding: 5px 12px; font-size: 12px; border-radius: 8px;">Edit</button>
+            </div>
+          </div>
+          <div class="style-a-card" style="padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-size: 14px; font-weight: 600; color: #2d2a27;">blog-api</div>
+              <div style="font-size: 12px; color: #a39e9a;">~/Documents/blog/api</div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span class="style-a-badge" style="background: #f2f8f2; color: #4a9149; border-color: #dff0df;">Dev</span>
+              <span class="style-a-badge" style="background: #f5f3fc; color: #7e5fc4; border-color: #d8cdf2;">Git</span>
+              <button class="style-a-btn secondary" style="padding: 5px 12px; font-size: 12px; border-radius: 8px;">Edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+</script>
+</body>
+</html>

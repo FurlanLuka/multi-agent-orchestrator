@@ -2,40 +2,20 @@ import {
   Stack,
   Text,
   Group,
-  Card,
-  Badge,
-  Checkbox,
   ActionIcon,
   Collapse,
-  Switch,
-  Tooltip,
   SimpleGrid,
-  Accordion,
-  Alert,
+  Box,
 } from '@mantine/core';
 import {
   IconChevronDown,
   IconChevronUp,
-  IconAlertTriangle,
   IconShield,
-  IconShieldOff,
+  IconCheck,
 } from '@tabler/icons-react';
+import { GlassSurface } from '../theme';
 
 // Permission types
-interface PermissionOption {
-  id: string;
-  label: string;
-  description: string;
-  category: 'file' | 'bash' | 'mcp';
-}
-
-interface PermissionCategory {
-  id: string;
-  label: string;
-  description: string;
-  permissions: PermissionOption[];
-}
-
 interface PermissionGroup {
   id: string;
   label: string;
@@ -44,7 +24,12 @@ interface PermissionGroup {
 }
 
 export interface PermissionsConfig {
-  categories: PermissionCategory[];
+  categories: Array<{
+    id: string;
+    label: string;
+    description: string;
+    permissions: Array<{ id: string; label: string; description: string; category: string }>;
+  }>;
   groups: PermissionGroup[];
   templates: Record<string, string[]>;
   alwaysDenied: string[];
@@ -53,125 +38,129 @@ export interface PermissionsConfig {
 interface CollapsiblePermissionsProps {
   expanded: boolean;
   onToggle: () => void;
-  dangerouslyAllowAll: boolean;
-  onDangerouslyAllowAllChange: (value: boolean) => void;
   permissions: string[];
   onPermissionsChange: (permissions: string[]) => void;
   permissionsConfig: PermissionsConfig | null;
 }
 
+interface PermissionCardProps {
+  label: string;
+  description: string;
+  selected: boolean;
+  partial?: boolean;
+  onClick: () => void;
+}
+
+function PermissionCard({ label, description, selected, partial, onClick }: PermissionCardProps) {
+  return (
+    <Box
+      onClick={onClick}
+      style={{
+        padding: '12px',
+        borderRadius: 12,
+        background: selected
+          ? 'rgba(245, 133, 101, 0.12)'
+          : partial
+            ? 'rgba(245, 133, 101, 0.06)'
+            : 'rgba(255, 255, 255, 0.6)',
+        border: selected
+          ? '1.5px solid rgba(245, 133, 101, 0.4)'
+          : partial
+            ? '1.5px solid rgba(245, 133, 101, 0.2)'
+            : '1.5px solid var(--border-subtle)',
+        cursor: 'pointer',
+        transition: 'all 0.15s ease',
+        position: 'relative',
+      }}
+    >
+      {selected && (
+        <Box
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 18,
+            height: 18,
+            borderRadius: '50%',
+            background: 'var(--color-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <IconCheck size={12} color="white" />
+        </Box>
+      )}
+      <Text fw={500} size="sm" mb={2}>{label}</Text>
+      <Text size="xs" c="dimmed" lineClamp={2}>{description}</Text>
+    </Box>
+  );
+}
+
 export function CollapsiblePermissions({
   expanded,
   onToggle,
-  dangerouslyAllowAll,
-  onDangerouslyAllowAllChange,
   permissions,
   onPermissionsChange,
   permissionsConfig,
 }: CollapsiblePermissionsProps) {
+  const toggleGroup = (group: PermissionGroup) => {
+    const allEnabled = group.permissions.every(p => permissions.includes(p));
+    if (allEnabled) {
+      // Remove all permissions in this group
+      onPermissionsChange(permissions.filter(p => !group.permissions.includes(p)));
+    } else {
+      // Add all permissions in this group
+      onPermissionsChange([...new Set([...permissions, ...group.permissions])]);
+    }
+  };
+
+  if (!permissionsConfig) return null;
+
   return (
-    <Card padding="sm" withBorder radius="md">
+    <GlassSurface style={{ padding: 0 }}>
       <Group
         justify="space-between"
         onClick={onToggle}
-        style={{ cursor: 'pointer' }}
+        p="sm"
+        style={{
+          cursor: 'pointer',
+          background: 'rgba(160, 130, 110, 0.02)',
+        }}
       >
         <Group gap="xs">
-          <IconShield size={16} />
+          <IconShield size={16} style={{ color: 'var(--text-muted)' }} />
           <div>
             <Text fw={500} size="sm">Agent Permissions</Text>
             <Text size="xs" c="dimmed">Configure what the agent can do</Text>
           </div>
         </Group>
-        <ActionIcon variant="subtle">
+        <ActionIcon variant="subtle" color="gray">
           {expanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
         </ActionIcon>
       </Group>
+
       <Collapse in={expanded}>
-        <Stack gap="sm" pt="md">
-          <Switch
-            label="Dangerously Allow All"
-            description="Skip all permission checks (not recommended)"
-            checked={dangerouslyAllowAll}
-            onChange={(e) => onDangerouslyAllowAllChange(e.currentTarget.checked)}
-            color="red"
-            thumbIcon={dangerouslyAllowAll ? <IconShieldOff size={12} /> : <IconShield size={12} />}
-          />
-
-          {!dangerouslyAllowAll && permissionsConfig && (
-            <Accordion variant="contained" radius="sm">
-              <Accordion.Item value="groups">
-                <Accordion.Control icon={<IconShield size={16} />}>
-                  <Text size="sm" fw={500}>Quick Toggle Groups</Text>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Stack gap="xs">
-                    {permissionsConfig.groups.map(group => {
-                      const allEnabled = group.permissions.every(p => permissions.includes(p));
-                      const someEnabled = group.permissions.some(p => permissions.includes(p));
-                      return (
-                        <Checkbox
-                          key={group.id}
-                          label={group.label}
-                          description={group.description}
-                          checked={allEnabled}
-                          indeterminate={someEnabled && !allEnabled}
-                          onChange={(e) => {
-                            if (e.currentTarget.checked) {
-                              onPermissionsChange([...new Set([...permissions, ...group.permissions])]);
-                            } else {
-                              onPermissionsChange(permissions.filter((p: string) => !group.permissions.includes(p)));
-                            }
-                          }}
-                        />
-                      );
-                    })}
-                  </Stack>
-                </Accordion.Panel>
-              </Accordion.Item>
-
-              {permissionsConfig.categories.map(category => (
-                <Accordion.Item key={category.id} value={category.id}>
-                  <Accordion.Control>
-                    <Group gap="xs">
-                      <Text size="sm" fw={500}>{category.label}</Text>
-                      <Badge size="xs" variant="light">
-                        {category.permissions.filter(p => permissions.includes(p.id)).length}/{category.permissions.length}
-                      </Badge>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <SimpleGrid cols={2} spacing="xs">
-                      {category.permissions.map(perm => (
-                        <Tooltip key={perm.id} label={perm.description} position="top-start" multiline w={250}>
-                          <Checkbox
-                            label={perm.label}
-                            checked={permissions.includes(perm.id)}
-                            onChange={(e) => {
-                              if (e.currentTarget.checked) {
-                                onPermissionsChange([...permissions, perm.id]);
-                              } else {
-                                onPermissionsChange(permissions.filter((p: string) => p !== perm.id));
-                              }
-                            }}
-                            size="xs"
-                          />
-                        </Tooltip>
-                      ))}
-                    </SimpleGrid>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              ))}
-            </Accordion>
-          )}
-
-          {dangerouslyAllowAll && (
-            <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light">
-              All permission checks will be skipped. The agent can execute any command without restrictions.
-            </Alert>
-          )}
+        <Stack gap="md" p="sm" style={{ background: 'rgba(255, 255, 255, 0.5)' }}>
+          <Text size="xs" c="dimmed" fw={500}>Quick Permission Groups</Text>
+          <SimpleGrid cols={2} spacing="sm">
+            {permissionsConfig.groups.map(group => {
+              const allEnabled = group.permissions.every(p => permissions.includes(p));
+              const someEnabled = group.permissions.some(p => permissions.includes(p));
+              return (
+                <PermissionCard
+                  key={group.id}
+                  label={group.label}
+                  description={group.description}
+                  selected={allEnabled}
+                  partial={someEnabled && !allEnabled}
+                  onClick={() => toggleGroup(group)}
+                />
+              );
+            })}
+          </SimpleGrid>
         </Stack>
       </Collapse>
-    </Card>
+    </GlassSurface>
   );
 }

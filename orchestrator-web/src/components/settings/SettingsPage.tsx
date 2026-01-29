@@ -4,6 +4,7 @@ import { SettingsSidebar, type SettingsTab } from './SettingsSidebar';
 import { ProjectSettings } from './ProjectSettings';
 import { WorkspaceSettings } from './WorkspaceSettings';
 import { useOrchestrator } from '../../context/OrchestratorContext';
+import { glass } from '../../theme';
 
 interface SettingsPageProps {
   initialTab?: SettingsTab;
@@ -35,7 +36,10 @@ export function SettingsPage({ initialTab = 'projects', onBack }: SettingsPagePr
         <Box
           h="100vh"
           style={{
-            borderRight: '1px solid var(--mantine-color-default-border)',
+            background: glass.surface.bg,
+            backdropFilter: glass.surface.blur,
+            WebkitBackdropFilter: glass.surface.blur,
+            borderRight: glass.surface.border,
           }}
         >
           <SettingsSidebar

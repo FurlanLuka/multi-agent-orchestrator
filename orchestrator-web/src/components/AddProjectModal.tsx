@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  TextInput,
-  Textarea,
   Button,
   Stack,
   Text,
-  Select,
-  MultiSelect,
   Group,
   Card,
   Badge,
@@ -14,11 +10,17 @@ import {
   Divider,
   Progress,
   Alert,
-  SegmentedControl,
   SimpleGrid,
   Modal,
   Grid,
 } from '@mantine/core';
+import {
+  GlassTextInput,
+  GlassTextarea,
+  GlassSelect,
+  GlassMultiSelect,
+  GlassSegmentedControl,
+} from '../theme';
 import { useForm } from '@mantine/form';
 import {
   IconPlus,
@@ -32,6 +34,7 @@ import {
   IconPlayerPlay,
   IconTestPipe,
   IconTerminal2,
+  IconShieldOff,
 } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectTemplate, ProjectConfig } from '@aio/types';
 
@@ -274,7 +277,7 @@ export function AddProjectModal({
           </Card>
         )}
 
-        <SegmentedControl
+        <GlassSegmentedControl
           value={formMode}
           onChange={(v) => setFormMode(v as 'template' | 'existing')}
           data={[
@@ -289,7 +292,7 @@ export function AddProjectModal({
           <>
             <Grid>
               <Grid.Col span={6}>
-                <TextInput
+                <GlassTextInput
                   label="Project Name"
                   placeholder="e.g., my-api"
                   {...addForm.getInputProps('name')}
@@ -309,7 +312,7 @@ export function AddProjectModal({
 
             <Divider label="Features" labelPosition="left" />
 
-            <SimpleGrid cols={2}>
+            <SimpleGrid cols={2} style={{ alignItems: 'flex-start' }}>
               <FeatureSection
                 label="Install"
                 description="Run after each task"
@@ -317,7 +320,7 @@ export function AddProjectModal({
                 enabled={addForm.values.installEnabled}
                 onToggle={(v) => addForm.setFieldValue('installEnabled', v)}
               >
-                <TextInput
+                <GlassTextInput
                   label="Command"
                   placeholder="npm install"
                   {...addForm.getInputProps('installCommand')}
@@ -333,7 +336,7 @@ export function AddProjectModal({
                 enabled={addForm.values.buildEnabled}
                 onToggle={(v) => addForm.setFieldValue('buildEnabled', v)}
               >
-                <TextInput
+                <GlassTextInput
                   label="Command"
                   placeholder="npm run build"
                   {...addForm.getInputProps('buildCommand')}
@@ -349,14 +352,14 @@ export function AddProjectModal({
                 enabled={addForm.values.devServerEnabled}
                 onToggle={(v) => addForm.setFieldValue('devServerEnabled', v)}
               >
-                <TextInput
+                <GlassTextInput
                   label="Command"
                   placeholder="npm run dev"
                   {...addForm.getInputProps('devServerCommand')}
                   size="xs"
                   required
                 />
-                <TextInput
+                <GlassTextInput
                   label="URL"
                   placeholder="http://localhost:3000"
                   {...addForm.getInputProps('devServerUrl')}
@@ -372,7 +375,7 @@ export function AddProjectModal({
                 enabled={addForm.values.hasE2E}
                 onToggle={(v) => addForm.setFieldValue('hasE2E', v)}
               >
-                <Textarea
+                <GlassTextarea
                   label="Instructions"
                   placeholder="Testing instructions..."
                   {...addForm.getInputProps('e2eInstructions')}
@@ -380,7 +383,7 @@ export function AddProjectModal({
                   size="xs"
                 />
                 {Object.keys(projects).length > 0 && (
-                  <MultiSelect
+                  <GlassMultiSelect
                     label="Depends On"
                     description="E2E will wait for these projects to complete first"
                     placeholder="Select projects..."
@@ -401,7 +404,7 @@ export function AddProjectModal({
               enabled={addForm.values.setupEnabled}
               onToggle={(v) => addForm.setFieldValue('setupEnabled', v)}
             >
-              <TextInput
+              <GlassTextInput
                 label="Command"
                 placeholder="claude mcp add playwright -- npx @playwright/mcp@latest"
                 {...addForm.getInputProps('setupCommand')}
@@ -422,7 +425,7 @@ export function AddProjectModal({
                   Git CLI not found.
                 </Alert>
               )}
-              <TextInput
+              <GlassTextInput
                 label="Main Branch"
                 placeholder="main"
                 {...addForm.getInputProps('mainBranch')}
@@ -431,15 +434,27 @@ export function AddProjectModal({
               />
             </FeatureSection>
 
-            <CollapsiblePermissions
-              expanded={addPermissionsExpanded}
-              onToggle={() => setAddPermissionsExpanded(!addPermissionsExpanded)}
-              dangerouslyAllowAll={addForm.values.dangerouslyAllowAll}
-              onDangerouslyAllowAllChange={(v) => addForm.setFieldValue('dangerouslyAllowAll', v)}
-              permissions={addForm.values.permissions}
-              onPermissionsChange={(p) => addForm.setFieldValue('permissions', p)}
-              permissionsConfig={permissionsConfig}
-            />
+            <FeatureSection
+              label="Dangerously Allow All"
+              description="Skip all permission checks (not recommended)"
+              icon={<IconShieldOff size={16} color="var(--mantine-color-red-6)" />}
+              enabled={addForm.values.dangerouslyAllowAll}
+              onToggle={(v) => addForm.setFieldValue('dangerouslyAllowAll', v)}
+            >
+              <Alert icon={<IconAlertTriangle size={16} />} color="rose" variant="light" radius="md">
+                All permission checks will be skipped. The agent can execute any command without restrictions.
+              </Alert>
+            </FeatureSection>
+
+            {!addForm.values.dangerouslyAllowAll && (
+              <CollapsiblePermissions
+                expanded={addPermissionsExpanded}
+                onToggle={() => setAddPermissionsExpanded(!addPermissionsExpanded)}
+                permissions={addForm.values.permissions}
+                onPermissionsChange={(p) => addForm.setFieldValue('permissions', p)}
+                permissionsConfig={permissionsConfig}
+              />
+            )}
 
             <Button
               onClick={handleAddExisting}
@@ -456,7 +471,7 @@ export function AddProjectModal({
         {/* Create from Template Form */}
         {formMode === 'template' && (
           <>
-            <Select
+            <GlassSelect
               label="Template"
               placeholder="Select a template"
               data={templateOptions}
@@ -478,7 +493,7 @@ export function AddProjectModal({
                     </>
                   )}
                   {selectedTemplateConfig.config.hasE2E && (
-                    <Badge size="xs" variant="outline" color="violet">E2E</Badge>
+                    <Badge size="xs" variant="outline" color="peach">E2E</Badge>
                   )}
                   {selectedTemplateConfig.config.gitEnabled && (
                     <Badge size="xs" variant="outline" color="grape">Git</Badge>
@@ -489,7 +504,7 @@ export function AddProjectModal({
 
             <Grid>
               <Grid.Col span={6}>
-                <TextInput
+                <GlassTextInput
                   label="Project Name"
                   placeholder="e.g., my-backend"
                   {...templateForm.getInputProps('name')}

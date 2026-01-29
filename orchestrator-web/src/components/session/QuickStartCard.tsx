@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import {
-  Card,
   Stack,
   Group,
   ThemeIcon,
   Title,
   Text,
-  TextInput,
   Button,
 } from '@mantine/core';
+import { GlassTextInput } from '../../theme';
 import { IconRocket } from '@tabler/icons-react';
+import { GlassCard } from '../../theme';
 
 interface QuickStartCardProps {
   creatingProject: boolean;
@@ -20,18 +20,10 @@ export function QuickStartCard({ creatingProject, onQuickStart }: QuickStartCard
   const [quickStartName, setQuickStartName] = useState('');
 
   return (
-    <Card
-      shadow="sm"
-      radius="lg"
-      p="xl"
-      style={{
-        background: 'linear-gradient(135deg, var(--mantine-color-violet-0) 0%, var(--mantine-color-blue-0) 100%)',
-        border: '1px solid var(--mantine-color-violet-2)',
-      }}
-    >
+    <GlassCard p="xl">
       <Stack gap="md">
         <Group gap="md">
-          <ThemeIcon size={48} radius="md" variant="gradient" gradient={{ from: 'violet', to: 'blue' }}>
+          <ThemeIcon size={48} radius="md" color="peach" variant="light">
             <IconRocket size={28} />
           </ThemeIcon>
           <div>
@@ -43,7 +35,7 @@ export function QuickStartCard({ creatingProject, onQuickStart }: QuickStartCard
         </Group>
 
         <Stack gap="sm">
-          <TextInput
+          <GlassTextInput
             placeholder="App name (e.g., blog, shop, dashboard)"
             value={quickStartName}
             onChange={(e) => setQuickStartName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
@@ -52,13 +44,12 @@ export function QuickStartCard({ creatingProject, onQuickStart }: QuickStartCard
           />
           {quickStartName && (
             <Text size="xs" c="dimmed">
-              Creates <Text span fw={500} c="violet">~/Documents/aio-{quickStartName}/{quickStartName}-frontend</Text> and <Text span fw={500} c="blue">~/Documents/aio-{quickStartName}/{quickStartName}-backend</Text>
+              Creates <Text span fw={500} c="peach.7">~/Documents/aio-{quickStartName}/{quickStartName}-frontend</Text> and <Text span fw={500} c="peach.8">~/Documents/aio-{quickStartName}/{quickStartName}-backend</Text>
             </Text>
           )}
           <Button
             size="md"
-            variant="gradient"
-            gradient={{ from: 'violet', to: 'blue' }}
+            color="peach"
             leftSection={<IconRocket size={18} />}
             disabled={!quickStartName.trim() || creatingProject}
             loading={creatingProject}
@@ -73,6 +64,6 @@ export function QuickStartCard({ creatingProject, onQuickStart }: QuickStartCard
           </Button>
         </Stack>
       </Stack>
-    </Card>
+    </GlassCard>
   );
 }

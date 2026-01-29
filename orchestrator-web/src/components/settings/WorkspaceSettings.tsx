@@ -2,18 +2,20 @@ import { useState } from 'react';
 import {
   Stack,
   Text,
-  Card,
   Group,
   Badge,
   Button,
   ActionIcon,
-  TextInput,
-  Textarea,
-  MultiSelect,
   Modal,
 } from '@mantine/core';
+import {
+  GlassTextInput,
+  GlassTextarea,
+  GlassMultiSelect,
+} from '../../theme';
 import { IconTrash, IconEdit, IconPlus } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@aio/types';
+import { GlassCard } from '../../theme';
 
 interface WorkspaceSettingsProps {
   workspaces: Record<string, WorkspaceConfig>;
@@ -85,7 +87,7 @@ export function WorkspaceSettings({
       )}
 
       {workspaceList.map(ws => (
-        <Card key={ws.id} withBorder radius="md" p="md">
+        <GlassCard key={ws.id} p="md">
           <Group justify="space-between" align="flex-start">
             <Stack gap="xs">
               <Text fw={600}>{ws.name}</Text>
@@ -120,20 +122,20 @@ export function WorkspaceSettings({
               </ActionIcon>
             </Group>
           </Group>
-        </Card>
+        </GlassCard>
       ))}
 
       {/* Create Modal */}
       <Modal opened={creating} onClose={() => setCreating(false)} title="Create Workspace" size="md">
         <Stack gap="md">
-          <TextInput
+          <GlassTextInput
             label="Name"
             placeholder="e.g., Blog"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             required
           />
-          <MultiSelect
+          <GlassMultiSelect
             label="Projects"
             data={projectOptions}
             value={newProjects}
@@ -141,7 +143,7 @@ export function WorkspaceSettings({
             searchable
             required
           />
-          <Textarea
+          <GlassTextarea
             label="Context (optional)"
             placeholder="Planning context..."
             value={newContext}
@@ -159,13 +161,13 @@ export function WorkspaceSettings({
       <Modal opened={!!editing} onClose={() => setEditing(null)} title="Edit Workspace" size="md">
         {editing && (
           <Stack gap="md">
-            <TextInput
+            <GlassTextInput
               label="Name"
               value={editing.name}
               onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               required
             />
-            <MultiSelect
+            <GlassMultiSelect
               label="Projects"
               data={projectOptions}
               value={editing.projects}
@@ -173,7 +175,7 @@ export function WorkspaceSettings({
               searchable
               required
             />
-            <Textarea
+            <GlassTextarea
               label="Context (optional)"
               value={editing.context}
               onChange={(e) => setEditing({ ...editing, context: e.target.value })}

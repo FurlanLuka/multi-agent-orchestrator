@@ -27,7 +27,7 @@ export function AppHeader({ activeSessionId, shutdownOnClose, onShutdownOnCloseC
             </ActionIcon>
           </Tooltip>
         )}
-        <ThemeIcon size="lg" radius="md" variant="gradient" gradient={{ from: 'blue', to: 'cyan' }}>
+        <ThemeIcon size="lg" radius="md" color="peach" variant="light">
           <IconRocket size={20} />
         </ThemeIcon>
         <Title order={3} style={{ fontWeight: 700 }}>
@@ -38,7 +38,7 @@ export function AppHeader({ activeSessionId, shutdownOnClose, onShutdownOnCloseC
         {activeSessionId && (
           <Badge
             variant="light"
-            color="blue"
+            color="peach"
             size="lg"
             radius="md"
             leftSection={<IconSparkles size={14} />}

@@ -5,12 +5,12 @@ import {
   Loader,
   Button,
   Code,
-  Paper,
   ThemeIcon,
   Group,
 } from '@mantine/core';
 import { IconAlertCircle, IconRefresh, IconTerminal2, IconPlugConnectedX } from '@tabler/icons-react';
 import type { DependencyCheckResult } from '@aio/types';
+import { GlassCard, pageBg } from '../theme';
 
 interface SplashScreenProps {
   checking: boolean;
@@ -29,21 +29,13 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'var(--mantine-color-gray-0)',
+          background: pageBg.gradient,
         }}
       >
-        <Paper
-          shadow="md"
-          p="xl"
-          radius="lg"
-          style={{
-            maxWidth: 500,
-            border: '1px solid var(--mantine-color-orange-3)',
-          }}
-        >
+        <GlassCard p="xl" style={{ maxWidth: 500 }}>
           <Stack gap="lg">
             <Group>
-              <ThemeIcon size="xl" radius="md" color="orange" variant="light">
+              <ThemeIcon size="xl" radius="md" color="honey" variant="light">
                 <IconPlugConnectedX size={28} />
               </ThemeIcon>
               <Text size="xl" fw={700}>
@@ -55,7 +47,7 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
               The orchestrator backend could not start. This usually happens when another instance is already running.
             </Text>
 
-            <Paper p="md" radius="md" bg="orange.0">
+            <GlassCard p="md">
               <Stack gap="xs">
                 <Text size="sm" fw={500}>
                   Error Details:
@@ -64,9 +56,9 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
                   {backendError}
                 </Code>
               </Stack>
-            </Paper>
+            </GlassCard>
 
-            <Paper p="md" radius="md" bg="gray.1">
+            <GlassCard p="md">
               <Stack gap="xs">
                 <Text size="sm" fw={500}>
                   Try the following:
@@ -81,18 +73,18 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
                   3. Restart the application
                 </Text>
               </Stack>
-            </Paper>
+            </GlassCard>
 
             <Button
               leftSection={<IconRefresh size={16} />}
               onClick={() => window.location.reload()}
               variant="light"
-              color="orange"
+              color="honey"
             >
               Restart Application
             </Button>
           </Stack>
-        </Paper>
+        </GlassCard>
       </Box>
     );
   }
@@ -106,11 +98,11 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'var(--mantine-color-gray-0)',
+          background: pageBg.gradient,
         }}
       >
         <Stack align="center" gap="md">
-          <Loader size="lg" color="blue" />
+          <Loader size="lg" color="peach" />
           <Text size="lg" fw={500} c="dimmed">
             Checking dependencies...
           </Text>
@@ -128,21 +120,13 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'var(--mantine-color-gray-0)',
+          background: pageBg.gradient,
         }}
       >
-        <Paper
-          shadow="md"
-          p="xl"
-          radius="lg"
-          style={{
-            maxWidth: 500,
-            border: '1px solid var(--mantine-color-red-3)',
-          }}
-        >
+        <GlassCard p="xl" style={{ maxWidth: 500 }}>
           <Stack gap="lg">
             <Group>
-              <ThemeIcon size="xl" radius="md" color="red" variant="light">
+              <ThemeIcon size="xl" radius="md" color="rose" variant="light">
                 <IconAlertCircle size={28} />
               </ThemeIcon>
               <Text size="xl" fw={700}>
@@ -154,7 +138,7 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
               The Multi-Agent Orchestrator requires Claude CLI to be installed and available in your PATH.
             </Text>
 
-            <Paper p="md" radius="md" bg="gray.1">
+            <GlassCard p="md">
               <Stack gap="xs">
                 <Text size="sm" fw={500}>
                   Install Claude CLI:
@@ -169,33 +153,33 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
                   After installation, make sure to authenticate with <Code>claude auth login</Code>
                 </Text>
               </Stack>
-            </Paper>
+            </GlassCard>
 
             {dependencyCheck.claude.error && (
-              <Text size="sm" c="red">
+              <Text size="sm" c="rose">
                 Error: {dependencyCheck.claude.error}
               </Text>
             )}
 
             {(dependencyCheck.claude as any).debug && (
-              <Paper p="sm" radius="md" bg="gray.2" style={{ fontFamily: 'monospace' }}>
+              <GlassCard p="sm">
                 <Text size="xs" fw={500} mb="xs">Debug Info:</Text>
                 <Code block style={{ whiteSpace: 'pre-wrap', fontSize: '11px' }}>
                   {(dependencyCheck.claude as any).debug}
                 </Code>
-              </Paper>
+              </GlassCard>
             )}
 
             <Button
               leftSection={<IconRefresh size={16} />}
               onClick={onRetry}
               variant="light"
-              color="blue"
+              color="peach"
             >
               Retry
             </Button>
           </Stack>
-        </Paper>
+        </GlassCard>
       </Box>
     );
   }

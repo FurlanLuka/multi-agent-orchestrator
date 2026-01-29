@@ -3,14 +3,16 @@ import {
   Container,
   Stack,
   Title,
-  TextInput,
-  Textarea,
-  MultiSelect,
   Button,
   ActionIcon,
   Text,
 } from '@mantine/core';
-import { IconArrowLeft, IconPlus } from '@tabler/icons-react';
+import {
+  GlassTextInput,
+  GlassTextarea,
+  GlassMultiSelect,
+} from '../../theme';
+import { IconArrowLeft } from '@tabler/icons-react';
 
 interface CreateWorkspaceViewProps {
   availableProjects: string[];
@@ -44,9 +46,11 @@ export function CreateWorkspaceView({
           <IconArrowLeft size={20} />
         </ActionIcon>
 
-        <Title order={2} ta="center">Create Workspace</Title>
+        <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
+          Create Workspace
+        </Title>
 
-        <TextInput
+        <GlassTextInput
           label="Name"
           placeholder="e.g., Blog, E-Commerce, Dashboard"
           value={name}
@@ -55,7 +59,7 @@ export function CreateWorkspaceView({
           required
         />
 
-        <MultiSelect
+        <GlassMultiSelect
           label="Projects"
           placeholder="Select projects to include"
           data={projectOptions}
@@ -66,7 +70,7 @@ export function CreateWorkspaceView({
           required
         />
 
-        <Textarea
+        <GlassTextarea
           label="Context (optional)"
           placeholder="Planning rules, guidelines, or notes for this workspace..."
           description="This context will be prepended to every feature description when starting a session"
@@ -79,16 +83,17 @@ export function CreateWorkspaceView({
 
         <Stack gap="xs">
           <Text size="sm" c="dimmed">
-            Don't see your project?
+            Don't see your project?{' '}
+            <Text
+              span
+              c="peach.6"
+              fw={500}
+              style={{ cursor: 'pointer' }}
+              onClick={onOpenAddProject}
+            >
+              Add one in Settings
+            </Text>
           </Text>
-          <Button
-            variant="subtle"
-            size="sm"
-            leftSection={<IconPlus size={14} />}
-            onClick={onOpenAddProject}
-          >
-            Add Project
-          </Button>
         </Stack>
 
         <Button

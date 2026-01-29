@@ -21,6 +21,7 @@ import {
   IconPlayerPlay,
   IconTestPipe,
   IconTerminal2,
+  IconShieldOff,
 } from '@tabler/icons-react';
 import type { ProjectConfig } from '@aio/types';
 
@@ -305,15 +306,27 @@ export function EditProjectModal({
             />
           </FeatureSection>
 
-          <CollapsiblePermissions
-            expanded={permissionsExpanded}
-            onToggle={() => setPermissionsExpanded(!permissionsExpanded)}
-            dangerouslyAllowAll={form.values.dangerouslyAllowAll}
-            onDangerouslyAllowAllChange={(v) => form.setFieldValue('dangerouslyAllowAll', v)}
-            permissions={form.values.permissions}
-            onPermissionsChange={(p) => form.setFieldValue('permissions', p)}
-            permissionsConfig={permissionsConfig}
-          />
+          <FeatureSection
+            label="Dangerously Allow All"
+            description="Skip all permission checks (not recommended)"
+            icon={<IconShieldOff size={16} color="var(--mantine-color-red-6)" />}
+            enabled={form.values.dangerouslyAllowAll}
+            onToggle={(v) => form.setFieldValue('dangerouslyAllowAll', v)}
+          >
+            <Alert icon={<IconAlertTriangle size={16} />} color="rose" variant="light" radius="md">
+              All permission checks will be skipped. The agent can execute any command without restrictions.
+            </Alert>
+          </FeatureSection>
+
+          {!form.values.dangerouslyAllowAll && (
+            <CollapsiblePermissions
+              expanded={permissionsExpanded}
+              onToggle={() => setPermissionsExpanded(!permissionsExpanded)}
+              permissions={form.values.permissions}
+              onPermissionsChange={(p) => form.setFieldValue('permissions', p)}
+              permissionsConfig={permissionsConfig}
+            />
+          )}
 
           <Button leftSection={<IconDeviceFloppy size={14} />} onClick={handleSave} fullWidth>
             Save Changes

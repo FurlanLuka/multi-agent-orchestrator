@@ -3,21 +3,15 @@ import {
   Container,
   Stack,
   Title,
-  Text,
-  TextInput,
   Button,
   ActionIcon,
   Group,
   Badge,
-  Box,
   Loader,
 } from '@mantine/core';
-import { RichTextEditor, Link } from '@mantine/tiptap';
-import { useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
 import { IconArrowLeft, IconRocket, IconGitBranch, IconSettings } from '@tabler/icons-react';
 import type { WorkspaceConfig, ProjectConfig } from '@aio/types';
+import { GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
 
 interface PromptScreenProps {
   workspace: WorkspaceConfig;
@@ -38,15 +32,8 @@ export function PromptScreen({
 }: PromptScreenProps) {
   const [branchName, setBranchName] = useState('');
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Link,
-      Placeholder.configure({
-        placeholder: 'Describe what to build...',
-      }),
-    ],
-    content: '',
+  const editor = useGlassEditor({
+    placeholder: 'Describe what to build...',
   });
 
   const hasGitEnabledProject = workspace.projects.some(
@@ -75,7 +62,9 @@ export function PromptScreen({
 
         <Stack align="center" gap="xs">
           <Group gap="xs" align="center">
-            <Title order={2} ta="center">{workspace.name}</Title>
+            <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
+              {workspace.name}
+            </Title>
             <ActionIcon variant="subtle" color="gray" size="sm" onClick={onEditWorkspace}>
               <IconSettings size={16} />
             </ActionIcon>
@@ -87,35 +76,14 @@ export function PromptScreen({
           </Group>
         </Stack>
 
-        <Box>
-          <Text size="sm" fw={500} mb={4}>Feature Description</Text>
-          <RichTextEditor editor={editor} styles={{
-            root: { minHeight: 200 },
-            content: {
-              minHeight: 160,
-              '& .ProseMirror': { minHeight: 140 },
-            },
-          }}>
-            <RichTextEditor.Toolbar sticky stickyOffset={60}>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.Bold />
-                <RichTextEditor.Italic />
-                <RichTextEditor.Code />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.BulletList />
-                <RichTextEditor.OrderedList />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.CodeBlock />
-              </RichTextEditor.ControlsGroup>
-            </RichTextEditor.Toolbar>
-            <RichTextEditor.Content />
-          </RichTextEditor>
-        </Box>
+        <GlassRichTextEditor
+          label="Feature Description"
+          placeholder="Describe what to build..."
+          editor={editor}
+        />
 
         {hasGitEnabledProject && (
-          <TextInput
+          <GlassTextInput
             label="Branch Name"
             placeholder="e.g., feature/my-feature (auto-generated if empty)"
             description="Feature branch will be created for git-enabled projects"

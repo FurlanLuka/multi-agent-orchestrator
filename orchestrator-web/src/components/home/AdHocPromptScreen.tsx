@@ -4,19 +4,13 @@ import {
   Stack,
   Title,
   Text,
-  TextInput,
-  MultiSelect,
   Button,
   ActionIcon,
-  Box,
   Loader,
 } from '@mantine/core';
-import { RichTextEditor, Link } from '@mantine/tiptap';
-import { useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
 import { IconArrowLeft, IconRocket, IconGitBranch } from '@tabler/icons-react';
 import type { ProjectConfig } from '@aio/types';
+import { GlassTextInput, GlassMultiSelect, GlassRichTextEditor, useGlassEditor } from '../../theme';
 
 interface AdHocPromptScreenProps {
   availableProjects: string[];
@@ -36,15 +30,8 @@ export function AdHocPromptScreen({
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [branchName, setBranchName] = useState('');
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Link,
-      Placeholder.configure({
-        placeholder: 'Describe what to build...',
-      }),
-    ],
-    content: '',
+  const editor = useGlassEditor({
+    placeholder: 'Describe what to build...',
   });
 
   const projectOptions = availableProjects.map(p => ({ value: p, label: p }));
@@ -74,13 +61,15 @@ export function AdHocPromptScreen({
         </ActionIcon>
 
         <Stack align="center" gap={4}>
-          <Title order={2} ta="center">Start Session</Title>
+          <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
+            Start Session
+          </Title>
           <Text c="dimmed" size="sm" ta="center">
             Select projects and describe what to build
           </Text>
         </Stack>
 
-        <MultiSelect
+        <GlassMultiSelect
           label="Projects"
           placeholder="Select projects to include"
           data={projectOptions}
@@ -90,35 +79,14 @@ export function AdHocPromptScreen({
           size="md"
         />
 
-        <Box>
-          <Text size="sm" fw={500} mb={4}>Feature Description</Text>
-          <RichTextEditor editor={editor} styles={{
-            root: { minHeight: 200 },
-            content: {
-              minHeight: 160,
-              '& .ProseMirror': { minHeight: 140 },
-            },
-          }}>
-            <RichTextEditor.Toolbar sticky stickyOffset={60}>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.Bold />
-                <RichTextEditor.Italic />
-                <RichTextEditor.Code />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.BulletList />
-                <RichTextEditor.OrderedList />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.CodeBlock />
-              </RichTextEditor.ControlsGroup>
-            </RichTextEditor.Toolbar>
-            <RichTextEditor.Content />
-          </RichTextEditor>
-        </Box>
+        <GlassRichTextEditor
+          label="Feature Description"
+          placeholder="Describe what to build..."
+          editor={editor}
+        />
 
         {hasGitEnabledProject && (
-          <TextInput
+          <GlassTextInput
             label="Branch Name"
             placeholder="e.g., feature/my-feature (auto-generated if empty)"
             description="Feature branch will be created for git-enabled projects"

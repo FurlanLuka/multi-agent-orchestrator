@@ -2,7 +2,6 @@ import {
   Container,
   Stack,
   Title,
-  Group,
   SimpleGrid,
   Text,
   Button,
@@ -10,6 +9,7 @@ import {
 } from '@mantine/core';
 import { IconSparkles } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@aio/types';
+import { GlassBar } from '../../theme';
 import { WorkspaceCard } from './WorkspaceCard';
 import { AddWorkspaceCard } from './AddWorkspaceCard';
 import { FloatingSettingsButton } from './FloatingSettingsButton';
@@ -38,37 +38,27 @@ export function HomePage({
   return (
     <>
       {hasActiveSession && (
-        <Group
-          justify="center"
-          p="sm"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 100,
-            backgroundColor: 'var(--mantine-color-body)',
-            borderBottom: '1px solid var(--mantine-color-default-border)',
-          }}
-        >
+        <GlassBar position="top" justify="center" p="sm">
           <Badge
             variant="light"
-            color="blue"
+            color="peach"
             size="lg"
             leftSection={<IconSparkles size={14} />}
           >
             Session Active
           </Badge>
-          <Button variant="light" size="xs" onClick={onResumeSession}>
+          <Button variant="light" color="peach" size="xs" onClick={onResumeSession}>
             Resume
           </Button>
-        </Group>
+        </GlassBar>
       )}
 
       <Container size="sm" py={hasActiveSession ? 80 : 60}>
         <Stack align="center" gap="xl">
           <Stack align="center" gap={4}>
-            <Title order={1} ta="center">AIO Orchestrator</Title>
+            <Title order={1} ta="center" style={{ letterSpacing: '-.02em' }}>
+              AIO Orchestrator
+            </Title>
             <Text c="dimmed" size="sm" ta="center">
               Select a workspace to start building
             </Text>
@@ -93,7 +83,8 @@ export function HomePage({
             Or{' '}
             <Text
               span
-              c="blue"
+              c="peach.6"
+              fw={500}
               style={{ textDecoration: 'underline', cursor: 'pointer' }}
               onClick={onStartWithoutWorkspace}
             >

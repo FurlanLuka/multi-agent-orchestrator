@@ -4,11 +4,9 @@ import {
   Stack,
   Text,
   Group,
-  Card,
   Badge,
   Alert,
   ActionIcon,
-  ScrollArea,
   Title,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
@@ -20,6 +18,7 @@ import {
   IconEdit,
 } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectConfig } from '@aio/types';
+import { GlassCard } from '../theme';
 
 import { AddProjectModal } from './AddProjectModal';
 import type { AddProjectOptions, CreateProjectOptions } from './AddProjectModal';
@@ -133,10 +132,9 @@ export function ProjectManager({
 
         {/* Project List */}
         {projectList.length > 0 ? (
-          <ScrollArea.Autosize mah={400}>
-            <Stack gap="xs">
-              {projectList.map(([projectName, config]) => (
-                <Card key={projectName} padding="sm" withBorder>
+          <Stack gap="xs">
+            {projectList.map(([projectName, config]) => (
+                <GlassCard key={projectName} p="sm">
                   <Group justify="space-between" wrap="nowrap">
                     <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
                       <Text fw={500} truncate>{projectName}</Text>
@@ -146,16 +144,16 @@ export function ProjectManager({
                       {/* Feature badges */}
                       <Group gap={4} wrap="nowrap">
                         {config.devServerEnabled !== false && (
-                          <Badge size="xs" variant="light" color="green">Dev</Badge>
+                          <Badge size="xs" variant="light" color="sage">Dev</Badge>
                         )}
                         {config.buildEnabled !== false && config.buildCommand && (
-                          <Badge size="xs" variant="light" color="orange">Build</Badge>
+                          <Badge size="xs" variant="light" color="honey">Build</Badge>
                         )}
                         {config.hasE2E && (
-                          <Badge size="xs" variant="light" color="violet">E2E</Badge>
+                          <Badge size="xs" variant="light" color="peach">E2E</Badge>
                         )}
                         {config.gitEnabled && (
-                          <Badge size="xs" variant="light" color="grape">Git</Badge>
+                          <Badge size="xs" variant="light" color="lavender">Git</Badge>
                         )}
                       </Group>
 
@@ -171,26 +169,25 @@ export function ProjectManager({
                       <ActionIcon
                         size="sm"
                         variant="subtle"
-                        color="red"
+                        color="rose"
                         onClick={() => onRemoveProject(projectName)}
                       >
                         <IconTrash size={14} />
                       </ActionIcon>
                     </Group>
                   </Group>
-                </Card>
-              ))}
-            </Stack>
-          </ScrollArea.Autosize>
+                </GlassCard>
+            ))}
+          </Stack>
         ) : !isLoading && (
-          <Card padding="xl" withBorder bg="gray.0">
+          <GlassCard p="xl">
             <Stack align="center" gap="md">
-              <IconFolder size={48} color="var(--mantine-color-gray-5)" />
+              <IconFolder size={48} style={{ opacity: 0.3 }} />
               <Text size="sm" c="dimmed" ta="center">
                 No projects configured yet. Click "Add Project" to get started.
               </Text>
             </Stack>
-          </Card>
+          </GlassCard>
         )}
       </Stack>
 

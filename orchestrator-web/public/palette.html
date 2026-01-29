@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Theme Palette Comparison</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 0; color: #333; }
+
+  .tab-bar { position: sticky; top: 0; z-index: 10; display: flex; gap: 0; border-bottom: 2px solid #e5e5e5; background: #fff; }
+  .tab { padding: 16px 32px; font-size: 15px; font-weight: 600; cursor: pointer; border: none; background: none; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+  .tab:hover { background: #f5f5f5; }
+  .tab.active { border-bottom-color: currentColor; }
+
+  .palette { display: none; padding: 40px; min-height: 100vh; }
+  .palette.active { display: block; }
+
+  h1 { margin-bottom: 4px; font-size: 28px; }
+  .subtitle { margin-bottom: 40px; font-size: 14px; }
+  h2 { margin: 32px 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+
+  .swatches { display: flex; gap: 4px; margin-bottom: 20px; }
+  .swatch { flex: 1; height: 56px; border-radius: 10px; display: flex; align-items: flex-end; padding: 5px 7px; font-size: 10px; font-weight: 600; }
+  .lt { color: white; }
+  .dt { color: #333; }
+
+  .btn { display: inline-block; padding: 10px 24px; border-radius: 999px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; margin: 4px; color: white; }
+  .btn-o { background: transparent; border: 1.5px solid; color: inherit; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; margin: 4px; }
+  .input-demo { padding: 10px 16px; border-radius: 10px; border: 1.5px solid; font-size: 14px; width: 100%; margin: 4px 0; outline: none; background: white; }
+
+  .chat-row { display: flex; gap: 12px; margin: 8px 0; }
+  .chat-bubble { padding: 12px 16px; border-radius: 16px; font-size: 14px; max-width: 320px; line-height: 1.5; }
+
+  .demo-cards { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 24px; }
+  .demo-card { border-radius: 16px; padding: 20px; min-width: 200px; flex: 1; }
+  .demo-card .label { font-weight: 600; margin-bottom: 4px; }
+  .demo-card .desc { font-size: 13px; }
+
+  .bg-row { display: flex; gap: 12px; margin: 12px 0 24px; }
+  .bg-swatch { width: 110px; height: 70px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 11px; text-align: center; line-height: 1.4; }
+
+  hr { border: none; border-top: 1px solid #e5e5e5; margin: 36px 0; }
+  .status-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 16px; }
+</style>
+</head>
+<body>
+
+<div class="tab-bar">
+  <button class="tab active" onclick="show('peach')" style="color:#e06b4a">Peach</button>
+  <button class="tab" onclick="show('lavender')" style="color:#7c6aef">Lavender</button>
+  <button class="tab" onclick="show('teal')" style="color:#2a9d8f">Teal</button>
+  <button class="tab" onclick="show('rose')" style="color:#d4627a">Rose</button>
+</div>
+
+<!-- ═══════════════════════════════════════ PEACH ═══════════════════════════════════════ -->
+<div class="palette active" id="peach" style="background:#fef9f7; color:#3d2e2a;">
+<h1>Peach</h1>
+<p class="subtitle" style="color:#8a7069">Warm coral-orange. Friendly and inviting, like a sunset.</p>
+
+<h2 style="color:#8a7069">Primary</h2>
+<div class="swatches">
+  <div class="swatch dt" style="background:#fff5f2">0</div>
+  <div class="swatch dt" style="background:#ffe8e0">1</div>
+  <div class="swatch dt" style="background:#ffd4c4">2</div>
+  <div class="swatch dt" style="background:#ffbda6">3</div>
+  <div class="swatch dt" style="background:#ffa284">4</div>
+  <div class="swatch dt" style="background:#f58565">5</div>
+  <div class="swatch lt" style="background:#e06b4a">6</div>
+  <div class="swatch lt" style="background:#c4553a">7</div>
+  <div class="swatch lt" style="background:#a3432e">8</div>
+  <div class="swatch lt" style="background:#833524">9</div>
+</div>
+
+<h2 style="color:#8a7069">Buttons</h2>
+<div style="margin-bottom:16px">
+  <button class="btn" style="background:#e06b4a">Start Planning</button>
+  <button class="btn" style="background:#f58565">Create Workspace</button>
+  <button class="btn btn-o" style="border-color:#e06b4a; color:#e06b4a;">Back to Home</button>
+  <button class="btn" style="background:#4d8f48">Approve</button>
+  <button class="btn" style="background:#bf3b3b">Reject</button>
+</div>
+
+<h2 style="color:#8a7069">Badges</h2>
+<div class="status-row">
+  <span class="badge" style="background:#ffe8e0; color:#c4553a;">Active</span>
+  <span class="badge" style="background:#dceeda; color:#3d7a39;">Complete</span>
+  <span class="badge" style="background:#fdecd0; color:#8c5b13;">Debugging</span>
+  <span class="badge" style="background:#fcdada; color:#872323;">Failed</span>
+  <span class="badge" style="background:#d8ecf2; color:#2e6f8c;">Working</span>
+  <span class="badge" style="background:#edddf3; color:#5f3576;">E2E</span>
+  <span class="badge" style="background:#f0edeb; color:#4d4440;">Pending</span>
+</div>
+
+<h2 style="color:#8a7069">Inputs</h2>
+<div style="max-width:380px; margin-bottom:16px;">
+  <input class="input-demo" style="border-color:#e2dedb;" placeholder="Feature description..." />
+  <input class="input-demo" style="border-color:#e06b4a; background:#fff5f2;" placeholder="Focused state" />
+</div>
+
+<h2 style="color:#8a7069">Chat</h2>
+<div style="max-width:460px; margin-bottom:16px;">
+  <div class="chat-row" style="justify-content:flex-end"><div class="chat-bubble" style="background:#ffe8e0; color:#3d2e2a;">Add a login page with email and password</div></div>
+  <div class="chat-row"><div class="chat-bubble" style="background:#f0edeb; color:#3d2e2a;">I'll create a plan for that. Let me explore the codebase...</div></div>
+</div>
+
+<h2 style="color:#8a7069">Cards</h2>
+<div class="demo-cards">
+  <div class="demo-card" style="background:white; border:1px solid #e2dedb;"><div class="label">Blog</div><div class="desc" style="color:#8a7069">frontend &middot; backend</div></div>
+  <div class="demo-card" style="background:#fff5f2; border:1px solid #ffd4c4;"><div class="label">Complete!</div><div class="desc" style="color:#8a7069">All tasks done.</div></div>
+  <div class="demo-card" style="background:#f0f7f9; border:1px solid #b0d6e4;"><div class="label">Planning</div><div class="desc" style="color:#8a7069">Exploring...</div></div>
+</div>
+
+<h2 style="color:#8a7069">Page Backgrounds</h2>
+<div class="bg-row">
+  <div class="bg-swatch" style="background:#fef9f7; border:1px solid #e2dedb; color:#8a7069;">Body<br>#fef9f7</div>
+  <div class="bg-swatch" style="background:#fff5f2; border:1px solid #e2dedb; color:#8a7069;">Tint<br>#fff5f2</div>
+  <div class="bg-swatch" style="background:#ffffff; border:1px solid #e2dedb; color:#8a7069;">Card<br>#ffffff</div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════ LAVENDER ═══════════════════════════════════════ -->
+<div class="palette" id="lavender" style="background:#f9f8fe; color:#2d2640;">
+<h1>Lavender</h1>
+<p class="subtitle" style="color:#7a7290">Soft warm purple. Calm and modern, like Notion or Linear.</p>
+
+<h2 style="color:#7a7290">Primary</h2>
+<div class="swatches">
+  <div class="swatch dt" style="background:#f5f3ff">0</div>
+  <div class="swatch dt" style="background:#ede8ff">1</div>
+  <div class="swatch dt" style="background:#ddd6fe">2</div>
+  <div class="swatch dt" style="background:#c4b5fd">3</div>
+  <div class="swatch dt" style="background:#a78bfa">4</div>
+  <div class="swatch lt" style="background:#8b6cf7">5</div>
+  <div class="swatch lt" style="background:#7c6aef">6</div>
+  <div class="swatch lt" style="background:#6d4ed4">7</div>
+  <div class="swatch lt" style="background:#5b3cb8">8</div>
+  <div class="swatch lt" style="background:#4a2d99">9</div>
+</div>
+
+<h2 style="color:#7a7290">Buttons</h2>
+<div style="margin-bottom:16px">
+  <button class="btn" style="background:#7c6aef">Start Planning</button>
+  <button class="btn" style="background:#8b6cf7">Create Workspace</button>
+  <button class="btn btn-o" style="border-color:#7c6aef; color:#7c6aef;">Back to Home</button>
+  <button class="btn" style="background:#4d8f48">Approve</button>
+  <button class="btn" style="background:#bf3b3b">Reject</button>
+</div>
+
+<h2 style="color:#7a7290">Badges</h2>
+<div class="status-row">
+  <span class="badge" style="background:#ede8ff; color:#5b3cb8;">Active</span>
+  <span class="badge" style="background:#dcf5e0; color:#2f7a3a;">Complete</span>
+  <span class="badge" style="background:#fef3cd; color:#8c6d13;">Debugging</span>
+  <span class="badge" style="background:#fcdada; color:#872323;">Failed</span>
+  <span class="badge" style="background:#d8ecf2; color:#2e6f8c;">Working</span>
+  <span class="badge" style="background:#fce7ec; color:#a83253;">E2E</span>
+  <span class="badge" style="background:#eeedf2; color:#4d4459;">Pending</span>
+</div>
+
+<h2 style="color:#7a7290">Inputs</h2>
+<div style="max-width:380px; margin-bottom:16px;">
+  <input class="input-demo" style="border-color:#ddd6e8;" placeholder="Feature description..." />
+  <input class="input-demo" style="border-color:#7c6aef; background:#f5f3ff;" placeholder="Focused state" />
+</div>
+
+<h2 style="color:#7a7290">Chat</h2>
+<div style="max-width:460px; margin-bottom:16px;">
+  <div class="chat-row" style="justify-content:flex-end"><div class="chat-bubble" style="background:#ede8ff; color:#2d2640;">Add a login page with email and password</div></div>
+  <div class="chat-row"><div class="chat-bubble" style="background:#eeedf2; color:#2d2640;">I'll create a plan for that. Let me explore the codebase...</div></div>
+</div>
+
+<h2 style="color:#7a7290">Cards</h2>
+<div class="demo-cards">
+  <div class="demo-card" style="background:white; border:1px solid #ddd6e8;"><div class="label">Blog</div><div class="desc" style="color:#7a7290">frontend &middot; backend</div></div>
+  <div class="demo-card" style="background:#f5f3ff; border:1px solid #ddd6fe;"><div class="label">Complete!</div><div class="desc" style="color:#7a7290">All tasks done.</div></div>
+  <div class="demo-card" style="background:#f0f7f9; border:1px solid #b0d6e4;"><div class="label">Planning</div><div class="desc" style="color:#7a7290">Exploring...</div></div>
+</div>
+
+<h2 style="color:#7a7290">Page Backgrounds</h2>
+<div class="bg-row">
+  <div class="bg-swatch" style="background:#f9f8fe; border:1px solid #ddd6e8; color:#7a7290;">Body<br>#f9f8fe</div>
+  <div class="bg-swatch" style="background:#f5f3ff; border:1px solid #ddd6e8; color:#7a7290;">Tint<br>#f5f3ff</div>
+  <div class="bg-swatch" style="background:#ffffff; border:1px solid #ddd6e8; color:#7a7290;">Card<br>#ffffff</div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════ TEAL ═══════════════════════════════════════ -->
+<div class="palette" id="teal" style="background:#f6faf9; color:#1a3330;">
+<h1>Teal</h1>
+<p class="subtitle" style="color:#5f7e7a">Warm blue-green. Professional yet approachable, like Vercel or Stripe.</p>
+
+<h2 style="color:#5f7e7a">Primary</h2>
+<div class="swatches">
+  <div class="swatch dt" style="background:#f0faf8">0</div>
+  <div class="swatch dt" style="background:#d5f2ec">1</div>
+  <div class="swatch dt" style="background:#afe5da">2</div>
+  <div class="swatch dt" style="background:#80d4c4">3</div>
+  <div class="swatch dt" style="background:#53c0ac">4</div>
+  <div class="swatch lt" style="background:#3aab96">5</div>
+  <div class="swatch lt" style="background:#2a9d8f">6</div>
+  <div class="swatch lt" style="background:#218275">7</div>
+  <div class="swatch lt" style="background:#19685d">8</div>
+  <div class="swatch lt" style="background:#125049">9</div>
+</div>
+
+<h2 style="color:#5f7e7a">Buttons</h2>
+<div style="margin-bottom:16px">
+  <button class="btn" style="background:#2a9d8f">Start Planning</button>
+  <button class="btn" style="background:#3aab96">Create Workspace</button>
+  <button class="btn btn-o" style="border-color:#2a9d8f; color:#2a9d8f;">Back to Home</button>
+  <button class="btn" style="background:#4d8f48">Approve</button>
+  <button class="btn" style="background:#bf3b3b">Reject</button>
+</div>
+
+<h2 style="color:#5f7e7a">Badges</h2>
+<div class="status-row">
+  <span class="badge" style="background:#d5f2ec; color:#19685d;">Active</span>
+  <span class="badge" style="background:#dcf5e0; color:#2f7a3a;">Complete</span>
+  <span class="badge" style="background:#fef3cd; color:#8c6d13;">Debugging</span>
+  <span class="badge" style="background:#fcdada; color:#872323;">Failed</span>
+  <span class="badge" style="background:#d8e8f2; color:#2e5f8c;">Working</span>
+  <span class="badge" style="background:#edddf3; color:#5f3576;">E2E</span>
+  <span class="badge" style="background:#e8edec; color:#3d4d4a;">Pending</span>
+</div>
+
+<h2 style="color:#5f7e7a">Inputs</h2>
+<div style="max-width:380px; margin-bottom:16px;">
+  <input class="input-demo" style="border-color:#cddbd8;" placeholder="Feature description..." />
+  <input class="input-demo" style="border-color:#2a9d8f; background:#f0faf8;" placeholder="Focused state" />
+</div>
+
+<h2 style="color:#5f7e7a">Chat</h2>
+<div style="max-width:460px; margin-bottom:16px;">
+  <div class="chat-row" style="justify-content:flex-end"><div class="chat-bubble" style="background:#d5f2ec; color:#1a3330;">Add a login page with email and password</div></div>
+  <div class="chat-row"><div class="chat-bubble" style="background:#e8edec; color:#1a3330;">I'll create a plan for that. Let me explore the codebase...</div></div>
+</div>
+
+<h2 style="color:#5f7e7a">Cards</h2>
+<div class="demo-cards">
+  <div class="demo-card" style="background:white; border:1px solid #cddbd8;"><div class="label">Blog</div><div class="desc" style="color:#5f7e7a">frontend &middot; backend</div></div>
+  <div class="demo-card" style="background:#f0faf8; border:1px solid #afe5da;"><div class="label">Complete!</div><div class="desc" style="color:#5f7e7a">All tasks done.</div></div>
+  <div class="demo-card" style="background:#f0f4f9; border:1px solid #b0c6e4;"><div class="label">Planning</div><div class="desc" style="color:#5f7e7a">Exploring...</div></div>
+</div>
+
+<h2 style="color:#5f7e7a">Page Backgrounds</h2>
+<div class="bg-row">
+  <div class="bg-swatch" style="background:#f6faf9; border:1px solid #cddbd8; color:#5f7e7a;">Body<br>#f6faf9</div>
+  <div class="bg-swatch" style="background:#f0faf8; border:1px solid #cddbd8; color:#5f7e7a;">Tint<br>#f0faf8</div>
+  <div class="bg-swatch" style="background:#ffffff; border:1px solid #cddbd8; color:#5f7e7a;">Card<br>#ffffff</div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════ ROSE ═══════════════════════════════════════ -->
+<div class="palette" id="rose" style="background:#fdf8f9; color:#3a2230;">
+<h1>Rose</h1>
+<p class="subtitle" style="color:#8a6878">Warm dusty pink. Refined and distinctive, like a design tool.</p>
+
+<h2 style="color:#8a6878">Primary</h2>
+<div class="swatches">
+  <div class="swatch dt" style="background:#fdf2f5">0</div>
+  <div class="swatch dt" style="background:#fce4eb">1</div>
+  <div class="swatch dt" style="background:#f8c8d6">2</div>
+  <div class="swatch dt" style="background:#f2a6bd">3</div>
+  <div class="swatch dt" style="background:#ea82a2">4</div>
+  <div class="swatch lt" style="background:#df648c">5</div>
+  <div class="swatch lt" style="background:#d4627a">6</div>
+  <div class="swatch lt" style="background:#b84866">7</div>
+  <div class="swatch lt" style="background:#993854">8</div>
+  <div class="swatch lt" style="background:#7a2b43">9</div>
+</div>
+
+<h2 style="color:#8a6878">Buttons</h2>
+<div style="margin-bottom:16px">
+  <button class="btn" style="background:#d4627a">Start Planning</button>
+  <button class="btn" style="background:#df648c">Create Workspace</button>
+  <button class="btn btn-o" style="border-color:#d4627a; color:#d4627a;">Back to Home</button>
+  <button class="btn" style="background:#4d8f48">Approve</button>
+  <button class="btn" style="background:#bf3b3b">Reject</button>
+</div>
+
+<h2 style="color:#8a6878">Badges</h2>
+<div class="status-row">
+  <span class="badge" style="background:#fce4eb; color:#993854;">Active</span>
+  <span class="badge" style="background:#dcf5e0; color:#2f7a3a;">Complete</span>
+  <span class="badge" style="background:#fef3cd; color:#8c6d13;">Debugging</span>
+  <span class="badge" style="background:#fcdada; color:#872323;">Failed</span>
+  <span class="badge" style="background:#d8ecf2; color:#2e6f8c;">Working</span>
+  <span class="badge" style="background:#ede0f3; color:#5f3576;">E2E</span>
+  <span class="badge" style="background:#f0eced; color:#4d3e44;">Pending</span>
+</div>
+
+<h2 style="color:#8a6878">Inputs</h2>
+<div style="max-width:380px; margin-bottom:16px;">
+  <input class="input-demo" style="border-color:#e4d6db;" placeholder="Feature description..." />
+  <input class="input-demo" style="border-color:#d4627a; background:#fdf2f5;" placeholder="Focused state" />
+</div>
+
+<h2 style="color:#8a6878">Chat</h2>
+<div style="max-width:460px; margin-bottom:16px;">
+  <div class="chat-row" style="justify-content:flex-end"><div class="chat-bubble" style="background:#fce4eb; color:#3a2230;">Add a login page with email and password</div></div>
+  <div class="chat-row"><div class="chat-bubble" style="background:#f0eced; color:#3a2230;">I'll create a plan for that. Let me explore the codebase...</div></div>
+</div>
+
+<h2 style="color:#8a6878">Cards</h2>
+<div class="demo-cards">
+  <div class="demo-card" style="background:white; border:1px solid #e4d6db;"><div class="label">Blog</div><div class="desc" style="color:#8a6878">frontend &middot; backend</div></div>
+  <div class="demo-card" style="background:#fdf2f5; border:1px solid #f8c8d6;"><div class="label">Complete!</div><div class="desc" style="color:#8a6878">All tasks done.</div></div>
+  <div class="demo-card" style="background:#f2f0f9; border:1px solid #c4b5e4;"><div class="label">Planning</div><div class="desc" style="color:#8a6878">Exploring...</div></div>
+</div>
+
+<h2 style="color:#8a6878">Page Backgrounds</h2>
+<div class="bg-row">
+  <div class="bg-swatch" style="background:#fdf8f9; border:1px solid #e4d6db; color:#8a6878;">Body<br>#fdf8f9</div>
+  <div class="bg-swatch" style="background:#fdf2f5; border:1px solid #e4d6db; color:#8a6878;">Tint<br>#fdf2f5</div>
+  <div class="bg-swatch" style="background:#ffffff; border:1px solid #e4d6db; color:#8a6878;">Card<br>#ffffff</div>
+</div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.palette').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

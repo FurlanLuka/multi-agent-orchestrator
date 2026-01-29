@@ -1,19 +1,18 @@
 import { useState } from 'react';
 import {
-  TextInput,
   Button,
   Stack,
   Text,
-  MultiSelect,
   Loader,
-  Box,
 } from '@mantine/core';
-import { RichTextEditor, Link } from '@mantine/tiptap';
-import { useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Placeholder from '@tiptap/extension-placeholder';
 import { IconRocket, IconGitBranch } from '@tabler/icons-react';
 import type { ProjectConfig } from '@aio/types';
+import {
+  GlassTextInput,
+  GlassMultiSelect,
+  GlassRichTextEditor,
+  useGlassEditor,
+} from '../theme';
 
 interface SessionSetupProps {
   availableProjects: string[];
@@ -33,16 +32,8 @@ export function SessionSetup({
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [branchName, setBranchName] = useState('');
 
-  // Rich text editor for feature description
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Link,
-      Placeholder.configure({
-        placeholder: 'Describe the feature you want to build...',
-      }),
-    ],
-    content: '',
+  const editor = useGlassEditor({
+    placeholder: 'Describe the feature you want to build...',
   });
 
   // Check if any selected project has git enabled
@@ -50,21 +41,14 @@ export function SessionSetup({
     p => projectConfigs[p]?.gitEnabled
   );
 
-  // Get plain text from editor (strips HTML but preserves structure)
-  const getFeatureText = () => {
-    if (!editor) return '';
-    // Get text content, preserving newlines
-    return editor.getText();
-  };
-
-  // Check if editor has content - use getText() for more robust check
+  // Check if editor has content
   const hasContent = editor ? editor.getText().trim().length > 0 : false;
 
   const handleStart = () => {
-    const featureText = getFeatureText();
-    if (featureText.trim() && selectedProjects.length > 0) {
+    const featureText = editor?.getText().trim();
+    if (featureText && selectedProjects.length > 0) {
       onStartSession(
-        featureText.trim(),
+        featureText,
         selectedProjects,
         hasGitEnabledProject ? branchName.trim() || undefined : undefined
       );
@@ -84,60 +68,13 @@ export function SessionSetup({
         The Planning Agent will create an implementation plan for review.
       </Text>
 
-      <Box>
-        <Text size="sm" fw={500} mb={4}>Feature Description</Text>
-        <RichTextEditor editor={editor} styles={{
-          root: {
-            minHeight: 150,
-          },
-          content: {
-            minHeight: 120,
-            '& .ProseMirror': {
-              minHeight: 100,
-            },
-          },
-        }}>
-          <RichTextEditor.Toolbar sticky stickyOffset={60}>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Bold />
-              <RichTextEditor.Italic />
-              <RichTextEditor.Strikethrough />
-              <RichTextEditor.Code />
-            </RichTextEditor.ControlsGroup>
+      <GlassRichTextEditor
+        label="Feature Description"
+        placeholder="Describe the feature you want to build..."
+        editor={editor}
+      />
 
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
-            </RichTextEditor.ControlsGroup>
-
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.BulletList />
-              <RichTextEditor.OrderedList />
-            </RichTextEditor.ControlsGroup>
-
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Blockquote />
-              <RichTextEditor.CodeBlock />
-              <RichTextEditor.Hr />
-            </RichTextEditor.ControlsGroup>
-
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Link />
-              <RichTextEditor.Unlink />
-            </RichTextEditor.ControlsGroup>
-
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Undo />
-              <RichTextEditor.Redo />
-            </RichTextEditor.ControlsGroup>
-          </RichTextEditor.Toolbar>
-
-          <RichTextEditor.Content />
-        </RichTextEditor>
-      </Box>
-
-      <MultiSelect
+      <GlassMultiSelect
         label="Projects"
         placeholder="Select projects to include"
         data={projectOptions}
@@ -148,7 +85,7 @@ export function SessionSetup({
       />
 
       {hasGitEnabledProject && (
-        <TextInput
+        <GlassTextInput
           label="Branch Name"
           placeholder="e.g., feature/my-feature (auto-generated if empty)"
           description="Feature branch will be created for git-enabled projects"

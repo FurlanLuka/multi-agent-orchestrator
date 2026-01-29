@@ -2,10 +2,9 @@ import {
   Stack,
   Text,
   Group,
-  Card,
   Collapse,
-  Switch,
 } from '@mantine/core';
+import { GlassSurface, GlassSwitch } from '../theme';
 
 interface FeatureSectionProps {
   label: string;
@@ -18,8 +17,17 @@ interface FeatureSectionProps {
 
 export function FeatureSection({ label, description, icon, enabled, onToggle, children }: FeatureSectionProps) {
   return (
-    <Card padding={0} withBorder radius="md">
-      <Group justify="space-between" p="sm" bg="gray.0" style={enabled ? { borderBottom: '1px solid var(--mantine-color-gray-2)' } : undefined}>
+    <GlassSurface style={{ overflow: 'hidden', padding: 0 }}>
+      <Group
+        justify="space-between"
+        p="sm"
+        style={enabled ? {
+          background: 'rgba(160, 130, 110, 0.04)',
+          borderBottom: '1px solid rgba(160, 130, 110, 0.06)',
+        } : {
+          background: 'rgba(160, 130, 110, 0.02)',
+        }}
+      >
         <Group gap="xs">
           {icon}
           <div>
@@ -27,13 +35,13 @@ export function FeatureSection({ label, description, icon, enabled, onToggle, ch
             <Text size="xs" c="dimmed">{description}</Text>
           </div>
         </Group>
-        <Switch checked={enabled} onChange={(e) => onToggle(e.currentTarget.checked)} />
+        <GlassSwitch checked={enabled} onChange={(e) => onToggle(e.currentTarget.checked)} />
       </Group>
       <Collapse in={enabled}>
-        <Stack gap="xs" p="sm">
+        <Stack gap="xs" p="sm" style={{ background: 'rgba(255, 255, 255, 0.5)' }}>
           {children}
         </Stack>
       </Collapse>
-    </Card>
+    </GlassSurface>
   );
 }
