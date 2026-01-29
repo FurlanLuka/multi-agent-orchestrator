@@ -598,15 +598,16 @@ export function isDevelopmentEnvironment(): boolean {
 
 /**
  * Get design session directory for a specific session.
- * Returns: ~/.orchy-config/designs/{sessionId}/
+ * Returns: ~/.orchy-config/design-sessions/{sessionId}/
+ * Note: This is separate from saved designs which go to ~/.orchy-config/designs/
  */
 export function getDesignSessionDir(sessionId: string): string {
-  return path.join(getConfigDir(), 'designs', sessionId);
+  return path.join(getConfigDir(), 'design-sessions', sessionId);
 }
 
 /**
  * Ensure design session directory exists and return the path.
- * Creates: ~/.orchy-config/designs/{sessionId}/
+ * Creates: ~/.orchy-config/design-sessions/{sessionId}/
  */
 export function ensureDesignSessionDir(sessionId: string): string {
   const sessionDir = getDesignSessionDir(sessionId);
@@ -618,7 +619,7 @@ export function ensureDesignSessionDir(sessionId: string): string {
 
 /**
  * Get path to a specific artifact in a design session.
- * Returns: ~/.orchy-config/designs/{sessionId}/{artifactName}
+ * Returns: ~/.orchy-config/design-sessions/{sessionId}/{artifactName}
  */
 export function getDesignArtifactPath(sessionId: string, artifactName: string): string {
   return path.join(getDesignSessionDir(sessionId), artifactName);

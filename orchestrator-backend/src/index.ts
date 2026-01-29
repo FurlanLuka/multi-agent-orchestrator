@@ -478,6 +478,12 @@ async function main() {
     ui.io.emit('design:generation_complete', {});
   });
 
+  // Forward page added event
+  designerAgent.on('pageAdded', (data: { page: { id: string; name: string; filename: string } }) => {
+    console.log(`[DesignerAgent] Page added: ${data.page.name}`);
+    ui.io.emit('design:page_added', data);
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
   // ═══════════════════════════════════════════════════════════════

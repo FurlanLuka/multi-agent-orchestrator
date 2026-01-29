@@ -10,11 +10,13 @@ import { SettingsPage } from './components/settings/SettingsPage';
 import { SessionView } from './components/session/SessionView';
 import { ModeSelectionPage } from './pages/ModeSelectionPage';
 import { DesignSessionPage } from './pages/DesignSessionPage';
+import { DesignsLibraryPage } from './pages/DesignsLibraryPage';
 import type { SettingsTab } from './components/settings/SettingsSidebar';
 
 type View =
   | { page: 'home' }
   | { page: 'mode-selection' }
+  | { page: 'designs-library' }
   | { page: 'design-session' }
   | { page: 'prompt'; workspaceId: string }
   | { page: 'prompt-adhoc' }
@@ -130,17 +132,26 @@ function App() {
       return (
         <ModeSelectionPage
           hasActiveSession={!!session}
-          onSelectDesign={() => setView({ page: 'design-session' })}
+          onSelectDesign={() => setView({ page: 'designs-library' })}
           onSelectBuild={() => setView({ page: 'home' })}
           onResumeSession={() => setView({ page: 'session' })}
           onSettings={() => setView({ page: 'settings' })}
         />
       );
 
+    case 'designs-library':
+      return (
+        <DesignsLibraryPage
+          onBack={() => setView({ page: 'mode-selection' })}
+          onAddNew={() => setView({ page: 'design-session' })}
+        />
+      );
+
     case 'design-session':
       return (
         <DesignSessionPage
-          onBack={() => setView({ page: 'mode-selection' })}
+          onBack={() => setView({ page: 'designs-library' })}
+          onComplete={() => setView({ page: 'designs-library' })}
         />
       );
 

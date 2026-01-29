@@ -14,14 +14,15 @@ import {
   Badge,
   Button,
 } from '@mantine/core';
-import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand } from '@tabler/icons-react';
+import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile } from '@tabler/icons-react';
 import type { DesignPhase, DesignCategory } from '@orchy/types';
-import { FormCard, GlassCard, GlassTextarea, glass, radii } from '../theme';
+import { FormCard, GlassCard, GlassTextarea, GlassTextInput, glass, radii } from '../theme';
 import { DesignPreviewOverlay } from '../components/design/DesignPreviewOverlay';
 import { useOrchestrator } from '../context/OrchestratorContext';
 
 interface DesignSessionPageProps {
   onBack: () => void;
+  onComplete: () => void;  // Navigate to designs library after saving
 }
 
 // Categories available for selection
@@ -47,6 +48,7 @@ const phaseLabels: Record<ExtendedPhase, string> = {
   theme: 'Theme',
   components: 'Components',
   mockups: 'Mockups',
+  pages: 'Pages',
   complete: 'Done',
 };
 
@@ -56,9 +58,10 @@ const generatingMessages: Record<'theme' | 'component' | 'mockup', string> = {
   mockup: 'Generating mockups...',
 };
 
-export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
+export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps) {
   // Socket state from context
   const {
+    port,
     designSessionId,
     designPhase,
     designInputLocked,
@@ -69,6 +72,7 @@ export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
     designComplete,
     designError,
     designGenerating,
+    designPages,
     startDesignSession,
     endDesignSession,
     sendDesignMessage,
@@ -83,6 +87,11 @@ export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
   // Local state for category selection (before session starts)
   const [localPhase, setLocalPhase] = useState<ExtendedPhase>('category');
   const [inputValue, setInputValue] = useState('');
+
+  // Complete stage state
+  const [designName, setDesignName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -133,6 +142,35 @@ export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
       endDesignSession();
     }
     onBack();
+  };
+
+  // Handle save to library
+  const handleSaveToLibrary = async () => {
+    if (!port || !designName.trim()) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const response = await fetch(`http://localhost:${port}/api/designer/save-design-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ designName: designName.trim() }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to save design');
+      }
+
+      // Successfully saved - end session and navigate to library
+      endDesignSession();
+      onComplete();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save design');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Get active step index (summary doesn't appear in progress bar, show as discovery)
@@ -195,6 +233,89 @@ export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
               </GlassCard>
             ))}
           </SimpleGrid>
+        </Stack>
+      </Container>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // COMPLETE STAGE - Simple save card (no chat)
+  // Show when phase is 'pages' and we have at least one page
+  // ─────────────────────────────────────────────────────────────────────────────
+  const showCompleteStage = (designPhase === 'pages' || designPhase === 'complete') && designPages.length > 0 && !designComplete;
+
+  if (showCompleteStage) {
+    return (
+      <Container size="sm" py={60}>
+        <Stack align="center" gap="xl">
+          {/* Back Button */}
+          <Box style={{ position: 'absolute', top: 24, left: 24 }}>
+            <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
+              <IconArrowLeft size={20} />
+            </ActionIcon>
+          </Box>
+
+          {/* Save Card */}
+          <FormCard
+            style={{ width: '100%', maxWidth: 400 }}
+            title={
+              <Group gap="sm">
+                <Box
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    background: 'var(--mantine-color-sage-1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <IconCheck size={24} color="var(--mantine-color-sage-6)" />
+                </Box>
+                <Stack gap={0}>
+                  <Text fw={600} size="lg">Design Complete!</Text>
+                  <Text size="xs" c="dimmed">
+                    {designPages.length} {designPages.length === 1 ? 'page' : 'pages'} created
+                  </Text>
+                </Stack>
+              </Group>
+            }
+          >
+            <Stack gap="md">
+              {/* Page list */}
+              <Stack gap="xs">
+                <Text size="sm" fw={500}>Pages</Text>
+                {designPages.map((page) => (
+                  <Group key={page.id} gap="xs">
+                    <IconFile size={14} color="var(--mantine-color-gray-5)" />
+                    <Text size="sm" c="dimmed">{page.name}</Text>
+                  </Group>
+                ))}
+              </Stack>
+
+              {/* Design name input */}
+              <GlassTextInput
+                label="Design Name"
+                placeholder="My Awesome Design"
+                value={designName}
+                onChange={(e) => setDesignName(e.currentTarget.value)}
+                error={saveError}
+              />
+
+              {/* Save button */}
+              <Button
+                fullWidth
+                color="peach"
+                size="md"
+                leftSection={saving ? <Loader size={16} color="white" /> : <IconDeviceFloppy size={18} />}
+                disabled={!designName.trim() || saving}
+                onClick={handleSaveToLibrary}
+              >
+                {saving ? 'Saving...' : 'Save to Library'}
+              </Button>
+            </Stack>
+          </FormCard>
         </Stack>
       </Container>
     );
@@ -486,7 +607,7 @@ export function DesignSessionPage({ onBack }: DesignSessionPageProps) {
 
       {/* Full-screen Preview Overlay */}
       <DesignPreviewOverlay
-        opened={showPreview && !showGenerating && !designComplete && !designRefine}
+        opened={!!showPreview && !showGenerating && !designComplete && !designRefine}
         type={designPreview?.type || 'theme'}
         options={designPreview?.options || []}
         onSelect={(index) => selectDesignOption(index)}

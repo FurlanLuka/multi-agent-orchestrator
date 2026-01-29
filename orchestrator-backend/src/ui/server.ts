@@ -497,11 +497,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   // Expose pendingPermissions for socket handler in index.ts
   (io as any).pendingPermissions = pendingPermissions;
 
-  // Fallback to index.html for SPA routing
-  app.get('*', (req: Request, res: Response) => {
-    res.sendFile(path.join(webDistPath, 'index.html'));
-  });
-
   // Socket.io connection handling
   io.on('connection', (socket: Socket) => {
     console.log(`[UIServer] Client connected: ${socket.id}`);
@@ -1382,12 +1377,113 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     res.send(JSON.stringify({ html }));
   });
 
+  // Designer: save design folder (from complete stage)
+  app.post('/api/designer/save-design-folder', async (req: Request, res: Response) => {
+    const { designName } = req.body;
+
+    console.log(`[UIServer] Save design folder: ${designName}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    try {
+      const result = await designerAgent.handleSaveDesignFolder(designName);
+      res.json({ status: 'saved', path: result.path, folder: result.folder });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to save design folder: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Design Library REST API
+  // ═══════════════════════════════════════════════════════════════
+
+  // GET /api/designs - List all saved design folders
+  app.get('/api/designs', (req: Request, res: Response) => {
+    console.log(`[UIServer] GET /api/designs - listing design folders`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    try {
+      const folders = designerAgent.getSavedDesignFolders();
+      res.json({ designs: folders });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to list designs: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // GET /api/designs/:name - Get design folder contents
+  app.get('/api/designs/:name', (req: Request, res: Response) => {
+    const { name } = req.params;
+    console.log(`[UIServer] GET /api/designs/${name} - loading contents`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    try {
+      const contents = designerAgent.loadDesignFolderContents(name);
+      if (!contents) {
+        res.status(404).json({ error: 'Design not found' });
+        return;
+      }
+      res.json(contents);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to load design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // DELETE /api/designs/:name - Delete design folder
+  app.delete('/api/designs/:name', (req: Request, res: Response) => {
+    const { name } = req.params;
+    console.log(`[UIServer] DELETE /api/designs/${name}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    try {
+      const deleted = designerAgent.deleteDesignFolder(name);
+      if (!deleted) {
+        res.status(404).json({ error: 'Design not found' });
+        return;
+      }
+      res.json({ status: 'deleted' });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to delete design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
   // Expose pending designer maps for socket handlers
   (io as any).pendingDesignerInputs = pendingDesignerInputs;
   (io as any).pendingDesignerCategories = pendingDesignerCategories;
   (io as any).pendingDesignerPreviews = pendingDesignerPreviews;
   (io as any).designSessionPhases = designSessionPhases;
   (io as any).transitionPhase = transitionPhase;
+
+  // Fallback to index.html for SPA routing (must be AFTER all API routes)
+  app.get('*', (req: Request, res: Response) => {
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
 
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;

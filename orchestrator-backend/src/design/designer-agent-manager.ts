@@ -15,6 +15,8 @@ import {
   MockupSelectionResult,
   ChatStreamEvent,
   ContentBlock,
+  SavedDesignFolder,
+  SavedDesignFolderContents,
 } from '@orchy/types';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, getConfigDir, ensureDesignSessionDir, getDesignArtifactPath } from '../config/paths';
@@ -1005,5 +1007,427 @@ export class DesignerAgentManager extends EventEmitter {
     }
 
     return result;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Design Library (Folder-Based Storage)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Get the designs library directory path
+   */
+  private getDesignsLibraryDir(): string {
+    return path.join(getConfigDir(), 'designs');
+  }
+
+  /**
+   * Extract CSS variables from HTML content
+   * Returns an object with variable names as keys and values
+   */
+  extractCssVariables(html: string): Record<string, string> {
+    const variables: Record<string, string> = {};
+
+    // Find :root { ... } block
+    const rootMatch = html.match(/:root\s*\{([^}]+)\}/s);
+    if (!rootMatch) return variables;
+
+    const rootContent = rootMatch[1];
+
+    // Extract each --variable: value pair
+    const varRegex = /(--[\w-]+)\s*:\s*([^;]+);/g;
+    let match;
+    while ((match = varRegex.exec(rootContent)) !== null) {
+      const name = match[1].trim();
+      const value = match[2].trim();
+      variables[name] = value;
+    }
+
+    return variables;
+  }
+
+  /**
+   * Format CSS variables into grouped sections for AGENTS.md
+   */
+  formatCssVariablesForMarkdown(variables: Record<string, string>): string {
+    if (Object.keys(variables).length === 0) {
+      return '*No CSS variables found in theme.html*';
+    }
+
+    // Group variables by prefix
+    const groups: Record<string, Array<{ name: string; value: string }>> = {
+      'Colors - Primary': [],
+      'Colors - Neutral': [],
+      'Colors - Surface': [],
+      'Colors - Semantic': [],
+      'Typography': [],
+      'Spacing': [],
+      'Effects': [],
+      'Other': [],
+    };
+
+    for (const [name, value] of Object.entries(variables)) {
+      if (name.startsWith('--primary-')) {
+        groups['Colors - Primary'].push({ name, value });
+      } else if (name.startsWith('--neutral-')) {
+        groups['Colors - Neutral'].push({ name, value });
+      } else if (name.includes('background') || name.includes('surface') || name.includes('border')) {
+        groups['Colors - Surface'].push({ name, value });
+      } else if (name.includes('success') || name.includes('error') || name.includes('warning') || name.includes('info')) {
+        groups['Colors - Semantic'].push({ name, value });
+      } else if (name.includes('text') || name.includes('font') || name.includes('line-height')) {
+        groups['Typography'].push({ name, value });
+      } else if (name.startsWith('--space-')) {
+        groups['Spacing'].push({ name, value });
+      } else if (name.includes('radius') || name.includes('shadow')) {
+        groups['Effects'].push({ name, value });
+      } else {
+        groups['Other'].push({ name, value });
+      }
+    }
+
+    // Format as markdown
+    const lines: string[] = [];
+    for (const [groupName, vars] of Object.entries(groups)) {
+      if (vars.length === 0) continue;
+
+      lines.push(`#### ${groupName}`);
+      lines.push('```css');
+      for (const { name, value } of vars) {
+        lines.push(`${name}: ${value};`);
+      }
+      lines.push('```');
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate AGENTS.md content for a design
+   */
+  generateAgentsMd(designName: string, cssVariables?: Record<string, string>, pageNames?: string[]): string {
+    const variablesSection = cssVariables
+      ? this.formatCssVariablesForMarkdown(cssVariables)
+      : '*Run the design workflow to generate CSS variables*';
+
+    const pagesSection = pageNames && pageNames.length > 0
+      ? pageNames.map(p => `- **${p}**`).join('\n')
+      : '- *No pages generated yet*';
+
+    return `# ${designName} Design System
+
+## Overview
+This folder contains a complete design system with HTML templates and CSS variables.
+
+## Files
+- **theme.html** - Core design tokens as CSS variables
+- **components.html** - Reusable UI component styles
+- **AGENTS.md** - This file (instructions for AI agents)
+${pageNames && pageNames.length > 0 ? pageNames.map(p => `- **${p}** - Page mockup`).join('\n') : ''}
+
+## Design Tokens
+
+The following CSS variables are defined in \`theme.html\`. Copy the \`:root { ... }\` block to your stylesheet.
+
+${variablesSection}
+
+## How to Use
+
+### 1. Copy CSS Variables
+Extract the \`:root { ... }\` block from \`theme.html\` and add it to your global stylesheet:
+\`\`\`css
+/* In your globals.css or main stylesheet */
+:root {
+  /* Paste variables from theme.html */
+}
+\`\`\`
+
+### 2. Reference Component Patterns
+Use \`components.html\` as a reference for styling:
+- Buttons (primary, secondary, ghost)
+- Form inputs and textareas
+- Cards with hover states
+- Badges and alerts
+
+### 3. Use Page Layouts as Templates
+The page HTML files show complete layouts you can adapt:
+${pagesSection}
+
+## Integration Examples
+
+### React / Next.js
+\`\`\`css
+/* globals.css */
+:root {
+  /* Paste CSS variables here */
+}
+\`\`\`
+
+### Tailwind CSS
+\`\`\`js
+// tailwind.config.js
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: 'var(--primary-50)',
+          100: 'var(--primary-100)',
+          // ... etc
+          900: 'var(--primary-900)',
+        }
+      }
+    }
+  }
+}
+\`\`\`
+
+### Vue / Nuxt
+\`\`\`css
+/* assets/css/main.css */
+:root {
+  /* Paste CSS variables here */
+}
+\`\`\`
+
+---
+Generated by Orchy Design System
+`;
+  }
+
+  /**
+   * Save design from current session to a named folder
+   * Copies artifacts from session folder to permanent library folder
+   */
+  async handleSaveDesignFolder(designName: string): Promise<{ path: string; folder: SavedDesignFolder }> {
+    if (!this.session) {
+      throw new Error('No active session');
+    }
+
+    const libraryDir = this.getDesignsLibraryDir();
+
+    // Sanitize folder name
+    const sanitizedName = designName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    const designFolderPath = path.join(libraryDir, sanitizedName);
+
+    // Create design folder
+    if (!fs.existsSync(designFolderPath)) {
+      fs.mkdirSync(designFolderPath, { recursive: true });
+    }
+
+    // Copy artifacts from session to design folder
+    const sessionDir = ensureDesignSessionDir(this.session.id);
+
+    // Copy theme.html if exists
+    const themeSource = path.join(sessionDir, 'theme.html');
+    const themeDest = path.join(designFolderPath, 'theme.html');
+    const hasTheme = fs.existsSync(themeSource);
+    if (hasTheme) {
+      fs.copyFileSync(themeSource, themeDest);
+    }
+
+    // Copy components.html if exists
+    const componentsSource = path.join(sessionDir, 'components.html');
+    const componentsDest = path.join(designFolderPath, 'components.html');
+    const hasComponents = fs.existsSync(componentsSource);
+    if (hasComponents) {
+      fs.copyFileSync(componentsSource, componentsDest);
+    }
+
+    // Copy all page HTML files
+    const pages: string[] = [];
+    for (const page of this.session.pages) {
+      if (page.filename) {
+        const pageSource = path.join(sessionDir, page.filename);
+        const pageDest = path.join(designFolderPath, page.filename);
+        if (fs.existsSync(pageSource)) {
+          fs.copyFileSync(pageSource, pageDest);
+          pages.push(page.filename);
+        }
+      }
+    }
+
+    // Extract CSS variables from theme.html for AGENTS.md
+    let cssVariables: Record<string, string> = {};
+    if (hasTheme) {
+      const themeHtml = fs.readFileSync(themeDest, 'utf-8');
+      cssVariables = this.extractCssVariables(themeHtml);
+    }
+
+    // Generate and save AGENTS.md with extracted variables
+    const agentsMd = this.generateAgentsMd(designName, cssVariables, pages);
+    fs.writeFileSync(path.join(designFolderPath, 'AGENTS.md'), agentsMd, 'utf-8');
+
+    console.log(`[DesignerAgent] Design folder saved to: ${designFolderPath}`);
+
+    // Update session
+    this.session.phase = 'complete';
+    this.session.designName = designName;
+    this.session.savedPath = designFolderPath;
+
+    // Create folder summary
+    const folder: SavedDesignFolder = {
+      name: designName,
+      path: designFolderPath,
+      createdAt: Date.now(),
+      hasTheme,
+      hasComponents,
+      pages,
+    };
+
+    // Emit complete event
+    this.emit('designComplete', {
+      designPath: designFolderPath,
+      designName,
+    });
+
+    return { path: designFolderPath, folder };
+  }
+
+  /**
+   * Get list of saved design folders
+   */
+  getSavedDesignFolders(): SavedDesignFolder[] {
+    const libraryDir = this.getDesignsLibraryDir();
+
+    if (!fs.existsSync(libraryDir)) {
+      return [];
+    }
+
+    const folders: SavedDesignFolder[] = [];
+    const entries = fs.readdirSync(libraryDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const folderPath = path.join(libraryDir, entry.name);
+      const stats = fs.statSync(folderPath);
+
+      // Check what files exist
+      const hasTheme = fs.existsSync(path.join(folderPath, 'theme.html'));
+      const hasComponents = fs.existsSync(path.join(folderPath, 'components.html'));
+
+      // Get all page HTML files (exclude theme.html and components.html)
+      const files = fs.readdirSync(folderPath);
+      const pages = files.filter(f =>
+        f.endsWith('.html') &&
+        f !== 'theme.html' &&
+        f !== 'components.html'
+      );
+
+      // Extract design name from folder name (convert kebab-case to Title Case)
+      const displayName = entry.name
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+
+      folders.push({
+        name: displayName,
+        path: folderPath,
+        createdAt: stats.birthtimeMs,
+        hasTheme,
+        hasComponents,
+        pages,
+      });
+    }
+
+    return folders.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * Load full contents of a design folder
+   */
+  loadDesignFolderContents(designName: string): SavedDesignFolderContents | null {
+    const libraryDir = this.getDesignsLibraryDir();
+
+    // Sanitize folder name
+    const sanitizedName = designName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    const folderPath = path.join(libraryDir, sanitizedName);
+
+    if (!fs.existsSync(folderPath)) {
+      return null;
+    }
+
+    const stats = fs.statSync(folderPath);
+
+    // Load theme.html
+    const themePath = path.join(folderPath, 'theme.html');
+    const hasTheme = fs.existsSync(themePath);
+    const themeHtml = hasTheme ? fs.readFileSync(themePath, 'utf-8') : undefined;
+
+    // Load components.html
+    const componentsPath = path.join(folderPath, 'components.html');
+    const hasComponents = fs.existsSync(componentsPath);
+    const componentsHtml = hasComponents ? fs.readFileSync(componentsPath, 'utf-8') : undefined;
+
+    // Load all page HTML files
+    const files = fs.readdirSync(folderPath);
+    const pages: string[] = [];
+    const pageHtmls: Record<string, string> = {};
+
+    for (const file of files) {
+      if (file.endsWith('.html') && file !== 'theme.html' && file !== 'components.html') {
+        pages.push(file);
+        pageHtmls[file] = fs.readFileSync(path.join(folderPath, file), 'utf-8');
+      }
+    }
+
+    // Load AGENTS.md
+    const agentsPath = path.join(folderPath, 'AGENTS.md');
+    const agentsMarkdown = fs.existsSync(agentsPath)
+      ? fs.readFileSync(agentsPath, 'utf-8')
+      : this.generateAgentsMd(designName);
+
+    // Extract display name
+    const displayName = sanitizedName
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+
+    return {
+      name: displayName,
+      path: folderPath,
+      createdAt: stats.birthtimeMs,
+      hasTheme,
+      hasComponents,
+      pages,
+      themeHtml,
+      componentsHtml,
+      pageHtmls,
+      agentsMarkdown,
+    };
+  }
+
+  /**
+   * Delete a design folder
+   */
+  deleteDesignFolder(designName: string): boolean {
+    const libraryDir = this.getDesignsLibraryDir();
+
+    // Sanitize folder name
+    const sanitizedName = designName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    const folderPath = path.join(libraryDir, sanitizedName);
+
+    if (!fs.existsSync(folderPath)) {
+      return false;
+    }
+
+    // Delete folder and contents
+    fs.rmSync(folderPath, { recursive: true });
+    console.log(`[DesignerAgent] Deleted design folder: ${folderPath}`);
+
+    return true;
   }
 }

@@ -189,6 +189,12 @@ export function useSocket() {
     type: 'theme' | 'component' | 'mockup';
     message?: string;
   } | null>(null);
+  // Pages in current design session
+  const [designPages, setDesignPages] = useState<Array<{
+    id: string;
+    name: string;
+    filename: string;
+  }>>([]);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -785,6 +791,7 @@ export function useSocket() {
       setDesignPreview(null);
       setDesignComplete(null);
       setDesignInputLocked(false);
+      setDesignPages([]);
     });
 
     // Agent message (chat message from designer agent)
@@ -856,6 +863,18 @@ export function useSocket() {
       console.log('[Design] Complete:', designPath);
       setDesignComplete({ designPath, designName });
       setDesignPhase('complete');
+    });
+
+    // Page added to session
+    socket.on('design:page_added', ({ page }: { page: { id: string; name: string; filename: string } }) => {
+      console.log('[Design] Page added:', page.name);
+      setDesignPages(prev => [...prev, page]);
+    });
+
+    // Show pages panel (update full pages list)
+    socket.on('design:show_pages_panel', ({ pages }: { pages: Array<{ id: string; name: string; filename: string }> }) => {
+      console.log('[Design] Show pages panel:', pages.length, 'pages');
+      setDesignPages(pages);
     });
 
     // Design error
@@ -1453,6 +1472,7 @@ export function useSocket() {
     designComplete,
     designError,
     designGenerating,
+    designPages,
     // Design session actions
     startDesignSession,
     endDesignSession,

@@ -566,3 +566,29 @@ export interface SavedDesign {
   guidelines: string;       // Markdown component guidelines
   markdownContent: string;  // Full .md file content
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Design Library Types (folder-based storage)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Saved design folder summary (for library list)
+ */
+export interface SavedDesignFolder {
+  name: string;              // Folder name (design name)
+  path: string;              // Full path to folder
+  createdAt: number;         // Timestamp
+  hasTheme: boolean;         // Has theme.html
+  hasComponents: boolean;    // Has components.html
+  pages: string[];           // Page filenames (e.g., ['landing-page.html', 'about.html'])
+}
+
+/**
+ * Full design folder contents (for detail modal)
+ */
+export interface SavedDesignFolderContents extends SavedDesignFolder {
+  themeHtml?: string;                    // Contents of theme.html
+  componentsHtml?: string;               // Contents of components.html
+  pageHtmls: Record<string, string>;     // Filename -> HTML content
+  agentsMarkdown: string;                // Contents of AGENTS.md
+}
