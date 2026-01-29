@@ -7,8 +7,8 @@ import {
   Divider,
   Alert,
   SimpleGrid,
-  Modal,
   MultiSelect,
+  Group,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import {
@@ -24,6 +24,7 @@ import {
   IconShieldOff,
 } from '@tabler/icons-react';
 import type { ProjectConfig } from '@orchy/types';
+import { StyledModal } from '../theme';
 
 import { FeatureSection } from './FeatureSection';
 import { CollapsiblePermissions } from './CollapsiblePermissions';
@@ -165,11 +166,21 @@ export function EditProjectModal({
   };
 
   return (
-    <Modal
+    <StyledModal
       opened={opened}
       onClose={handleClose}
       title={projectName ? `Edit: ${projectName}` : 'Edit Project'}
       size="lg"
+      footer={
+        <Group justify="flex-end">
+          <Button variant="subtle" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button leftSection={<IconDeviceFloppy size={14} />} onClick={handleSave}>
+            Save Changes
+          </Button>
+        </Group>
+      }
     >
       {projectName && projectConfig && (
         <Stack gap="md">
@@ -327,12 +338,8 @@ export function EditProjectModal({
               permissionsConfig={permissionsConfig}
             />
           )}
-
-          <Button leftSection={<IconDeviceFloppy size={14} />} onClick={handleSave} fullWidth>
-            Save Changes
-          </Button>
         </Stack>
       )}
-    </Modal>
+    </StyledModal>
   );
 }

@@ -2,17 +2,16 @@ import { useState } from 'react';
 import {
   Container,
   Stack,
-  Title,
   Button,
-  ActionIcon,
   Text,
+  Group,
 } from '@mantine/core';
 import {
+  FormCard,
   GlassTextInput,
   GlassTextarea,
   GlassMultiSelect,
 } from '../../theme';
-import { IconArrowLeft } from '@tabler/icons-react';
 
 interface CreateWorkspaceViewProps {
   availableProjects: string[];
@@ -40,48 +39,56 @@ export function CreateWorkspaceView({
   };
 
   return (
-    <Container size="sm" py="xl">
-      <Stack gap="xl">
-        <ActionIcon variant="subtle" color="gray" size="lg" onClick={onBack}>
-          <IconArrowLeft size={20} />
-        </ActionIcon>
+    <Container size="sm" pt={60} pb="xl">
+      <FormCard
+        title="Create Workspace"
+        onBack={onBack}
+        footer={
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={onBack}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={!name.trim() || selectedProjects.length === 0}
+            >
+              Create Workspace
+            </Button>
+          </Group>
+        }
+      >
+        <Stack gap="lg">
+          <GlassTextInput
+            label="Name"
+            placeholder="e.g., Blog, E-Commerce, Dashboard"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            size="md"
+            required
+          />
 
-        <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
-          Create Workspace
-        </Title>
+          <GlassMultiSelect
+            label="Projects"
+            placeholder="Select projects to include"
+            data={projectOptions}
+            value={selectedProjects}
+            onChange={setSelectedProjects}
+            searchable
+            size="md"
+            required
+          />
 
-        <GlassTextInput
-          label="Name"
-          placeholder="e.g., Blog, E-Commerce, Dashboard"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          size="md"
-          required
-        />
+          <GlassTextarea
+            label="Context (optional)"
+            placeholder="Planning rules, guidelines, or notes for this workspace..."
+            description="This context will be prepended to every feature description when starting a session"
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            minRows={3}
+            autosize
+            size="md"
+          />
 
-        <GlassMultiSelect
-          label="Projects"
-          placeholder="Select projects to include"
-          data={projectOptions}
-          value={selectedProjects}
-          onChange={setSelectedProjects}
-          searchable
-          size="md"
-          required
-        />
-
-        <GlassTextarea
-          label="Context (optional)"
-          placeholder="Planning rules, guidelines, or notes for this workspace..."
-          description="This context will be prepended to every feature description when starting a session"
-          value={context}
-          onChange={(e) => setContext(e.target.value)}
-          minRows={3}
-          autosize
-          size="md"
-        />
-
-        <Stack gap="xs">
           <Text size="sm" c="dimmed">
             Don't see your project?{' '}
             <Text
@@ -95,16 +102,7 @@ export function CreateWorkspaceView({
             </Text>
           </Text>
         </Stack>
-
-        <Button
-          size="lg"
-          fullWidth
-          onClick={handleCreate}
-          disabled={!name.trim() || selectedProjects.length === 0}
-        >
-          Create Workspace
-        </Button>
-      </Stack>
+      </FormCard>
     </Container>
   );
 }

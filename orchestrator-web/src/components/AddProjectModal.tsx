@@ -11,7 +11,6 @@ import {
   Progress,
   Alert,
   SimpleGrid,
-  Modal,
   Grid,
 } from '@mantine/core';
 import {
@@ -20,6 +19,7 @@ import {
   GlassSelect,
   GlassMultiSelect,
   GlassSegmentedControl,
+  StyledModal,
 } from '../theme';
 import { useForm } from '@mantine/form';
 import {
@@ -259,8 +259,38 @@ export function AddProjectModal({
 
   const selectedTemplateConfig = templates.find(t => t.name === templateForm.values.template);
 
+  const footerContent = formMode === 'existing' ? (
+    <Group justify="flex-end">
+      <Button variant="subtle" onClick={onClose}>
+        Cancel
+      </Button>
+      <Button
+        onClick={handleAddExisting}
+        disabled={!addForm.values.name.trim() || !addForm.values.path.trim() || isLoading}
+        loading={isLoading && formMode === 'existing'}
+        leftSection={<IconFolderPlus size={14} />}
+      >
+        Add Project
+      </Button>
+    </Group>
+  ) : (
+    <Group justify="flex-end">
+      <Button variant="subtle" onClick={onClose}>
+        Cancel
+      </Button>
+      <Button
+        onClick={handleCreateFromTemplate}
+        disabled={!templateForm.values.name.trim() || !templateForm.values.targetPath.trim() || !templateForm.values.template || isLoading}
+        loading={isLoading && formMode === 'template'}
+        leftSection={<IconPlus size={14} />}
+      >
+        Create Project
+      </Button>
+    </Group>
+  );
+
   return (
-    <Modal opened={opened} onClose={onClose} title="Add Project" size="lg">
+    <StyledModal opened={opened} onClose={onClose} title="Add Project" size="lg" footer={footerContent}>
       <Stack gap="md">
         {/* Loading indicator */}
         {isLoading && creatingName && (
@@ -455,16 +485,6 @@ export function AddProjectModal({
                 permissionsConfig={permissionsConfig}
               />
             )}
-
-            <Button
-              onClick={handleAddExisting}
-              disabled={!addForm.values.name.trim() || !addForm.values.path.trim() || isLoading}
-              loading={isLoading && formMode === 'existing'}
-              leftSection={<IconFolderPlus size={14} />}
-              fullWidth
-            >
-              Add Project
-            </Button>
           </>
         )}
 
@@ -521,19 +541,9 @@ export function AddProjectModal({
                 />
               </Grid.Col>
             </Grid>
-
-            <Button
-              onClick={handleCreateFromTemplate}
-              disabled={!templateForm.values.name.trim() || !templateForm.values.targetPath.trim() || !templateForm.values.template || isLoading}
-              loading={isLoading && formMode === 'template'}
-              leftSection={<IconPlus size={14} />}
-              fullWidth
-            >
-              Create Project
-            </Button>
           </>
         )}
       </Stack>
-    </Modal>
+    </StyledModal>
   );
 }

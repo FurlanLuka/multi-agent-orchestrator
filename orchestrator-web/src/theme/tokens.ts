@@ -107,6 +107,22 @@ export const glass = {
     border: '2px dashed rgba(0, 0, 0, 0.08)',
     borderHover: '2px dashed rgba(245, 133, 101, 0.4)',
   },
+
+  // Form card — solid white with warm shadow (style-a from mockup)
+  // Includes prominent top shadow for edge definition against light backgrounds
+  formCard: {
+    bg: '#ffffff',
+    bgHover: '#ffffff',
+    border: '1px solid rgba(0, 0, 0, 0.04)',
+    shadow: '0 -1px 0 rgba(0, 0, 0, 0.03), 0 -6px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(160, 130, 110, 0.08)',
+    shadowHover: '0 -1px 0 rgba(0, 0, 0, 0.04), 0 -6px 16px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(160, 130, 110, 0.12)',
+  },
+
+  // Modal zones — header/footer with warm tint
+  modalZone: {
+    bg: '#faf7f5',
+    border: '1px solid #f0ece8',
+  },
 } as const;
 
 // ─── Page Background ──────────────────────────────────────────────

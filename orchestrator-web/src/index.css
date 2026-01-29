@@ -47,8 +47,8 @@
   --border-focus: rgba(245, 133, 101, 0.5);
   --focus-ring: 0 0 0 4px rgba(245, 133, 101, 0.08);
 
-  /* Page background */
-  --page-bg: linear-gradient(145deg, #fef9f7 0%, #f5f0ed 40%, #f0ebe8 100%);
+  /* Page background - brighter at top, transitioning to warm gradient */
+  --page-bg: linear-gradient(180deg, #ffffff 0%, #fefcfb 15%, #fef9f7 30%, #f5f0ed 60%, #f0ebe8 100%);
 }
 
 * {

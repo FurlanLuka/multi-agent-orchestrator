@@ -6,16 +6,17 @@ import {
   Badge,
   Button,
   ActionIcon,
-  Modal,
 } from '@mantine/core';
 import {
+  GlassCard,
   GlassTextInput,
   GlassTextarea,
   GlassMultiSelect,
+  StyledModal,
+  EmptyState,
 } from '../../theme';
-import { IconTrash, IconEdit, IconPlus } from '@tabler/icons-react';
+import { IconTrash, IconEdit, IconPlus, IconFolders } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@orchy/types';
-import { GlassCard } from '../../theme';
 
 interface WorkspaceSettingsProps {
   workspaces: Record<string, WorkspaceConfig>;
@@ -83,7 +84,10 @@ export function WorkspaceSettings({
       </Group>
 
       {workspaceList.length === 0 && (
-        <Text c="dimmed" size="sm">No workspaces configured. Create one to group your projects.</Text>
+        <EmptyState
+          icon={<IconFolders size={48} />}
+          description="No workspaces configured yet. Create one to group your projects."
+        />
       )}
 
       {workspaceList.map(ws => (
@@ -126,7 +130,22 @@ export function WorkspaceSettings({
       ))}
 
       {/* Create Modal */}
-      <Modal opened={creating} onClose={() => setCreating(false)} title="Create Workspace" size="md">
+      <StyledModal
+        opened={creating}
+        onClose={() => setCreating(false)}
+        title="Create Workspace"
+        size="md"
+        footer={
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setCreating(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} disabled={!newName.trim() || newProjects.length === 0}>
+              Create
+            </Button>
+          </Group>
+        }
+      >
         <Stack gap="md">
           <GlassTextInput
             label="Name"
@@ -151,14 +170,26 @@ export function WorkspaceSettings({
             minRows={2}
             autosize
           />
-          <Button onClick={handleCreate} disabled={!newName.trim() || newProjects.length === 0}>
-            Create
-          </Button>
         </Stack>
-      </Modal>
+      </StyledModal>
 
       {/* Edit Modal */}
-      <Modal opened={!!editing} onClose={() => setEditing(null)} title="Edit Workspace" size="md">
+      <StyledModal
+        opened={!!editing}
+        onClose={() => setEditing(null)}
+        title="Edit Workspace"
+        size="md"
+        footer={
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={!editing?.name.trim()}>
+              Save
+            </Button>
+          </Group>
+        }
+      >
         {editing && (
           <Stack gap="md">
             <GlassTextInput
@@ -182,12 +213,9 @@ export function WorkspaceSettings({
               minRows={2}
               autosize
             />
-            <Button onClick={handleSaveEdit} disabled={!editing.name.trim()}>
-              Save
-            </Button>
           </Stack>
         )}
-      </Modal>
+      </StyledModal>
     </Stack>
   );
 }

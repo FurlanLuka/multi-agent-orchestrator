@@ -2,9 +2,9 @@ import { useRef } from 'react';
 import {
   Group,
   ActionIcon,
+  TextInput,
 } from '@mantine/core';
 import { IconSend } from '@tabler/icons-react';
-import { GlassSurface, GlassTextInput } from '../../theme';
 
 interface ChatInputProps {
   placeholder: string;
@@ -32,27 +32,35 @@ export function ChatInput({ placeholder, disabled, actionColor, onSend }: ChatIn
   };
 
   return (
-    <GlassSurface p="sm">
-      <Group gap="xs">
-        <GlassTextInput
-          ref={inputRef}
-          placeholder={placeholder}
-          style={{ flex: 1 }}
-          disabled={disabled}
-          onKeyDown={handleKeyDown}
-          size="md"
-        />
-        <ActionIcon
-          size="xl"
-          variant="filled"
-          color={actionColor === 'blue' ? 'peach' : actionColor}
-          radius="md"
-          onClick={handleSend}
-          disabled={disabled}
-        >
-          <IconSend size={20} />
-        </ActionIcon>
-      </Group>
-    </GlassSurface>
+    <Group gap="sm">
+      <TextInput
+        ref={inputRef}
+        placeholder={placeholder}
+        style={{ flex: 1 }}
+        disabled={disabled}
+        onKeyDown={handleKeyDown}
+        size="md"
+        radius="md"
+        styles={{
+          input: {
+            background: 'white',
+            border: '1px solid #e8e4e0',
+            '&:focus': {
+              borderColor: 'var(--mantine-color-peach-5)',
+            },
+          },
+        }}
+      />
+      <ActionIcon
+        size="xl"
+        variant="filled"
+        color={actionColor === 'blue' ? 'peach' : actionColor}
+        radius="md"
+        onClick={handleSend}
+        disabled={disabled}
+      >
+        <IconSend size={20} />
+      </ActionIcon>
+    </Group>
   );
 }

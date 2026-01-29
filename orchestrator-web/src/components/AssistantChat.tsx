@@ -20,7 +20,7 @@ import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
 import { PlanApprovalCard } from './PlanApprovalCard';
-import { GlassSurface } from '../theme';
+import { glass } from '../theme';
 
 // Timeline item type for unified rendering
 type TimelineItem =
@@ -88,9 +88,31 @@ function ChatThread() {
       });
     });
 
+    // Add synthetic "Plan approved" flow when execution has started
+    // and there's a planning flow still in activeFlows
+    if (executionStarted && session?.plan) {
+      const planningFlow = activeFlows.find(f => f.type === 'planning');
+      if (planningFlow && !completedFlows.some(f => f.type === 'planning' && f.id === planningFlow.id)) {
+        items.push({
+          type: 'flow',
+          timestamp: Date.now(),
+          data: {
+            ...planningFlow,
+            status: 'completed' as const,
+            completedAt: Date.now(),
+            result: {
+              passed: true,
+              summary: 'Plan approved - execution started',
+            },
+          },
+          key: `${planningFlow.id}-approved`,
+        });
+      }
+    }
+
     // Sort by timestamp
     return items.sort((a, b) => a.timestamp - b.timestamp);
-  }, [messages, completedFlows]);
+  }, [messages, completedFlows, executionStarted, session?.plan, activeFlows]);
 
   // Auto-scroll to bottom when new items arrive
   useEffect(() => {
@@ -125,15 +147,16 @@ function ChatThread() {
     : 'Start a session first...';
 
   return (
-    <Box style={{ position: 'relative', height: '100%' }}>
-      <GlassSurface
+    <Box style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Content area - white background from parent FormCard-style container */}
+      <Box
         p="md"
-        h="100%"
         style={{
+          flex: 1,
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderRadius: 0,
-          border: 'none',
+          background: '#ffffff',
         }}
       >
         <Stack gap={0} style={{ flex: 1, minHeight: 0 }}>
@@ -171,44 +194,62 @@ function ChatThread() {
           </Box>
 
           {/* BOTTOM: Active Operations */}
-          {activeFlows.length > 0 && (
-            <>
-              <Divider my="sm" color="var(--border-subtle)" />
-              <Box p="xs">
-                <Group gap="xs" mb="xs">
-                  <Text size="xs" fw={600} style={{ color: 'var(--color-primary)' }}>
-                    ACTIVE
-                  </Text>
-                  <Badge size="xs" color="peach" variant="light">
-                    {activeFlows.length}
-                  </Badge>
-                </Group>
-                <Stack gap="sm">
-                  {activeFlows.map(flow => (
-                    <ActiveFlowCard
-                      key={flow.id}
-                      flow={flow}
-                      pendingQuestion={flow.type === 'planning' ? planningQuestion : null}
-                      onAnswerQuestion={answerPlanningQuestion}
-                      planningStatus={flow.type === 'planning' ? planningStatus : null}
-                    />
-                  ))}
-                </Stack>
-              </Box>
-            </>
-          )}
+          {(() => {
+            // Filter out planning flows once execution has started (plan approved)
+            const visibleFlows = executionStarted
+              ? activeFlows.filter(f => f.type !== 'planning')
+              : activeFlows;
 
-          {/* Input area */}
-          <Box pt="sm">
-            <ChatInput
-              placeholder={placeholder}
-              disabled={!chatEnabled}
-              actionColor="peach"
-              onSend={handleSend}
-            />
-          </Box>
+            if (visibleFlows.length === 0) return null;
+
+            return (
+              <>
+                <Divider my="sm" color="var(--border-subtle)" />
+                <Box p="xs">
+                  <Group gap="xs" mb="xs">
+                    <Text size="xs" fw={600} style={{ color: 'var(--color-primary)' }}>
+                      ACTIVE
+                    </Text>
+                    <Badge size="xs" color="peach" variant="light">
+                      {visibleFlows.length}
+                    </Badge>
+                  </Group>
+                  <Stack gap="sm">
+                    {visibleFlows.map(flow => (
+                      <ActiveFlowCard
+                        key={flow.id}
+                        flow={flow}
+                        pendingQuestion={flow.type === 'planning' ? planningQuestion : null}
+                        onAnswerQuestion={answerPlanningQuestion}
+                        planningStatus={flow.type === 'planning' ? planningStatus : null}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              </>
+            );
+          })()}
+
         </Stack>
-      </GlassSurface>
+      </Box>
+
+      {/* Footer with Input */}
+      <Box
+        px="lg"
+        py="md"
+        style={{
+          background: glass.modalZone.bg,
+          borderTop: glass.modalZone.border,
+          flexShrink: 0,
+        }}
+      >
+        <ChatInput
+          placeholder={placeholder}
+          disabled={!chatEnabled}
+          actionColor="peach"
+          onSend={handleSend}
+        />
+      </Box>
 
       {/* Planner permission overlay */}
       {isPlannerPermission && permissionPrompt && (

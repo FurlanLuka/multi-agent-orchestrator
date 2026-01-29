@@ -18,7 +18,7 @@ import {
   IconEdit,
 } from '@tabler/icons-react';
 import type { ProjectTemplateConfig, ProjectConfig } from '@orchy/types';
-import { GlassCard } from '../theme';
+import { GlassCard, EmptyState } from '../theme';
 
 import { AddProjectModal } from './AddProjectModal';
 import type { AddProjectOptions, CreateProjectOptions } from './AddProjectModal';
@@ -180,14 +180,10 @@ export function ProjectManager({
             ))}
           </Stack>
         ) : !isLoading && (
-          <GlassCard p="xl">
-            <Stack align="center" gap="md">
-              <IconFolder size={48} style={{ opacity: 0.3 }} />
-              <Text size="sm" c="dimmed" ta="center">
-                No projects configured yet. Click "Add Project" to get started.
-              </Text>
-            </Stack>
-          </GlassCard>
+          <EmptyState
+            icon={<IconFolder size={48} />}
+            description="No projects configured yet. Click 'Add Project' to get started."
+          />
         )}
       </Stack>
 

@@ -40,6 +40,7 @@ export function DirectoryPicker({ value, onChange, placeholder, label, descripti
   const [directories, setDirectories] = useState<DirectoryResult[]>([]);
   const [currentDir, setCurrentDir] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [debouncedValue] = useDebouncedValue(inputValue, 150);
   const abortControllerRef = useRef<AbortController | null>(null);
   const homePathRef = useRef<string>('');
@@ -172,8 +173,11 @@ export function DirectoryPicker({ value, onChange, placeholder, label, descripti
     }
   };
 
-  // Fetch suggestions when input changes
+  // Fetch suggestions when input changes (only after user has interacted)
   useEffect(() => {
+    // Don't fetch until user has clicked/focused the input
+    if (!hasInteracted) return;
+
     // Empty input - show home directory
     if (!debouncedValue) {
       fetchDirectories('~');
@@ -196,7 +200,7 @@ export function DirectoryPicker({ value, onChange, placeholder, label, descripti
       fetchDirectories(parent);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedValue, port]);
+  }, [debouncedValue, port, hasInteracted]);
 
   const handleInputChange = (val: string) => {
     setInputValue(val);
@@ -205,6 +209,7 @@ export function DirectoryPicker({ value, onChange, placeholder, label, descripti
   };
 
   const handleFocus = () => {
+    setHasInteracted(true);
     combobox.openDropdown();
     // If empty or no directories shown, fetch home
     if (!inputValue || directories.length === 0) {
