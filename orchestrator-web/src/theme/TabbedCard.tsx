@@ -16,6 +16,8 @@ interface TabbedCardProps extends Omit<BoxProps, 'children'> {
   onTabChange: (value: string) => void;
   /** Content to render for the active tab */
   children: React.ReactNode;
+  /** If true, content area uses flex layout to fill available space */
+  flexContent?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ interface TabbedCardProps extends Omit<BoxProps, 'children'> {
  * Solid white background with warm shadow.
  */
 export const TabbedCard = forwardRef<HTMLDivElement, TabbedCardProps>(
-  ({ tabs, activeTab, onTabChange, style, children, ...rest }, ref) => {
+  ({ tabs, activeTab, onTabChange, style, children, flexContent, ...rest }, ref) => {
     return (
       <Box
         ref={ref}
@@ -33,6 +35,7 @@ export const TabbedCard = forwardRef<HTMLDivElement, TabbedCardProps>(
           border: glass.formCard.border,
           boxShadow: glass.formCard.shadow,
           overflow: 'hidden',
+          ...(flexContent ? { display: 'flex', flexDirection: 'column' as const } : {}),
           ...(typeof style === 'object' ? style : {}),
         }}
         {...rest}
@@ -42,6 +45,7 @@ export const TabbedCard = forwardRef<HTMLDivElement, TabbedCardProps>(
           style={{
             background: glass.modalZone.bg,
             borderBottom: glass.modalZone.border,
+            flexShrink: 0,
           }}
         >
           <Group gap={0}>
@@ -76,7 +80,10 @@ export const TabbedCard = forwardRef<HTMLDivElement, TabbedCardProps>(
         </Box>
 
         {/* Content */}
-        <Box p="lg">
+        <Box
+          p="lg"
+          style={flexContent ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } : undefined}
+        >
           {children}
         </Box>
       </Box>

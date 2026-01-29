@@ -8,10 +8,14 @@ import { AdHocPromptScreen } from './components/home/AdHocPromptScreen';
 import { QuickStartView } from './components/home/QuickStartView';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { SessionView } from './components/session/SessionView';
+import { ModeSelectionPage } from './pages/ModeSelectionPage';
+import { DesignSessionPage } from './pages/DesignSessionPage';
 import type { SettingsTab } from './components/settings/SettingsSidebar';
 
 type View =
   | { page: 'home' }
+  | { page: 'mode-selection' }
+  | { page: 'design-session' }
   | { page: 'prompt'; workspaceId: string }
   | { page: 'prompt-adhoc' }
   | { page: 'quickstart' }
@@ -37,7 +41,7 @@ function App() {
     recheckDependencies,
   } = useOrchestrator();
 
-  const [view, setView] = useState<View>({ page: 'home' });
+  const [view, setView] = useState<View>({ page: 'mode-selection' });
 
   // Auto-switch to session when one starts
   useEffect(() => {
@@ -117,8 +121,26 @@ function App() {
           onCreateWorkspace={() => setView({ page: 'createWorkspace' })}
           onSettings={() => setView({ page: 'settings' })}
           onResumeSession={() => setView({ page: 'session' })}
-          onStartWithoutWorkspace={() => setView({ page: 'prompt-adhoc' })}
+          onStartWithoutWorkspace={() => setView({ page: 'mode-selection' })}
           onQuickStart={() => setView({ page: 'quickstart' })}
+        />
+      );
+
+    case 'mode-selection':
+      return (
+        <ModeSelectionPage
+          hasActiveSession={!!session}
+          onSelectDesign={() => setView({ page: 'design-session' })}
+          onSelectBuild={() => setView({ page: 'home' })}
+          onResumeSession={() => setView({ page: 'session' })}
+          onSettings={() => setView({ page: 'settings' })}
+        />
+      );
+
+    case 'design-session':
+      return (
+        <DesignSessionPage
+          onBack={() => setView({ page: 'mode-selection' })}
         />
       );
 

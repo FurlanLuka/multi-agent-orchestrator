@@ -30,6 +30,12 @@ import type {
   PermissionPrompt,
   PlanningQuestion,
   WorkspaceConfig,
+  // Design session types
+  DesignPhase,
+  DesignCategory,
+  ThemeOption,
+  ComponentStyleOption,
+  MockupOption,
 } from '@orchy/types';
 
 // Default port for standalone mode (fallback only)
@@ -148,6 +154,40 @@ export function useSocket() {
   const [pendingPlanApproval, setPendingPlanApproval] = useState<{
     approvalId: string;
     plan: Plan;
+  } | null>(null);
+
+  // ═══════════════════════════════════════════════════════════════
+  // Design Session State
+  // ═══════════════════════════════════════════════════════════════
+  const [designSessionId, setDesignSessionId] = useState<string | null>(null);
+  const [designPhase, setDesignPhase] = useState<DesignPhase>('discovery');
+  const [designInputLocked, setDesignInputLocked] = useState(false);
+  const [designInputPlaceholder, setDesignInputPlaceholder] = useState('Describe your project...');
+  const [designMessages, setDesignMessages] = useState<Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+  }>>([]);
+  const [designPreview, setDesignPreview] = useState<{
+    type: 'theme' | 'component' | 'mockup';
+    options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+  } | null>(null);
+  // Refine mode - iterate on a single selected option
+  const [designRefine, setDesignRefine] = useState<{
+    type: 'theme' | 'component' | 'mockup';
+    option: ThemeOption | ComponentStyleOption | MockupOption;
+    index: number;
+  } | null>(null);
+  const [designComplete, setDesignComplete] = useState<{
+    designPath: string;
+    designName: string;
+  } | null>(null);
+  const [designError, setDesignError] = useState<string | null>(null);
+  // Generating state - loading indicator while agent generates
+  const [designGenerating, setDesignGenerating] = useState<{
+    type: 'theme' | 'component' | 'mockup';
+    message?: string;
   } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
@@ -725,6 +765,106 @@ export function useSocket() {
       });
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    // Design Session Events
+    // ═══════════════════════════════════════════════════════════════
+
+    // Design session started
+    socket.on('design:session_started', ({ sessionId }: { sessionId: string }) => {
+      console.log('[Design] Session started:', sessionId);
+      setDesignSessionId(sessionId);
+      setDesignError(null);
+    });
+
+    // Design session ended
+    socket.on('design:session_ended', () => {
+      console.log('[Design] Session ended');
+      setDesignSessionId(null);
+      setDesignPhase('discovery');
+      setDesignMessages([]);
+      setDesignPreview(null);
+      setDesignComplete(null);
+      setDesignInputLocked(false);
+    });
+
+    // Agent message (chat message from designer agent)
+    socket.on('design:agent_message', ({ content }: { content: string }) => {
+      console.log('[Design] Agent message:', content.substring(0, 50) + '...');
+      const newMessage = {
+        id: `msg_${Date.now()}`,
+        role: 'assistant' as const,
+        content,
+        timestamp: Date.now(),
+      };
+      setDesignMessages(prev => [...prev, newMessage]);
+    });
+
+    // Unlock input (agent called request_user_input)
+    socket.on('design:unlock_input', ({ placeholder }: { placeholder?: string }) => {
+      console.log('[Design] Input unlocked:', placeholder);
+      setDesignInputLocked(false);
+      setDesignInputPlaceholder(placeholder || 'Type your response...');
+    });
+
+    // Lock input (waiting for agent)
+    socket.on('design:lock_input', () => {
+      console.log('[Design] Input locked');
+      setDesignInputLocked(true);
+      setDesignInputPlaceholder('Waiting for assistant...');
+    });
+
+    // Phase update
+    socket.on('design:phase_update', ({ phase }: { phase: DesignPhase }) => {
+      console.log('[Design] Phase update:', phase);
+      setDesignPhase(phase);
+    });
+
+    // Generating state - show loading while agent generates
+    socket.on('design:generating', ({ type, message }: { type: 'theme' | 'component' | 'mockup'; message?: string }) => {
+      console.log('[Design] Generating:', type);
+      setDesignGenerating({ type, message });
+    });
+
+    // Generation complete - clear generating state (preview will show next)
+    socket.on('design:generation_complete', () => {
+      console.log('[Design] Generation complete');
+      setDesignGenerating(null);
+    });
+
+    // Show preview (theme, component, or mockup)
+    socket.on('design:show_preview', ({ type, options }: {
+      type: 'theme' | 'component' | 'mockup';
+      options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+    }) => {
+      console.log('[Design] Show preview:', type, options.length, 'options');
+      // If we're in refine mode and get a new preview, exit refine mode
+      setDesignRefine(null);
+      setDesignPreview({ type, options });
+    });
+
+    // Update refine preview (single option updated)
+    socket.on('design:update_refine', ({ option }: {
+      option: ThemeOption | ComponentStyleOption | MockupOption;
+    }) => {
+      console.log('[Design] Update refine preview');
+      setDesignRefine(prev => prev ? { ...prev, option } : null);
+      setDesignGenerating(null);
+    });
+
+    // Design complete
+    socket.on('design:complete', ({ designPath, designName }: { designPath: string; designName: string }) => {
+      console.log('[Design] Complete:', designPath);
+      setDesignComplete({ designPath, designName });
+      setDesignPhase('complete');
+    });
+
+    // Design error
+    socket.on('design:error', ({ message }: { message: string }) => {
+      console.error('[Design] Error:', message);
+      setDesignError(message);
+      setDesignInputLocked(false);
+    });
+
     // Request initial data
     socket.emit('getProjects');
     socket.emit('getTemplates');
@@ -1108,6 +1248,123 @@ export function useSocket() {
     }
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════
+  // Design Session Actions
+  // ═══════════════════════════════════════════════════════════════
+
+  // Start a design session
+  const startDesignSession = useCallback((category?: DesignCategory) => {
+    if (socketRef.current) {
+      console.log('[Design] Starting session with category:', category);
+      setDesignMessages([]);
+      setDesignPreview(null);
+      setDesignComplete(null);
+      setDesignError(null);
+      setDesignInputLocked(true);
+      setDesignInputPlaceholder('Starting design session...');
+      socketRef.current.emit('design:start_session', { category });
+    }
+  }, []);
+
+  // End the design session
+  const endDesignSession = useCallback(() => {
+    if (socketRef.current) {
+      console.log('[Design] Ending session');
+      socketRef.current.emit('design:end_session');
+    }
+  }, []);
+
+  // Send a message in the design chat
+  const sendDesignMessage = useCallback((content: string) => {
+    if (socketRef.current && !designInputLocked) {
+      console.log('[Design] Sending message:', content.substring(0, 50) + '...');
+      // Add user message to local state immediately
+      const userMessage = {
+        id: `msg_${Date.now()}`,
+        role: 'user' as const,
+        content,
+        timestamp: Date.now(),
+      };
+      setDesignMessages(prev => [...prev, userMessage]);
+      // Lock input while waiting for response
+      setDesignInputLocked(true);
+      setDesignInputPlaceholder('Waiting for assistant...');
+      // Emit to server
+      socketRef.current.emit('design:user_message', { content });
+    }
+  }, [designInputLocked]);
+
+  // Send category selection
+  const selectDesignCategory = useCallback((category: DesignCategory) => {
+    if (socketRef.current) {
+      console.log('[Design] Selecting category:', category);
+      socketRef.current.emit('design:category_selected', { category });
+    }
+  }, []);
+
+  // Select an option from preview (palette, component, or mockup) - confirms and moves to next phase
+  const selectDesignOption = useCallback((index: number) => {
+    if (socketRef.current) {
+      console.log('[Design] Selecting option:', index);
+      setDesignPreview(null);
+      setDesignRefine(null);
+      socketRef.current.emit('design:option_selected', { index });
+    }
+  }, []);
+
+  // Enter refine mode - iterate on a single selected option
+  const enterDesignRefine = useCallback((index: number) => {
+    if (socketRef.current && designPreview) {
+      console.log('[Design] Entering refine mode for option:', index);
+      const option = designPreview.options[index];
+      setDesignRefine({
+        type: designPreview.type,
+        option,
+        index,
+      });
+      setDesignPreview(null);
+      // Tell backend we're entering refine mode
+      socketRef.current.emit('design:enter_refine', { index });
+    }
+  }, [designPreview]);
+
+  // Exit refine mode - confirm selection and move to next phase
+  const confirmDesignRefine = useCallback(() => {
+    if (socketRef.current && designRefine) {
+      console.log('[Design] Confirming refined option');
+      setDesignRefine(null);
+      socketRef.current.emit('design:confirm_refine', {});
+    }
+  }, [designRefine]);
+
+  // Request new options while in refine mode
+  const requestNewDesignOptions = useCallback(() => {
+    if (socketRef.current) {
+      console.log('[Design] Requesting new options');
+      setDesignRefine(null);
+      socketRef.current.emit('design:request_new_options', {});
+    }
+  }, []);
+
+  // Submit feedback for preview refinement
+  const submitDesignFeedback = useCallback((feedback: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Submitting feedback:', feedback.substring(0, 50) + '...');
+      setDesignPreview(null);
+      socketRef.current.emit('design:feedback_submitted', { feedback });
+    }
+  }, []);
+
+  // Clear design preview
+  const clearDesignPreview = useCallback(() => {
+    setDesignPreview(null);
+  }, []);
+
+  // Clear design refine
+  const clearDesignRefine = useCallback(() => {
+    setDesignRefine(null);
+  }, []);
+
   // Derived state: separate active flows from completed flows
   const { activeFlows, completedFlows } = useMemo(() => ({
     activeFlows: flows.filter(f => f.status === 'in_progress'),
@@ -1185,5 +1442,28 @@ export function useSocket() {
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,
+    // Design session state
+    designSessionId,
+    designPhase,
+    designInputLocked,
+    designInputPlaceholder,
+    designMessages,
+    designPreview,
+    designRefine,
+    designComplete,
+    designError,
+    designGenerating,
+    // Design session actions
+    startDesignSession,
+    endDesignSession,
+    sendDesignMessage,
+    selectDesignCategory,
+    selectDesignOption,
+    enterDesignRefine,
+    confirmDesignRefine,
+    requestNewDesignOptions,
+    submitDesignFeedback,
+    clearDesignPreview,
+    clearDesignRefine,
   };
 }

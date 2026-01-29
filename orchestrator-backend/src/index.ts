@@ -120,6 +120,7 @@ import { StateMachine } from './core/state-machine';
 import { ActionExecutor } from './core/action-executor';
 import { PlanningAgentManager } from './planning/planning-agent-manager';
 import { ChatHandler } from './planning/chat-handler';
+import { DesignerAgentManager } from './design/designer-agent-manager';
 import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
@@ -339,6 +340,10 @@ async function main() {
   const chatHandler = new ChatHandler(planningAgent);
   const actionExecutor = new ActionExecutor(processManager, statusMonitor, stateMachine);
 
+  // Initialize Designer Agent Manager (for design-first workflow)
+  const designerAgent = new DesignerAgentManager();
+  console.log('[Orchestrator] Designer Agent Manager initialized');
+
   // TaskExecutor instance - will be fully initialized after session is created (needs getSessionDir)
   let taskExecutor: TaskExecutor | null = null;
 
@@ -381,6 +386,96 @@ async function main() {
   ui.setKillPlanningAgentHandler(() => {
     console.log(`[Orchestrator] Killing planning agent after plan approval`);
     planningAgent.stop();
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Wire up Designer Agent events to Socket.io
+  // ═══════════════════════════════════════════════════════════════
+
+  // Attach designer agent to io for socket handlers
+  (ui.io as any).designerAgent = designerAgent;
+
+  // Forward agent messages to frontend
+  designerAgent.on('agentMessage', (content: string) => {
+    console.log(`[DesignerAgent] Agent message: ${content.substring(0, 80)}...`);
+    ui.io.emit('design:agent_message', { content });
+  });
+
+  // Forward unlock/lock input events
+  designerAgent.on('unlockInput', (data: { placeholder?: string }) => {
+    console.log(`[DesignerAgent] Unlock input`);
+    ui.io.emit('design:unlock_input', data);
+  });
+
+  designerAgent.on('lockInput', () => {
+    console.log(`[DesignerAgent] Lock input`);
+    ui.io.emit('design:lock_input', {});
+  });
+
+  // Forward phase updates
+  designerAgent.on('phaseUpdate', (data: { phase: string; step: number }) => {
+    console.log(`[DesignerAgent] Phase update: ${data.phase} (step ${data.step})`);
+    ui.io.emit('design:phase_update', data);
+  });
+
+  // Forward preview events
+  designerAgent.on('showPreview', (data: { type: string; options: unknown[] }) => {
+    console.log(`[DesignerAgent] Show preview: ${data.type} with ${data.options.length} options`);
+    ui.io.emit('design:show_preview', data);
+  });
+
+  // Forward category selector event
+  designerAgent.on('showCategorySelector', (data: { categories: unknown[] }) => {
+    console.log(`[DesignerAgent] Show category selector`);
+    ui.io.emit('design:show_category_selector', data);
+  });
+
+  // Forward design complete event
+  designerAgent.on('designComplete', (data: { designPath: string; designName: string }) => {
+    console.log(`[DesignerAgent] Design complete: ${data.designName}`);
+    ui.io.emit('design:complete', data);
+  });
+
+  // Forward session events
+  designerAgent.on('sessionStarted', (session: { id: string }) => {
+    console.log(`[DesignerAgent] Session started: ${session.id}`);
+    ui.io.emit('design:session_started', { sessionId: session.id });
+  });
+
+  designerAgent.on('sessionEnded', ({ sessionId }: { sessionId?: string }) => {
+    console.log(`[DesignerAgent] Session ended: ${sessionId || 'unknown'}`);
+    // Clean up phase tracking for this session
+    if (sessionId) {
+      const phases = (ui.io as any).designSessionPhases as Map<string, string> | undefined;
+      if (phases) {
+        phases.delete(sessionId);
+        console.log(`[DesignerAgent] Cleaned up phase state for session ${sessionId}`);
+      }
+    }
+    ui.io.emit('design:session_ended', { sessionId });
+  });
+
+  designerAgent.on('error', (err: Error) => {
+    console.error(`[DesignerAgent] Error:`, err);
+    ui.io.emit('design:error', { message: err.message });
+  });
+
+  // Forward discovery summary event
+  designerAgent.on('showSummary', (data: { summary: string }) => {
+    console.log(`[DesignerAgent] Show summary`);
+    ui.io.emit('design:show_summary', data);
+  });
+
+  // Forward generating state event
+  designerAgent.on('generating', (data: { type: string; message?: string }) => {
+    console.log(`[DesignerAgent] Generating: ${data.type}`);
+    ui.io.emit('design:generating', data);
+  });
+
+  // Forward generation complete event
+  designerAgent.on('generationComplete', () => {
+    console.log(`[DesignerAgent] Generation complete`);
+    ui.io.emit('design:generation_complete', {});
   });
 
   // ═══════════════════════════════════════════════════════════════

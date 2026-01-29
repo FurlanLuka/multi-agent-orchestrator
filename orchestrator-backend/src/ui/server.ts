@@ -629,6 +629,129 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       }
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    // Designer Agent Socket Handlers
+    // ═══════════════════════════════════════════════════════════════
+
+    // Start a new design session
+    socket.on('design:start_session', async ({ category }: { category?: string }) => {
+      console.log(`[UIServer] Starting design session${category ? ` with category: ${category}` : ''}`);
+
+      try {
+        // Get the designer agent manager from the attached reference
+        const designerAgent = (io as any).designerAgent;
+        if (!designerAgent) {
+          console.error('[UIServer] Designer agent not available');
+          socket.emit('design:error', { message: 'Designer agent not available' });
+          return;
+        }
+
+        // Start the session with the category (agent will use it in system prompt)
+        const session = await designerAgent.startSession(category);
+        console.log(`[UIServer] Design session started: ${session.id}`);
+
+        // Initialize session phase to discovery
+        const phases = (io as any).designSessionPhases as Map<string, string>;
+        if (phases) {
+          phases.set(session.id, 'discovery');
+        }
+
+        // Emit session started to client
+        socket.emit('design:session_started', { sessionId: session.id });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[UIServer] Failed to start design session:', error);
+        socket.emit('design:error', { message: error });
+      }
+    });
+
+    // End the current design session
+    socket.on('design:end_session', async () => {
+      console.log(`[UIServer] Ending design session`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        await designerAgent.endSession();
+      }
+    });
+
+    // Handle designer user message (response to request_user_input)
+    socket.on('design:user_message', ({ content }: { content: string }) => {
+      console.log(`[UIServer] Designer user message: ${content.substring(0, 50)}...`);
+      // Resolve the most recent pending input
+      const pendingInputs = (io as any).pendingDesignerInputs as Map<string, { resolve: (msg: string) => void }>;
+      if (pendingInputs && pendingInputs.size > 0) {
+        const [key, pending] = Array.from(pendingInputs.entries()).pop()!;
+        pending.resolve(content);
+        pendingInputs.delete(key);
+      }
+    });
+
+    // Handle designer category selection
+    socket.on('design:category_selected', ({ category }: { category: string }) => {
+      console.log(`[UIServer] Designer category selected: ${category}`);
+      const pendingCategories = (io as any).pendingDesignerCategories as Map<string, { resolve: (cat: string) => void }>;
+      if (pendingCategories && pendingCategories.size > 0) {
+        const [key, pending] = Array.from(pendingCategories.entries()).pop()!;
+        pending.resolve(category);
+        pendingCategories.delete(key);
+      }
+    });
+
+    // Handle designer option selection (palette, component, or mockup)
+    socket.on('design:option_selected', ({ index }: { index: number }) => {
+      console.log(`[UIServer] Designer option selected: ${index}`);
+      const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
+      if (pendingPreviews && pendingPreviews.size > 0) {
+        const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
+        pending.resolve({ selected: index });
+        pendingPreviews.delete(key);
+      }
+    });
+
+    // Handle designer feedback submission (refinement request)
+    socket.on('design:feedback_submitted', ({ feedback }: { feedback: string }) => {
+      console.log(`[UIServer] Designer feedback submitted: ${feedback.substring(0, 50)}...`);
+      const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
+      if (pendingPreviews && pendingPreviews.size > 0) {
+        const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
+        pending.resolve({ feedback });
+        pendingPreviews.delete(key);
+      }
+    });
+
+    // Handle entering refine mode (iterate on single option)
+    socket.on('design:enter_refine', ({ index }: { index: number }) => {
+      console.log(`[UIServer] Designer entering refine mode for option: ${index}`);
+      const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string; refine?: number }) => void }>;
+      if (pendingPreviews && pendingPreviews.size > 0) {
+        const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
+        pending.resolve({ refine: index });
+        pendingPreviews.delete(key);
+      }
+    });
+
+    // Handle confirming refine (done with refinement, move to next phase)
+    socket.on('design:confirm_refine', () => {
+      console.log(`[UIServer] Designer confirming refined option`);
+      const pendingInputs = (io as any).pendingDesignerInputs as Map<string, { resolve: (msg: string) => void }>;
+      if (pendingInputs && pendingInputs.size > 0) {
+        const [key, pending] = Array.from(pendingInputs.entries()).pop()!;
+        pending.resolve('[USER CONFIRMED: The refined option looks good, proceed to next phase]');
+        pendingInputs.delete(key);
+      }
+    });
+
+    // Handle requesting new options while in refine mode
+    socket.on('design:request_new_options', () => {
+      console.log(`[UIServer] Designer requesting new options`);
+      const pendingInputs = (io as any).pendingDesignerInputs as Map<string, { resolve: (msg: string) => void }>;
+      if (pendingInputs && pendingInputs.size > 0) {
+        const [key, pending] = Array.from(pendingInputs.entries()).pop()!;
+        pending.resolve('[USER REQUEST: Please generate 3 new options for me to choose from]');
+        pendingInputs.delete(key);
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });
@@ -730,6 +853,341 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Track the current planning flow ID for coordinating plan approval
   let currentPlanningFlowId: string | null = null;
+
+  // ═══════════════════════════════════════════════════════════════
+  // Designer Agent Endpoints (for design-first workflow)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Design session phases (state machine)
+  type DesignSessionPhase =
+    | 'discovery'           // Initial chat
+    | 'generating_theme'  // Generating theme
+    | 'theme_preview'     // Showing theme options
+    | 'component_discovery' // Chat about component preferences
+    | 'generating_component'// Generating components
+    | 'component_preview'   // Showing component options
+    | 'layout_discovery'    // Chat about layout preferences
+    | 'generating_mockup'   // Generating mockups
+    | 'mockup_preview'      // Showing mockup options
+    | 'complete';           // Design saved
+
+  // Track session phases
+  const designSessionPhases = new Map<string, DesignSessionPhase>();
+
+  // Valid phase transitions
+  const validTransitions: Record<DesignSessionPhase, DesignSessionPhase[]> = {
+    discovery: ['generating_theme'],
+    generating_theme: ['theme_preview'],
+    theme_preview: ['component_discovery', 'generating_theme'], // can refine
+    component_discovery: ['generating_component'],
+    generating_component: ['component_preview'],
+    component_preview: ['layout_discovery', 'generating_component'], // can refine
+    layout_discovery: ['generating_mockup'],
+    generating_mockup: ['mockup_preview'],
+    mockup_preview: ['complete', 'generating_mockup'], // can refine
+    complete: [],
+  };
+
+  // Helper to validate and transition phase
+  const transitionPhase = (sessionId: string, targetPhase: DesignSessionPhase): boolean => {
+    const currentPhase = designSessionPhases.get(sessionId) || 'discovery';
+    const allowed = validTransitions[currentPhase];
+
+    if (!allowed.includes(targetPhase)) {
+      console.log(`[UIServer] Invalid phase transition: ${currentPhase} -> ${targetPhase} (session ${sessionId})`);
+      return false;
+    }
+
+    console.log(`[UIServer] Phase transition: ${currentPhase} -> ${targetPhase} (session ${sessionId})`);
+    designSessionPhases.set(sessionId, targetPhase);
+    return true;
+  };
+
+  // Store pending designer requests (key -> resolver)
+  const pendingDesignerInputs = new Map<string, {
+    resolve: (message: string) => void;
+  }>();
+
+  const pendingDesignerCategories = new Map<string, {
+    resolve: (category: string) => void;
+  }>();
+
+  const pendingDesignerPreviews = new Map<string, {
+    resolve: (result: { selected?: number; feedback?: string }) => void;
+  }>();
+
+  // Designer: request user input (unlocks chat input)
+  app.post('/api/designer/request-input', async (req: Request, res: Response) => {
+    const { sessionId, placeholder } = req.body;
+    const key = `input_${sessionId}_${Date.now()}`;
+
+    console.log(`[UIServer] Designer input requested for session ${sessionId}`);
+
+    // Emit unlock event to frontend
+    io.emit('design:unlock_input', { placeholder });
+
+    // Create promise that will resolve when user responds
+    const message = await new Promise<string>((resolve) => {
+      pendingDesignerInputs.set(key, { resolve });
+
+      // Timeout after 10 minutes
+      setTimeout(() => {
+        if (pendingDesignerInputs.has(key)) {
+          pendingDesignerInputs.delete(key);
+          resolve('');
+        }
+      }, 600000);
+    });
+
+    pendingDesignerInputs.delete(key);
+
+    // Emit lock event
+    io.emit('design:lock_input');
+
+    res.send(message);
+  });
+
+  // Designer: start generating (shows loading indicator)
+  app.post('/api/designer/start-generating', (req: Request, res: Response) => {
+    const { sessionId, type } = req.body;
+    const messages: Record<string, string> = {
+      theme: 'Generating theme options...',
+      component: 'Generating component styles...',
+      mockup: 'Generating mockups...',
+    };
+
+    // Map type to target phase
+    const phaseMap: Record<string, DesignSessionPhase> = {
+      theme: 'generating_theme',
+      component: 'generating_component',
+      mockup: 'generating_mockup',
+    };
+    const targetPhase = phaseMap[type as string];
+
+    // Validate type and phase transition
+    if (!targetPhase || !transitionPhase(sessionId, targetPhase)) {
+      res.status(400).send(JSON.stringify({
+        error: `Cannot start generating ${type} in current phase`
+      }));
+      return;
+    }
+
+    console.log(`[UIServer] Designer start generating: ${type}`);
+
+    // Emit generating event to frontend
+    io.emit('design:generating', { type, message: messages[type] || `Generating ${type}...` });
+
+    res.send('ok');
+  });
+
+  // Designer: show category selector
+  app.post('/api/designer/show-categories', async (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+    const key = `category_${sessionId}_${Date.now()}`;
+
+    console.log(`[UIServer] Designer category selector for session ${sessionId}`);
+
+    // Emit show categories event
+    io.emit('design:show_category_selector', {
+      categories: [
+        { id: 'blog', name: 'Blog', description: 'Personal blogs, company blogs, newsletters' },
+        { id: 'landing_page', name: 'Landing Page', description: 'Product launches, marketing pages' },
+        { id: 'ecommerce', name: 'E-commerce', description: 'Online stores, product catalogs' },
+        { id: 'dashboard', name: 'Dashboard', description: 'Admin panels, analytics, data management' },
+        { id: 'chat_messaging', name: 'Chat / Messaging', description: 'Chat interfaces, support widgets' },
+        { id: 'documentation', name: 'Documentation', description: 'Technical docs, API references' },
+        { id: 'saas_marketing', name: 'SaaS Marketing', description: 'Pricing pages, feature showcases' },
+        { id: 'portfolio', name: 'Portfolio', description: 'Personal portfolios, agency sites' },
+      ]
+    });
+
+    // Create promise that will resolve when user selects
+    const category = await new Promise<string>((resolve) => {
+      pendingDesignerCategories.set(key, { resolve });
+
+      // Timeout after 10 minutes
+      setTimeout(() => {
+        if (pendingDesignerCategories.has(key)) {
+          pendingDesignerCategories.delete(key);
+          resolve('blog'); // Default
+        }
+      }, 600000);
+    });
+
+    pendingDesignerCategories.delete(key);
+    res.send(JSON.stringify({ category }));
+  });
+
+  // Designer: show theme preview
+  app.post('/api/designer/show-theme', async (req: Request, res: Response) => {
+    const { sessionId, options } = req.body;
+    const key = `theme_${sessionId}_${Date.now()}`;
+
+    // Validate phase - must be in generating_theme
+    const currentPhase = designSessionPhases.get(sessionId);
+    if (currentPhase !== 'generating_theme') {
+      res.status(400).send(JSON.stringify({
+        error: `Cannot show theme preview in phase: ${currentPhase}`
+      }));
+      return;
+    }
+
+    // Transition to theme_preview
+    designSessionPhases.set(sessionId, 'theme_preview');
+
+    console.log(`[UIServer] Designer theme preview for session ${sessionId}: ${options.length} options`);
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'theme', options });
+
+    // Create promise that will resolve when user responds
+    const result = await new Promise<{ selected?: number; feedback?: string; refine?: number }>((resolve) => {
+      pendingDesignerPreviews.set(key, { resolve });
+
+      // Timeout after 10 minutes
+      setTimeout(() => {
+        if (pendingDesignerPreviews.has(key)) {
+          pendingDesignerPreviews.delete(key);
+          resolve({ selected: 0 }); // Default to first option
+        }
+      }, 600000);
+    });
+
+    pendingDesignerPreviews.delete(key);
+
+    // Transition based on result
+    if (result.selected !== undefined) {
+      // User selected - move to component discovery
+      designSessionPhases.set(sessionId, 'component_discovery');
+    } else if (result.refine !== undefined) {
+      // User wants to refine this option - stay in theme_preview but enter refine mode
+      // The agent will handle refinement via chat
+      designSessionPhases.set(sessionId, 'theme_preview');
+    } else if (result.feedback) {
+      // User gave feedback - go back to discovery for more chat
+      designSessionPhases.set(sessionId, 'discovery');
+    }
+
+    res.send(JSON.stringify(result));
+  });
+
+  // Designer: show component preview
+  app.post('/api/designer/show-components', async (req: Request, res: Response) => {
+    const { sessionId, options } = req.body;
+    const key = `components_${sessionId}_${Date.now()}`;
+
+    // Validate phase - must be in generating_component
+    const currentPhase = designSessionPhases.get(sessionId);
+    if (currentPhase !== 'generating_component') {
+      res.status(400).send(JSON.stringify({
+        error: `Cannot show component preview in phase: ${currentPhase}`
+      }));
+      return;
+    }
+
+    // Transition to component_preview
+    designSessionPhases.set(sessionId, 'component_preview');
+
+    console.log(`[UIServer] Designer component preview for session ${sessionId}: ${options.length} options`);
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'component', options });
+
+    // Create promise that will resolve when user responds
+    const result = await new Promise<{ selected?: number; feedback?: string }>((resolve) => {
+      pendingDesignerPreviews.set(key, { resolve });
+
+      setTimeout(() => {
+        if (pendingDesignerPreviews.has(key)) {
+          pendingDesignerPreviews.delete(key);
+          resolve({ selected: 0 });
+        }
+      }, 600000);
+    });
+
+    pendingDesignerPreviews.delete(key);
+
+    // Transition based on result
+    if (result.selected !== undefined) {
+      // User selected - move to layout discovery
+      designSessionPhases.set(sessionId, 'layout_discovery');
+    } else if (result.feedback) {
+      // User gave feedback - go back to component discovery for more chat
+      designSessionPhases.set(sessionId, 'component_discovery');
+    }
+
+    res.send(JSON.stringify(result));
+  });
+
+  // Designer: show mockup preview
+  app.post('/api/designer/show-mockups', async (req: Request, res: Response) => {
+    const { sessionId, options } = req.body;
+    const key = `mockups_${sessionId}_${Date.now()}`;
+
+    // Validate phase - must be in generating_mockup
+    const currentPhase = designSessionPhases.get(sessionId);
+    if (currentPhase !== 'generating_mockup') {
+      res.status(400).send(JSON.stringify({
+        error: `Cannot show mockup preview in phase: ${currentPhase}`
+      }));
+      return;
+    }
+
+    // Transition to mockup_preview
+    designSessionPhases.set(sessionId, 'mockup_preview');
+
+    console.log(`[UIServer] Designer mockup preview for session ${sessionId}: ${options.length} options`);
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'mockup', options });
+
+    // Create promise that will resolve when user responds
+    const result = await new Promise<{ selected?: number; feedback?: string }>((resolve) => {
+      pendingDesignerPreviews.set(key, { resolve });
+
+      setTimeout(() => {
+        if (pendingDesignerPreviews.has(key)) {
+          pendingDesignerPreviews.delete(key);
+          resolve({ selected: 0 });
+        }
+      }, 600000);
+    });
+
+    pendingDesignerPreviews.delete(key);
+
+    // Transition based on result
+    if (result.feedback) {
+      // User gave feedback - go back to layout discovery for more chat
+      designSessionPhases.set(sessionId, 'layout_discovery');
+    }
+    // If selected, stay in mockup_preview - save_design will transition to complete
+
+    res.send(JSON.stringify(result));
+  });
+
+  // Designer: save design
+  app.post('/api/designer/save-design', async (req: Request, res: Response) => {
+    const { sessionId, name, tokens, guidelines } = req.body;
+
+    console.log(`[UIServer] Designer save design for session ${sessionId}: ${name}`);
+
+    // Emit to frontend (actual save happens in DesignerAgentManager)
+    io.emit('design:save_request', { name, tokens, guidelines });
+
+    // The actual save is handled by the DesignerAgentManager
+    // We just acknowledge receipt here
+    res.send(JSON.stringify({ status: 'save_requested' }));
+  });
+
+  // Expose pending designer maps for socket handlers
+  (io as any).pendingDesignerInputs = pendingDesignerInputs;
+  (io as any).pendingDesignerCategories = pendingDesignerCategories;
+  (io as any).pendingDesignerPreviews = pendingDesignerPreviews;
+  (io as any).designSessionPhases = designSessionPhases;
+  (io as any).transitionPhase = transitionPhase;
 
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;

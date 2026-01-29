@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{paletteName}} Palette</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 32px;
+      background: {{bodyBackground}};
+      color: {{textColor}};
+    }
+
+    h1 { margin-bottom: 4px; font-size: 28px; font-weight: 700; }
+    .subtitle { margin-bottom: 32px; font-size: 14px; color: {{textDimmed}}; }
+    h2 {
+      margin: 28px 0 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: {{textDimmed}};
+      font-weight: 600;
+    }
+
+    /* Swatches */
+    .swatches { display: flex; gap: 4px; margin-bottom: 16px; }
+    .swatch {
+      flex: 1;
+      height: 56px;
+      border-radius: 10px;
+      display: flex;
+      align-items: flex-end;
+      padding: 5px 7px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .lt { color: white; }
+    .dt { color: #333; }
+
+    /* Buttons */
+    .btn {
+      display: inline-block;
+      padding: 10px 24px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      margin: 4px;
+      color: white;
+    }
+    .btn-o {
+      background: transparent;
+      border: 1.5px solid;
+      color: inherit;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin: 4px;
+    }
+    .status-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 16px; }
+
+    /* Inputs */
+    .input-demo {
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1.5px solid;
+      font-size: 14px;
+      width: 100%;
+      margin: 4px 0;
+      outline: none;
+      background: white;
+    }
+
+    /* Cards */
+    .demo-cards { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 24px; }
+    .demo-card {
+      border-radius: 16px;
+      padding: 20px;
+      min-width: 180px;
+      flex: 1;
+    }
+    .demo-card .label { font-weight: 600; margin-bottom: 4px; }
+    .demo-card .desc { font-size: 13px; color: {{textDimmed}}; }
+
+    /* Backgrounds */
+    .bg-row { display: flex; gap: 12px; margin: 12px 0 24px; }
+    .bg-swatch {
+      width: 110px;
+      height: 70px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      text-align: center;
+      line-height: 1.4;
+      color: {{textDimmed}};
+    }
+    .bg-swatch .hex { font-family: monospace; font-size: 10px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>{{paletteName}}</h1>
+<p class="subtitle">{{paletteDescription}}</p>
+
+<h2>Primary Scale</h2>
+<div class="swatches">
+  <div class="swatch dt" style="background:{{primary0}}">0</div>
+  <div class="swatch dt" style="background:{{primary1}}">1</div>
+  <div class="swatch dt" style="background:{{primary2}}">2</div>
+  <div class="swatch dt" style="background:{{primary3}}">3</div>
+  <div class="swatch dt" style="background:{{primary4}}">4</div>
+  <div class="swatch lt" style="background:{{primary5}}">5</div>
+  <div class="swatch lt" style="background:{{primary6}}">6</div>
+  <div class="swatch lt" style="background:{{primary7}}">7</div>
+  <div class="swatch lt" style="background:{{primary8}}">8</div>
+  <div class="swatch lt" style="background:{{primary9}}">9</div>
+</div>
+
+<h2>Semantic Colors</h2>
+<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:16px;">
+  <div>
+    <div style="font-size:10px; color:{{textDimmed}}; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Success</div>
+    <div style="display:flex; gap:4px;">
+      <div class="swatch dt" style="background:{{successBg}}; width:56px;">bg</div>
+      <div class="swatch lt" style="background:{{successColor}}; width:56px;">main</div>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:10px; color:{{textDimmed}}; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Error</div>
+    <div style="display:flex; gap:4px;">
+      <div class="swatch dt" style="background:{{errorBg}}; width:56px;">bg</div>
+      <div class="swatch lt" style="background:{{errorColor}}; width:56px;">main</div>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:10px; color:{{textDimmed}}; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Warning</div>
+    <div style="display:flex; gap:4px;">
+      <div class="swatch dt" style="background:{{warningBg}}; width:56px;">bg</div>
+      <div class="swatch lt" style="background:{{warningColor}}; width:56px;">main</div>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:10px; color:{{textDimmed}}; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Info</div>
+    <div style="display:flex; gap:4px;">
+      <div class="swatch dt" style="background:{{infoBg}}; width:56px;">bg</div>
+      <div class="swatch lt" style="background:{{infoColor}}; width:56px;">main</div>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:10px; color:{{textDimmed}}; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Neutral</div>
+    <div style="display:flex; gap:4px;">
+      <div class="swatch dt" style="background:{{neutralBg}}; width:56px;">bg</div>
+    </div>
+  </div>
+</div>
+
+<h2>Buttons</h2>
+<div style="margin-bottom:16px">
+  <button class="btn" style="background:{{primary6}}">Start Planning</button>
+  <button class="btn" style="background:{{primary5}}">Create Workspace</button>
+  <button class="btn btn-o" style="border-color:{{primary6}}; color:{{primary6}};">Back to Home</button>
+  <button class="btn" style="background:{{successColor}}">Approve</button>
+  <button class="btn" style="background:{{errorColor}}">Reject</button>
+</div>
+
+<h2>Badges</h2>
+<div class="status-row">
+  <span class="badge" style="background:{{primary1}}; color:{{primary7}};">Active</span>
+  <span class="badge" style="background:{{successBg}}; color:{{successColor}};">Complete</span>
+  <span class="badge" style="background:{{warningBg}}; color:{{warningColor}};">Debugging</span>
+  <span class="badge" style="background:{{errorBg}}; color:{{errorColor}};">Failed</span>
+  <span class="badge" style="background:{{infoBg}}; color:{{infoColor}};">Working</span>
+  <span class="badge" style="background:{{neutralBg}}; color:{{textColor}};">Pending</span>
+</div>
+
+<h2>Inputs</h2>
+<div style="max-width:380px; margin-bottom:16px;">
+  <input class="input-demo" style="border-color:{{borderColor}};" placeholder="Feature description..." />
+  <input class="input-demo" style="border-color:{{primary6}}; background:{{primary0}};" placeholder="Focused state" />
+</div>
+
+<h2>Cards</h2>
+<div class="demo-cards">
+  <div class="demo-card" style="background:{{cardBackground}}; border:1px solid {{borderColor}};">
+    <div class="label">Blog</div>
+    <div class="desc">frontend &middot; backend</div>
+  </div>
+  <div class="demo-card" style="background:{{primary0}}; border:1px solid {{primary2}};">
+    <div class="label">Complete!</div>
+    <div class="desc">All tasks done.</div>
+  </div>
+  <div class="demo-card" style="background:{{infoBg}}; border:1px solid {{infoColor}}30;">
+    <div class="label">Planning</div>
+    <div class="desc">Exploring...</div>
+  </div>
+</div>
+
+<h2>Page Backgrounds</h2>
+<div class="bg-row">
+  <div class="bg-swatch" style="background:{{bodyBackground}}; border:1px solid {{borderColor}};">
+    Body
+    <span class="hex">{{bodyBackground}}</span>
+  </div>
+  <div class="bg-swatch" style="background:{{tintBackground}}; border:1px solid {{borderColor}};">
+    Tint
+    <span class="hex">{{tintBackground}}</span>
+  </div>
+  <div class="bg-swatch" style="background:{{cardBackground}}; border:1px solid {{borderColor}};">
+    Card
+    <span class="hex">{{cardBackground}}</span>
+  </div>
+</div>
+
+</body>
+</html>
