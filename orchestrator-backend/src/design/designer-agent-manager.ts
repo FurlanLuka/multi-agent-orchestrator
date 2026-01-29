@@ -6,18 +6,18 @@ import {
   DesignSession,
   DesignPhase,
   DesignCategory,
+  DesignPage,
   ThemeMode,
   DesignTokens,
   PaletteOption,
   ComponentStyleOption,
   MockupOption,
-  DesignTokensColors,
-  DesignTokensComponents,
+  MockupSelectionResult,
   ChatStreamEvent,
   ContentBlock,
 } from '@orchy/types';
 import { spawnWithShellEnv } from '../utils/shell-env';
-import { getCacheDir, getConfigDir } from '../config/paths';
+import { getCacheDir, getConfigDir, ensureDesignSessionDir, getDesignArtifactPath } from '../config/paths';
 import { getDesignerSystemPrompt } from './design-prompts';
 
 // Stream JSON message types from Claude CLI
@@ -66,6 +66,7 @@ export class DesignerAgentManager extends EventEmitter {
   private pendingUserInput: ((message: string) => void) | null = null;
   private pendingCategorySelection: ((category: DesignCategory) => void) | null = null;
   private pendingPreviewSelection: ((result: { selected?: number; feedback?: string }) => void) | null = null;
+  private pendingMockupSelection: ((result: MockupSelectionResult) => void) | null = null;
   private pendingSummaryResponse: ((result: 'proceed' | 'continue') => void) | null = null;
 
   // Session timeout
@@ -100,6 +101,7 @@ export class DesignerAgentManager extends EventEmitter {
       startedAt: Date.now(),
       phase: 'discovery',
       category: category,
+      pages: [],  // Initialize empty pages array
     };
 
     console.log(`[DesignerAgent] Starting session: ${sessionId}${category ? ` with category: ${category}` : ''}`);
@@ -129,6 +131,7 @@ export class DesignerAgentManager extends EventEmitter {
     this.pendingUserInput = null;
     this.pendingCategorySelection = null;
     this.pendingPreviewSelection = null;
+    this.pendingMockupSelection = null;
     this.pendingSummaryResponse = null;
 
     this.emit('sessionEnded', { sessionId });
@@ -397,7 +400,7 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   /**
-   * Get numeric step for a phase (1-6)
+   * Get numeric step for a phase (1-7)
    */
   private getPhaseStep(phase: DesignPhase): number {
     const steps: Record<DesignPhase, number> = {
@@ -406,7 +409,8 @@ export class DesignerAgentManager extends EventEmitter {
       theme: 3,
       components: 4,
       mockups: 5,
-      complete: 6,
+      pages: 6,
+      complete: 7,
     };
     return steps[phase] || 1;
   }
@@ -505,22 +509,7 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   /**
-   * Handle show_mockup_preview MCP tool call
-   */
-  async handleShowMockupPreview(options: MockupOption[]): Promise<{ selected?: number; feedback?: string }> {
-    return new Promise((resolve) => {
-      this.pendingPreviewSelection = resolve;
-
-      // Emit show preview event
-      this.emit('showPreview', {
-        type: 'mockup',
-        options
-      });
-    });
-  }
-
-  /**
-   * Called when user selects a preview option
+   * Called when user selects a preview option (for theme/component previews)
    */
   onOptionSelected(index: number): void {
     if (this.pendingPreviewSelection) {
@@ -803,5 +792,218 @@ export class DesignerAgentManager extends EventEmitter {
     }
 
     return designs.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Artifact Management Methods
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Save an artifact (HTML or JSON) to the session folder
+   */
+  saveArtifact(artifactName: string, content: string): string {
+    if (!this.session) {
+      throw new Error('No active session');
+    }
+
+    const sessionDir = ensureDesignSessionDir(this.session.id);
+    const artifactPath = getDesignArtifactPath(this.session.id, artifactName);
+
+    fs.writeFileSync(artifactPath, content, 'utf-8');
+    console.log(`[DesignerAgent] Saved artifact: ${artifactPath}`);
+
+    return artifactPath;
+  }
+
+  /**
+   * Load an artifact from the session folder
+   */
+  loadArtifact(artifactName: string): string | null {
+    if (!this.session) {
+      return null;
+    }
+
+    const artifactPath = getDesignArtifactPath(this.session.id, artifactName);
+
+    if (!fs.existsSync(artifactPath)) {
+      console.log(`[DesignerAgent] Artifact not found: ${artifactPath}`);
+      return null;
+    }
+
+    const content = fs.readFileSync(artifactPath, 'utf-8');
+    console.log(`[DesignerAgent] Loaded artifact: ${artifactPath} (${content.length} chars)`);
+    return content;
+  }
+
+  /**
+   * Handle saving selected theme (HTML with CSS variables)
+   * Called when user selects a theme option
+   * The HTML contains CSS variables in :root that serve as the design tokens
+   */
+  async handleSaveSelectedTheme(
+    themeOption: { html: string }
+  ): Promise<{ themeHtmlPath: string }> {
+    // Save theme HTML (contains CSS variables as the source of truth)
+    const themeHtmlPath = this.saveArtifact('theme.html', themeOption.html);
+
+    // Update session
+    if (this.session) {
+      if (!this.session.artifactPaths) {
+        this.session.artifactPaths = {};
+      }
+      this.session.artifactPaths.theme = themeHtmlPath;
+    }
+
+    return { themeHtmlPath };
+  }
+
+  /**
+   * Handle saving selected components (HTML only)
+   * Called when user selects a component style option
+   * The HTML should include the CSS variables from theme.html
+   */
+  async handleSaveSelectedComponents(
+    componentOption: { html: string; styleName?: string }
+  ): Promise<{ componentsHtmlPath: string }> {
+    // Save components HTML
+    const componentsHtmlPath = this.saveArtifact('components.html', componentOption.html);
+
+    // Update session
+    if (this.session) {
+      if (!this.session.artifactPaths) {
+        this.session.artifactPaths = {};
+      }
+      this.session.artifactPaths.components = componentsHtmlPath;
+    }
+
+    return { componentsHtmlPath };
+  }
+
+  /**
+   * Handle saving a page (named mockup)
+   * Called when user selects a mockup option
+   * The HTML should include the CSS variables from theme.html
+   */
+  async handleSavePage(
+    pageOption: { html: string; name: string }
+  ): Promise<{ page: DesignPage }> {
+    if (!this.session) {
+      throw new Error('No active session');
+    }
+
+    // Generate filename from page name (e.g., "Landing Page" -> "landing-page.html")
+    const filename = pageOption.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') + '.html';
+
+    // Save page HTML
+    const pagePath = this.saveArtifact(filename, pageOption.html);
+
+    // Create page object
+    const page: DesignPage = {
+      id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      name: pageOption.name,
+      filename,
+      path: pagePath,
+      createdAt: Date.now(),
+    };
+
+    // Add to session pages
+    this.session.pages.push(page);
+
+    console.log(`[DesignerAgent] Saved page: ${page.name} -> ${pagePath}`);
+
+    // Emit page added event
+    this.emit('pageAdded', { page });
+
+    return { page };
+  }
+
+  /**
+   * Get all pages in the current session
+   */
+  getPages(): DesignPage[] {
+    return this.session?.pages || [];
+  }
+
+  /**
+   * Get a specific page by ID
+   */
+  getPage(pageId: string): DesignPage | null {
+    return this.session?.pages.find(p => p.id === pageId) || null;
+  }
+
+  /**
+   * Get page HTML content by ID
+   */
+  getPageHtml(pageId: string): string | null {
+    const page = this.getPage(pageId);
+    if (!page || !page.filename) {
+      return null;
+    }
+    return this.loadArtifact(page.filename);
+  }
+
+  /**
+   * Handle mockup preview result (Select/Refine/Feeling Lucky)
+   */
+  async handleShowMockupPreview(options: MockupOption[]): Promise<MockupSelectionResult> {
+    return new Promise((resolve) => {
+      this.pendingMockupSelection = resolve;
+
+      // Emit show preview event with mockup type
+      this.emit('showPreview', {
+        type: 'mockup',
+        options
+      });
+    });
+  }
+
+  /**
+   * Called when user selects a mockup option (Select button)
+   */
+  onMockupSelected(index: number, pageName: string): void {
+    if (this.pendingMockupSelection) {
+      const resolve = this.pendingMockupSelection;
+      this.pendingMockupSelection = null;
+      resolve({ selected: index, pageName });
+    }
+  }
+
+  /**
+   * Called when user clicks Refine on a mockup option
+   */
+  onMockupRefine(index: number): void {
+    if (this.pendingMockupSelection) {
+      const resolve = this.pendingMockupSelection;
+      this.pendingMockupSelection = null;
+      resolve({ refine: index });
+    }
+  }
+
+  /**
+   * Called when user clicks "I'm Feeling Lucky"
+   */
+  onMockupFeelingLucky(): void {
+    if (this.pendingMockupSelection) {
+      const resolve = this.pendingMockupSelection;
+      this.pendingMockupSelection = null;
+      resolve({ feelingLucky: true });
+    }
+  }
+
+  /**
+   * Load previous artifacts for chaining context
+   * Returns HTML content of requested artifacts
+   */
+  loadPreviousArtifacts(artifactNames: string[]): Record<string, string | null> {
+    const result: Record<string, string | null> = {};
+
+    for (const name of artifactNames) {
+      result[name] = this.loadArtifact(name);
+    }
+
+    return result;
   }
 }

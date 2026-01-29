@@ -12,7 +12,19 @@ export type DesignPhase =
   | 'theme'           // Generate and iterate on theme (colors + typography colors)
   | 'components'      // Generate and iterate on component styles
   | 'mockups'         // Generate full-page mockups
+  | 'pages'           // Managing pages (add more, view, refine)
   | 'complete';       // Design saved
+
+/**
+ * A single page in the design (e.g., landing-page.html, about.html)
+ */
+export interface DesignPage {
+  id: string;              // Unique identifier
+  name: string;            // Display name (e.g., "Landing Page", "About")
+  filename: string;        // File name (e.g., "landing-page.html", "about.html")
+  path?: string;           // Full path to saved file
+  createdAt: number;       // Timestamp
+}
 
 /**
  * Theme mode preference
@@ -51,7 +63,15 @@ export interface DesignSession {
     typographyColors: DesignTokensTypography['colors'];
   };
   selectedComponents?: DesignTokensComponents;
-  selectedMockupStyle?: string;
+
+  // Artifact paths (for chaining context between phases)
+  artifactPaths?: {
+    theme?: string;           // Path to theme.html
+    components?: string;      // Path to components.html
+  };
+
+  // Pages (multiple mockups, each saved with its own name)
+  pages: DesignPage[];
 
   // Final output
   designName?: string;
@@ -356,11 +376,21 @@ export interface ShowMockupPreviewParams {
 }
 
 /**
- * Preview selection result (used by palette, component, and mockup previews)
+ * Preview selection result (used by palette and component previews)
  */
 export interface PreviewSelectionResult {
   selected?: number;      // Index of selected option (0-based)
   feedback?: string;      // User feedback for refinement
+}
+
+/**
+ * Mockup selection result (has additional "feeling lucky" option)
+ */
+export interface MockupSelectionResult {
+  selected?: number;      // Index of selected option (0-based) - saves page and shows pages panel
+  refine?: number;        // Index of option to refine - goes to chat, then shows popup again
+  feelingLucky?: boolean; // Generate 3 new variants
+  pageName?: string;      // Name for the page when selecting (e.g., "Landing Page")
 }
 
 /**
@@ -473,6 +503,43 @@ export interface DesignOptionSelectedEvent {
  */
 export interface DesignFeedbackSubmittedEvent {
   feedback: string;
+}
+
+/**
+ * Show pages panel event - displays the right-side panel with page list
+ */
+export interface DesignShowPagesPanelEvent {
+  pages: DesignPage[];
+}
+
+/**
+ * Page added event - a new page was added to the session
+ */
+export interface DesignPageAddedEvent {
+  page: DesignPage;
+}
+
+/**
+ * View page event (client → server) - user clicked to view a page
+ */
+export interface DesignViewPageEvent {
+  pageId: string;
+}
+
+/**
+ * Add page request event (client → server) - user wants to add a new page
+ */
+export interface DesignAddPageRequestEvent {
+  description?: string;  // Optional description of what page to generate
+}
+
+/**
+ * Mockup selection event (client → server) - for mockup-specific actions
+ */
+export interface DesignMockupSelectionEvent {
+  action: 'select' | 'refine' | 'feeling_lucky';
+  index?: number;        // For select/refine
+  pageName?: string;     // For select - name of the page
 }
 
 // ═══════════════════════════════════════════════════════════════

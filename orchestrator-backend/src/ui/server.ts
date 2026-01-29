@@ -752,6 +752,64 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       }
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    // Mockup-specific Socket Handlers (Select/Refine/Feeling Lucky)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Handle mockup selection (Select button - saves page and shows pages panel)
+    socket.on('design:mockup_selected', ({ index, pageName }: { index: number; pageName: string }) => {
+      console.log(`[UIServer] Mockup selected: index=${index}, name="${pageName}"`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        designerAgent.onMockupSelected(index, pageName);
+      }
+    });
+
+    // Handle mockup refine (Refine button - goes to chat, then shows popup again)
+    socket.on('design:mockup_refine', ({ index }: { index: number }) => {
+      console.log(`[UIServer] Mockup refine requested: index=${index}`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        designerAgent.onMockupRefine(index);
+      }
+    });
+
+    // Handle "I'm Feeling Lucky" (generates 3 new variants)
+    socket.on('design:mockup_feeling_lucky', () => {
+      console.log(`[UIServer] Mockup feeling lucky requested`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        designerAgent.onMockupFeelingLucky();
+      }
+    });
+
+    // Handle view page request (user clicks on a page in the pages panel)
+    socket.on('design:view_page', async ({ pageId }: { pageId: string }) => {
+      console.log(`[UIServer] View page requested: ${pageId}`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        const html = designerAgent.getPageHtml(pageId);
+        const page = designerAgent.getPage(pageId);
+        if (html && page) {
+          socket.emit('design:show_page_modal', { page, html });
+        }
+      }
+    });
+
+    // Handle add page request (user wants to add a new page)
+    socket.on('design:add_page_request', ({ description }: { description?: string }) => {
+      console.log(`[UIServer] Add page requested${description ? `: ${description}` : ''}`);
+      const pendingInputs = (io as any).pendingDesignerInputs as Map<string, { resolve: (msg: string) => void }>;
+      if (pendingInputs && pendingInputs.size > 0) {
+        const [key, pending] = Array.from(pendingInputs.entries()).pop()!;
+        const message = description
+          ? `[USER REQUEST: Please generate a new page - ${description}]`
+          : '[USER REQUEST: Please generate another page for me]';
+        pending.resolve(message);
+        pendingInputs.delete(key);
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
     });
@@ -1180,6 +1238,148 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // The actual save is handled by the DesignerAgentManager
     // We just acknowledge receipt here
     res.send(JSON.stringify({ status: 'save_requested' }));
+  });
+
+  // Designer: save selected artifact (theme, components, or mockup)
+  // All artifacts are now just HTML - CSS variables in the HTML serve as design tokens
+  app.post('/api/designer/save-artifact', async (req: Request, res: Response) => {
+    const { sessionId, type, html } = req.body;
+
+    console.log(`[UIServer] Designer save artifact for session ${sessionId}: ${type}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    try {
+      let result;
+      switch (type) {
+        case 'theme':
+          result = await designerAgent.handleSaveSelectedTheme({ html });
+          break;
+        case 'components':
+          result = await designerAgent.handleSaveSelectedComponents({ html });
+          break;
+        default:
+          res.status(400).send(JSON.stringify({ error: `Unknown artifact type: ${type}` }));
+          return;
+      }
+
+      res.send(JSON.stringify({ status: 'saved', ...result }));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to save artifact: ${error}`);
+      res.status(500).send(JSON.stringify({ error }));
+    }
+  });
+
+  // Designer: load previous artifacts for chaining context
+  app.post('/api/designer/load-artifacts', async (req: Request, res: Response) => {
+    const { sessionId, artifacts } = req.body;
+
+    console.log(`[UIServer] Designer load artifacts for session ${sessionId}: ${artifacts.join(', ')}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    try {
+      const loadedArtifacts = designerAgent.loadPreviousArtifacts(artifacts);
+      res.send(JSON.stringify({ artifacts: loadedArtifacts }));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to load artifacts: ${error}`);
+      res.status(500).send(JSON.stringify({ error }));
+    }
+  });
+
+  // Designer: save a named page (replaces mockup saving)
+  app.post('/api/designer/save-page', async (req: Request, res: Response) => {
+    const { sessionId, html, name } = req.body;
+
+    console.log(`[UIServer] Designer save page for session ${sessionId}: ${name}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    try {
+      const result = await designerAgent.handleSavePage({ html, name });
+      res.send(JSON.stringify({ status: 'saved', page: result.page }));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to save page: ${error}`);
+      res.status(500).send(JSON.stringify({ error }));
+    }
+  });
+
+  // Designer: show pages panel on the right side
+  app.post('/api/designer/show-pages-panel', async (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+
+    console.log(`[UIServer] Designer show pages panel for session ${sessionId}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    const pages = designerAgent.getPages();
+
+    // Emit show pages panel event to frontend
+    io.emit('design:show_pages_panel', { pages });
+
+    res.send(JSON.stringify({ status: 'ok', pages }));
+  });
+
+  // Designer: get all pages in the session
+  app.post('/api/designer/get-pages', async (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+
+    console.log(`[UIServer] Designer get pages for session ${sessionId}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    const pages = designerAgent.getPages();
+    res.send(JSON.stringify({ pages }));
+  });
+
+  // Designer: get page HTML content by ID
+  app.post('/api/designer/get-page-html', async (req: Request, res: Response) => {
+    const { sessionId, pageId } = req.body;
+
+    console.log(`[UIServer] Designer get page HTML for session ${sessionId}: ${pageId}`);
+
+    // Get the designer agent manager
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    const html = designerAgent.getPageHtml(pageId);
+    if (html === null) {
+      res.status(404).send(JSON.stringify({ error: 'Page not found' }));
+      return;
+    }
+
+    res.send(JSON.stringify({ html }));
   });
 
   // Expose pending designer maps for socket handlers

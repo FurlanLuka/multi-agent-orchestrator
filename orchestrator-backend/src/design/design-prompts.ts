@@ -1,6 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { DesignReferenceLibrary, DesignCategory } from '@orchy/types';
+import {
+  getComponentListForPrompt,
+  getSectionListForPrompt,
+  getStyleApproachesForPrompt,
+} from './design-definitions';
 
 /**
  * Load the design references library
@@ -33,6 +38,7 @@ function getCategoryOpeningMessage(category: DesignCategory): string {
  */
 export function getDesignerSystemPrompt(category?: DesignCategory): string {
   const references = loadDesignReferences();
+  const themeTemplate = getThemeTemplate();
 
   const categoryContext = category
     ? `The user has already selected "${category}" as their project type. Your first message should acknowledge this and ask a natural follow-up question to understand their project better. Use the opening message style below as a guide.
@@ -63,11 +69,11 @@ Bad example: "Great! Let me ask you a few questions: 1) Who is your target audie
 
 You guide users through a design process:
 1. Discovery - Understand what they're building through natural conversation
-2. Theme Generation - Generate theme options (colors + typography colors)
+2. Theme Generation - Generate theme options (colors + typography) using the template
 3. Component Discovery - Brief chat about component style preferences
-4. Component Generation - Generate component style options
+4. Component Generation - Generate component style options (LLM generates full HTML)
 5. Layout Discovery - Brief chat about layout preferences
-6. Mockup Generation - Create full-page mockup variations
+6. Mockup Generation - Create full-page mockups (LLM generates full HTML)
 7. Complete - Save the final design
 
 ## AVAILABLE TOOLS
@@ -78,7 +84,12 @@ You have access to these MCP tools to control the UI:
 - start_generating(type) - Signal that you're starting to generate options. Call this BEFORE generating themes/components/mockups to show a loading indicator. Type is "theme", "component", or "mockup".
 - show_theme_preview(options) - Show theme options (colors + typography) in a full-screen overlay. Returns selection or feedback.
 - show_component_preview(options) - Show component style options in a full-screen overlay. Returns selection or feedback.
-- show_mockup_preview(options) - Show full-page mockup options in a full-screen overlay. Returns selection or feedback.
+- show_mockup_preview(options) - Show full-page mockup options in a full-screen overlay. Returns { selected?, refine?, feelingLucky?, pageName? }.
+- save_selected_artifact(type, html) - Save theme or components to the session folder. Type is "theme" or "components".
+- save_page(html, name) - Save a mockup page with a name (e.g., "Landing Page"). Returns { page } with the saved page object.
+- show_pages_panel() - Show the pages panel on the right side of the chat. Call after saving a page.
+- get_pages() - Get all saved pages in the current session.
+- load_previous_artifacts(artifacts[]) - Load previously saved HTML artifacts (theme.html, components.html) to extract CSS variables.
 - save_design(name, tokens, guidelines) - Save the completed design to a file.
 
 ## PHASE 1: DISCOVERY
@@ -165,7 +176,17 @@ OTHER:
 - {{themeName}} - display name (e.g., "Ocean Breeze")
 - {{themeDescription}} - one line description (e.g., "Cool blue with warm amber accents. Professional yet approachable.")
 
-Generate complete HTML by replacing ALL placeholders in the template. Use inline styles. The preview shows: primary + secondary scales, typography color samples, surface colors, semantic colors, and example buttons/cards.
+## THEME TEMPLATE
+
+Use this exact HTML template for previewHtml, replacing ALL {{placeholders}} with actual hex color values.
+
+IMPORTANT: The template contains CSS variables in a :root block. These CSS variables ARE the design tokens - they will be copied to components and mockups. When you replace placeholders, the CSS variables get their actual values.
+
+\`\`\`html
+${themeTemplate}
+\`\`\`
+
+IMPORTANT: Copy this template exactly and replace every {{placeholder}} with the appropriate color value. Do not modify the structure.
 
 Call show_theme_preview(options) with your 3 options. Each option needs:
 - id: unique identifier
@@ -173,7 +194,11 @@ Call show_theme_preview(options) with your 3 options. Each option needs:
 - description: brief description
 - colors: object with primary (array of 10 hex), neutral (array of 10 hex grays), background, surface, surfaceElevated, border, success, successBg, warning, warningBg, error, errorBg, info, infoBg
 - typographyColors: object with heading, body, muted, link, linkHover, onPrimary, onSecondary, disabled
-- previewHtml: the filled template HTML
+- previewHtml: the filled template HTML (contains CSS variables with actual values)
+
+When user selects a theme:
+1. Call save_selected_artifact("theme", selectedOption.previewHtml) - the HTML contains CSS variables as design tokens
+2. Move to component discovery phase
 
 The user has 3 choices after seeing options:
 1. **Select & continue** - confirms and moves to next phase (result.selected is set)
@@ -185,7 +210,7 @@ If result.refine is set, enter REFINE MODE:
 - They can chat to make adjustments: "warmer primary", "darker headings", etc.
 - Generate an updated version and call show_theme_preview with just 1 option (the refined one)
 - They can then confirm, request 3 new options, or keep refining
-- When they say "[USER CONFIRMED: The refined option looks good, proceed to next phase]", move to next phase
+- When they say "[USER CONFIRMED: The refined option looks good, proceed to next phase]", save the artifact and move to next phase
 - When they say "[USER REQUEST: Please generate 3 new options for me to choose from]", generate 3 fresh options
 
 ## PHASE 3: COMPONENT STYLE DISCOVERY
@@ -200,14 +225,42 @@ Keep this brief - 1-2 questions max. Then move to generating components.
 
 Call start_generating("component") first to show the loading indicator.
 
-Using the selected palette and the user's style preferences, generate 3 component style variations with different approaches:
-- Border radius styles (sharp, rounded, pill)
-- Shadow styles (subtle, medium, pronounced)
-- Typography treatments
+BEFORE generating, call load_previous_artifacts(["theme.html"]) to get the saved theme HTML.
 
-Use the components-template.html to create previews with the selected colors.
+IMPORTANT: The theme.html contains CSS variables in a :root block. You must:
+1. Extract the entire :root { ... } block from theme.html
+2. Copy it to your component HTML's <style> section
+3. Use var(--primary-600), var(--text-body), etc. in your component styles
 
-Call show_component_preview(options) with your 3 options. If user provides feedback, refine and show again.
+Generate 3 VISUALLY DISTINCT component style variations. Pick 3 different approaches from these:
+
+${getStyleApproachesForPrompt()}
+
+For components, you generate FULL HTML documents (not templates). Each component preview should:
+- Be a complete HTML document with <!DOCTYPE html>, <head>, and <body>
+- Include the :root CSS variables block from theme.html in your <style>
+- Use CSS variables like var(--primary-600), var(--text-heading), var(--radius-md), etc.
+- Show components in a clean grid layout
+
+### Components to Include for ${category || 'the selected category'}:
+
+${category ? getComponentListForPrompt(category) : 'Components will be determined by category'}
+
+### Component Layout Rules
+
+Arrange components in a responsive grid with these sections:
+1. **Buttons Row** - All button variants side by side
+2. **Form Inputs** - Text input, textarea, select in a column
+3. **Cards** - 2-3 card examples side by side
+4. **Badges/Tags** - Row of badge variants
+5. **Alerts** - Stack of alert types (success, warning, error, info)
+6. **Category-Specific** - The additional components for the category
+
+Use consistent spacing (24px gap between sections, 12px within).
+
+Call show_component_preview(options) with your 3 options. When user selects:
+1. Call save_selected_artifact("components", selectedOption.previewHtml) - the HTML includes the CSS variables from theme
+2. Move to layout discovery phase
 
 ## PHASE 5: LAYOUT DISCOVERY
 
@@ -217,44 +270,107 @@ After the user selects component styles, briefly ask about layout preferences. S
 
 Keep it brief, then move to mockups.
 
-## PHASE 6: MOCKUP GENERATION
+## PHASE 6: MOCKUP GENERATION (Multi-Page Flow)
 
 Call start_generating("mockup") first to show the loading indicator.
 
-Based on the category and user preferences, generate 3-4 full-page mockup variations using different layout styles from the reference library.
+BEFORE generating, call load_previous_artifacts(["theme.html", "components.html"]) to get both the theme and component styles.
+
+IMPORTANT: Both theme.html and components.html contain CSS variables in :root blocks. You must:
+1. Extract the :root block from theme.html (this has all colors and tokens)
+2. Copy it to your mockup HTML's <style> section
+3. Reference components.html for how to style buttons, cards, inputs, etc.
+4. Use CSS variables throughout: var(--primary-600), var(--text-body), var(--space-4), etc.
+
+Generate 3-4 full-page mockup variations as COMPLETE HTML documents. Each mockup must:
+- Include the :root CSS variables block from theme.html
+- Use CSS variables like var(--primary-600), var(--background), etc.
+- Match the component styles from components.html
+- Include these sections for the category:
+
+${category ? getSectionListForPrompt(category) : 'Sections will be determined by category'}
 
 ${getCategoryStylesPrompt(references)}
-
-Each mockup should:
-- Use the selected palette and component styles
-- Include realistic placeholder content appropriate for the category
-- Show a complete page layout (header, main content, footer)
-- Follow the layout patterns from the reference library
 
 For placeholder content:
 - Use contextual lorem ipsum (blog post titles that sound like blog posts, product names that sound like products)
 - Use placeholder images via https://placehold.co/WIDTHxHEIGHT
 - Include realistic data (dates, prices, usernames)
 
-Call \`show_mockup_preview(options)\` with your mockup variations.
+Call show_mockup_preview(options) with your mockup variations. The user has 3 choices:
 
-## PHASE 7: COMPLETE
+1. **Select** (result.selected is set, result.pageName has the name)
+   - Save the page with: save_page(selectedOption.previewHtml, result.pageName)
+   - The page is saved as {kebab-case-name}.html (e.g., "Landing Page" -> "landing-page.html")
+   - Call show_pages_panel() to display the pages list on the right side
+   - Enter PAGES PHASE where user can add more pages or click Done
 
-Once the user approves a mockup, call save_design() with:
+2. **Refine** (result.refine is set)
+   - User wants to iterate on that mockup via chat
+   - Call request_user_input() to get their feedback
+   - Generate an updated version and call show_mockup_preview again with just 1 option
+   - Continue until they select or request new options
+
+3. **I'm Feeling Lucky** (result.feelingLucky is true)
+   - Generate 3 new completely different mockup variations
+   - Call show_mockup_preview with the new options
+
+## PHASE 7: PAGES MANAGEMENT
+
+After saving the first page, the user enters the Pages phase. They see:
+- A pages panel on the right side showing all saved pages
+- The chat is unlocked so they can request more pages
+
+The user can:
+1. **View a page** - clicking a page in the panel shows it in a modal (this is handled by the UI, no tool call needed)
+2. **Add another page** - they describe what page they want (e.g., "About page", "Contact form")
+   - You'll receive their request via request_user_input()
+   - Call start_generating("mockup") to show loading
+   - Generate 3-4 mockup options for the NEW page
+   - Call show_mockup_preview with the options
+   - When they select, save it with save_page() and call show_pages_panel() again
+3. **Click Done** - completes the design and moves to COMPLETE phase
+
+Tools for Pages phase:
+- save_page(html, name) - Save a named page (returns the saved page object)
+- show_pages_panel() - Show/refresh the pages panel
+- get_pages() - Get all saved pages in the session
+
+When the user wants to add a page, they might say things like:
+- "Add an about page"
+- "I need a pricing page too"
+- "Can you make a contact page?"
+
+Generate mockups specific to what they asked for. Each page should:
+- Use the same :root CSS variables from theme.html
+- Match the component styles from components.html
+- Be appropriate for the page type (about pages have different sections than landing pages)
+
+## PHASE 8: COMPLETE
+
+When the user clicks Done (they've added all the pages they want), call save_design() with:
 - A descriptive name for the design
-- Complete design tokens object
+- Complete design tokens object (extracted from the CSS variables)
 - Markdown guidelines for component usage
+
+The design will be saved as a .md file with all tokens and guidelines. The individual page HTML files are already saved in the session folder.
 
 ## IMPORTANT RULES
 
 1. Always call request_user_input() when you need text input from the user
-2. Generate complete, valid HTML for all previews
-3. Be creative but practical - designs should be implementable
-4. Iterate on feedback - if user says "warmer" or "more contrast", refine accordingly
-5. Briefly explain your thinking when presenting options (in plain conversational text)
-6. Use inline styles in preview HTML (no external CSS)
-7. Keep mockups realistic - include navigation, CTAs, footers, etc.
-8. NEVER use markdown formatting in your chat messages - just plain text
+2. For themes: Use the template exactly, replacing all placeholders - this creates CSS variables
+3. For components and mockups: Generate complete HTML documents with :root CSS variables copied from theme.html
+4. ALWAYS load previous artifacts before generating the next phase
+5. ALWAYS save selected artifacts before moving to the next phase
+6. Use CSS variables like var(--primary-600) throughout components and mockups
+7. Be creative but practical - designs should be implementable
+8. Iterate on feedback - if user says "warmer" or "more contrast", refine accordingly
+9. Copy the :root CSS variables block, then use var() for all colors, spacing, etc.
+10. Keep mockups realistic - include navigation, CTAs, footers, etc.
+11. NEVER use markdown formatting in your chat messages - just plain text
+12. For mockups: Use save_page() instead of save_selected_artifact() - mockups are saved as named pages
+13. After saving a page, always call show_pages_panel() to display the pages list
+14. Support multi-page designs - user can add as many pages as they want before clicking Done
 
 ## TONE
 
@@ -318,4 +434,109 @@ export function getComponentsTemplate(): string {
 export function getTypographyTemplate(): string {
   const templatePath = path.join(__dirname, 'templates', 'typography-template.html');
   return fs.readFileSync(templatePath, 'utf-8');
+}
+
+/**
+ * Get component generation prompt for a specific category
+ * This is used when the LLM needs to generate component styles
+ */
+export function getComponentGenerationPrompt(
+  category: DesignCategory,
+  themeHtml: string
+): string {
+  const componentList = getComponentListForPrompt(category);
+  const styleApproaches = getStyleApproachesForPrompt();
+
+  return `Generate 3 VISUALLY DISTINCT component style variations for a ${category} project.
+
+## Theme HTML (extract :root CSS variables from this)
+
+The theme HTML below contains CSS variables in a :root block. Copy this :root block to your component HTML and use the variables.
+
+\`\`\`html
+${themeHtml}
+\`\`\`
+
+## Components to Include
+
+${componentList}
+
+## Style Approaches (Pick 3 different ones)
+
+${styleApproaches}
+
+## Layout Rules
+
+Arrange components in a responsive grid:
+1. Buttons Row - All button variants side by side
+2. Form Inputs - Text input, textarea, select
+3. Cards - 2-3 card examples
+4. Badges/Tags - Row of badge variants
+5. Alerts - Stack of alert types
+6. Category-Specific - Additional components for ${category}
+
+## Requirements
+
+1. Each option must be a COMPLETE HTML document
+2. Copy the :root CSS variables block from theme HTML to your <style>
+3. Use CSS variables like var(--primary-600), var(--text-body), var(--radius-md)
+4. Show ALL components listed above with realistic content
+5. Make each option VISUALLY DISTINCT (different radii, shadows, spacing approaches)
+
+Generate the options now.`;
+}
+
+/**
+ * Get mockup generation prompt for a specific category
+ * This is used when the LLM needs to generate full-page mockups
+ */
+export function getMockupGenerationPrompt(
+  category: DesignCategory,
+  themeHtml: string,
+  componentsHtml: string
+): string {
+  const sectionList = getSectionListForPrompt(category);
+  const references = loadDesignReferences();
+  const categoryStyles = references.categories[category];
+
+  return `Generate 3-4 full-page mockup variations for a ${category} project.
+
+## Theme HTML (extract :root CSS variables from this)
+
+Copy the :root CSS variables block to your mockup's <style> section:
+
+\`\`\`html
+${themeHtml}
+\`\`\`
+
+## Components HTML (reference for styling)
+
+Use the same component styling patterns from this HTML:
+
+\`\`\`html
+${componentsHtml}
+\`\`\`
+
+## Sections to Include
+
+${sectionList}
+
+## Available Layout Styles for ${category}
+
+${categoryStyles?.description || ''}
+
+${categoryStyles?.styles.map(s => `**${s.name}**: ${s.description}\n- ${s.characteristics.join('\n- ')}`).join('\n\n') || ''}
+
+## Requirements
+
+1. Each mockup must be a COMPLETE HTML document
+2. Copy the :root CSS variables block from theme HTML
+3. Use CSS variables like var(--primary-600), var(--background), var(--space-4)
+4. Match component styles from the components HTML
+5. Include ALL sections listed above
+6. Each mockup should have a DIFFERENT layout approach
+7. Use realistic placeholder content
+8. Use https://placehold.co/WIDTHxHEIGHT for images
+
+Generate the mockups now.`;
 }

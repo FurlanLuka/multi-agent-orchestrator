@@ -171,7 +171,7 @@ async function handleMessage(msg) {
         },
         {
           name: 'show_mockup_preview',
-          description: 'Display a full-screen overlay with full-page mockup options. Each mockup shows a complete page layout with realistic content matching what the user is building. The user can select one or provide feedback for refinement.',
+          description: 'Display a full-screen overlay with full-page mockup options. User has 3 actions: Select (saves page, shows pages panel), Refine (goes back to chat for adjustments), or "I\'m Feeling Lucky" (generates 3 new variants). Returns: { selected: index, pageName: string } OR { refine: index } OR { feelingLucky: true }.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -214,6 +214,90 @@ async function handleMessage(msg) {
               }
             },
             required: ['name', 'tokens', 'guidelines']
+          }
+        },
+        {
+          name: 'save_selected_artifact',
+          description: 'Save the selected artifact (theme or components) to the session folder. Call this when the user selects an option to persist it for the next phase. The HTML should contain CSS variables in a :root block that serve as design tokens.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: ['theme', 'components'],
+                description: 'Type of artifact being saved (theme or components)'
+              },
+              html: {
+                type: 'string',
+                description: 'The HTML content of the selected option (should include CSS variables in :root)'
+              }
+            },
+            required: ['type', 'html']
+          }
+        },
+        {
+          name: 'save_page',
+          description: 'Save a page (mockup) with a specific name. Called when user selects a mockup option. The page is saved as {name}.html in the session folder and added to the pages list.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Display name for the page (e.g., "Landing Page", "About", "Pricing")'
+              },
+              html: {
+                type: 'string',
+                description: 'The HTML content of the page (should include CSS variables in :root)'
+              }
+            },
+            required: ['name', 'html']
+          }
+        },
+        {
+          name: 'show_pages_panel',
+          description: 'Show the pages panel on the right side of chat. This displays all saved pages and allows the user to view them or add new pages.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: 'get_pages',
+          description: 'Get the list of all pages saved in the current session.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: 'get_page_html',
+          description: 'Get the HTML content of a specific page by its ID.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              pageId: {
+                type: 'string',
+                description: 'The ID of the page to retrieve'
+              }
+            },
+            required: ['pageId']
+          }
+        },
+        {
+          name: 'load_previous_artifacts',
+          description: 'Load previously saved artifacts to use as context for generating the next phase. For components, load theme.html. For mockups, load both theme.html and components.html.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              artifacts: {
+                type: 'array',
+                description: 'Array of artifact filenames to load (e.g., ["theme.html", "theme-metadata.json"])',
+                items: { type: 'string' }
+              }
+            },
+            required: ['artifacts']
           }
         }
       ]
@@ -303,6 +387,102 @@ async function handleMessage(msg) {
       name,
       tokens,
       guidelines
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'save_selected_artifact') {
+    const { type, html } = params.arguments || {};
+
+    if (!type || !html) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: type, html' }) }]
+      });
+      return;
+    }
+
+    const result = await callDesignerEndpoint('/api/designer/save-artifact', {
+      sessionId: SESSION_ID,
+      type,
+      html
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'load_previous_artifacts') {
+    const { artifacts } = params.arguments || {};
+
+    if (!artifacts || !Array.isArray(artifacts)) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required field: artifacts (array)' }) }]
+      });
+      return;
+    }
+
+    const result = await callDesignerEndpoint('/api/designer/load-artifacts', {
+      sessionId: SESSION_ID,
+      artifacts
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'save_page') {
+    const { name, html } = params.arguments || {};
+
+    if (!name || !html) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: name, html' }) }]
+      });
+      return;
+    }
+
+    const result = await callDesignerEndpoint('/api/designer/save-page', {
+      sessionId: SESSION_ID,
+      name,
+      html
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'show_pages_panel') {
+    const result = await callDesignerEndpoint('/api/designer/show-pages-panel', {
+      sessionId: SESSION_ID
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'get_pages') {
+    const result = await callDesignerEndpoint('/api/designer/get-pages', {
+      sessionId: SESSION_ID
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'get_page_html') {
+    const { pageId } = params.arguments || {};
+
+    if (!pageId) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required field: pageId' }) }]
+      });
+      return;
+    }
+
+    const result = await callDesignerEndpoint('/api/designer/get-page-html', {
+      sessionId: SESSION_ID,
+      pageId
     });
 
     respond(id, {
