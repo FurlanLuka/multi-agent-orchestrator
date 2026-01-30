@@ -288,9 +288,13 @@ export interface MockupOption {
   id: string;
   name: string;           // e.g., "Minimal", "Magazine", "Grid"
   description: string;
-  styleName: string;      // Reference to style from design-references.json
-  // Full HTML mockup (agent-generated)
-  previewHtml: string;
+  styleName?: string;     // Reference to style from design-references.json
+  // Draft index - references draft saved via save_mockup_draft()
+  // Frontend fetches HTML from /api/designer/draft/:draftIndex
+  draftIndex?: number;
+  // Full HTML mockup (agent-generated) - DEPRECATED: use draftIndex instead
+  // Only used as fallback if draftIndex is not provided
+  previewHtml?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -391,6 +395,7 @@ export interface MockupSelectionResult {
   refine?: number;        // Index of option to refine - goes to chat, then shows popup again
   feelingLucky?: boolean; // Generate 3 new variants
   pageName?: string;      // Name for the page when selecting (e.g., "Landing Page")
+  autoSaved?: boolean;    // True if page was auto-saved by backend (no need to call save_page)
 }
 
 /**

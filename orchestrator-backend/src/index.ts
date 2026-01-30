@@ -484,6 +484,16 @@ async function main() {
     ui.io.emit('design:page_added', data);
   });
 
+  // Forward page saved event (auto-save on mockup selection)
+  // Also shows the pages panel automatically
+  designerAgent.on('pageSaved', (data: { page: { id: string; name: string; filename: string } }) => {
+    console.log(`[DesignerAgent] Page auto-saved: ${data.page.name}`);
+    ui.io.emit('design:page_added', data);
+    // Also show pages panel with all pages
+    const pages = designerAgent.getPages();
+    ui.io.emit('design:show_pages_panel', { pages });
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // Wire up Process Manager events
   // ═══════════════════════════════════════════════════════════════

@@ -1377,6 +1377,48 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     res.send(JSON.stringify({ html }));
   });
 
+  // Designer: save mockup draft (for performance optimization)
+  app.post('/api/designer/save-mockup-draft', async (req: Request, res: Response) => {
+    const { sessionId, html, index } = req.body;
+
+    console.log(`[UIServer] Designer save mockup draft for session ${sessionId}: index ${index}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send(JSON.stringify({ error: 'Designer agent not available' }));
+      return;
+    }
+
+    try {
+      const filename = designerAgent.saveMockupDraft(html, index);
+      res.send(JSON.stringify({ status: 'saved', filename, index }));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to save mockup draft: ${error}`);
+      res.status(500).send(JSON.stringify({ error }));
+    }
+  });
+
+  // Designer: get mockup draft HTML (for frontend preview)
+  app.get('/api/designer/draft/:index', (req: Request, res: Response) => {
+    const index = parseInt(req.params.index, 10);
+
+    console.log(`[UIServer] GET /api/designer/draft/${index}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send('Designer agent not available');
+      return;
+    }
+
+    const html = designerAgent.getMockupDraft(index);
+    if (html) {
+      res.type('html').send(html);
+    } else {
+      res.status(404).send('Draft not found');
+    }
+  });
+
   // Designer: save design folder (from complete stage)
   app.post('/api/designer/save-design-folder', async (req: Request, res: Response) => {
     const { designName } = req.body;

@@ -171,7 +171,7 @@ async function handleMessage(msg) {
         },
         {
           name: 'show_mockup_preview',
-          description: 'Display a full-screen overlay with full-page mockup options. User has 3 actions: Select (saves page, shows pages panel), Refine (goes back to chat for adjustments), or "I\'m Feeling Lucky" (generates 3 new variants). Returns: { selected: index, pageName: string } OR { refine: index } OR { feelingLucky: true }.',
+          description: 'Display a full-screen overlay with full-page mockup options. IMPORTANT: Call save_mockup_draft() for each option FIRST to save the HTML, then pass draftIndex in options instead of previewHtml. User has 3 actions: Select (auto-saves page, shows pages panel), Refine (goes back to chat), or "Feeling Lucky" (regenerate). Returns: { selected: index, pageName: string, autoSaved: true } OR { refine: index } OR { feelingLucky: true }. When autoSaved=true, the page was already saved - just respond conversationally, no need to call save_page().',
           inputSchema: {
             type: 'object',
             properties: {
@@ -185,9 +185,10 @@ async function handleMessage(msg) {
                     name: { type: 'string', description: 'Layout style name (e.g., "Minimal", "Magazine")' },
                     description: { type: 'string', description: 'Brief description of this layout style' },
                     styleName: { type: 'string', description: 'Reference to style from design-references.json' },
-                    previewHtml: { type: 'string', description: 'Full HTML mockup with realistic content' }
+                    draftIndex: { type: 'number', description: 'Index of the draft saved via save_mockup_draft(). Frontend fetches HTML from /api/designer/draft/:index' },
+                    previewHtml: { type: 'string', description: 'DEPRECATED: Use draftIndex instead. Full HTML mockup (only used if draftIndex not provided)' }
                   },
-                  required: ['id', 'name', 'description', 'previewHtml']
+                  required: ['id', 'name', 'description']
                 }
               }
             },
@@ -286,18 +287,45 @@ async function handleMessage(msg) {
           }
         },
         {
+          name: 'save_mockup_draft',
+          description: 'Save a mockup draft to the session folder during generation. Returns the draft filename. Call this for each mockup option BEFORE calling show_mockup_preview. The drafts are used for fast auto-save when user selects.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              html: {
+                type: 'string',
+                description: 'The full HTML content of the mockup'
+              },
+              index: {
+                type: 'number',
+                description: 'The index of this mockup option (0, 1, 2, etc.)'
+              }
+            },
+            required: ['html', 'index']
+          }
+        },
+        {
           name: 'load_previous_artifacts',
-          description: 'Load previously saved artifacts to use as context for generating the next phase. For components, load theme.html. For mockups, load both theme.html and components.html.',
+          description: 'DEPRECATED: Use get_design_tokens instead. Loads full HTML artifacts which is wasteful.',
           inputSchema: {
             type: 'object',
             properties: {
               artifacts: {
                 type: 'array',
-                description: 'Array of artifact filenames to load (e.g., ["theme.html", "theme-metadata.json"])',
+                description: 'Array of artifact filenames to load',
                 items: { type: 'string' }
               }
             },
             required: ['artifacts']
+          }
+        },
+        {
+          name: 'get_design_tokens',
+          description: 'Get the CSS variables from saved theme.html as a compact string. Use this instead of load_previous_artifacts - it returns only the :root CSS block (~2k chars vs 15k for full HTML). Call this before generating components or mockups.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
           }
         }
       ]
@@ -483,6 +511,26 @@ async function handleMessage(msg) {
     const result = await callDesignerEndpoint('/api/designer/get-page-html', {
       sessionId: SESSION_ID,
       pageId
+    });
+
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'save_mockup_draft') {
+    const { html, index } = params.arguments || {};
+
+    if (html === undefined || index === undefined) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: html, index' }) }]
+      });
+      return;
+    }
+
+    const result = await callDesignerEndpoint('/api/designer/save-mockup-draft', {
+      sessionId: SESSION_ID,
+      html,
+      index
     });
 
     respond(id, {

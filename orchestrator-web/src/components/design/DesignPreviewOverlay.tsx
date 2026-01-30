@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Group,
@@ -10,6 +10,7 @@ import {
 import { IconX, IconMessageCircle, IconCheck, IconWand } from '@tabler/icons-react';
 import type { ThemeOption, ComponentStyleOption, MockupOption } from '@orchy/types';
 import { TabbedCard, glass, radii } from '../../theme';
+import { useOrchestrator } from '../../context/OrchestratorContext';
 
 interface DesignPreviewOverlayProps {
   opened: boolean;
@@ -37,6 +38,7 @@ export function DesignPreviewOverlay({
   onClose,
 }: DesignPreviewOverlayProps) {
   const [activeTab, setActiveTab] = useState('0');
+  const { port } = useOrchestrator();
 
   // Reset tab when options change
   useEffect(() => {
@@ -92,9 +94,13 @@ export function DesignPreviewOverlay({
           {/* Preview iframe */}
           <Box style={{ flex: 1, minHeight: 0 }}>
             {type === 'mockup' ? (
-              <MockupFrame html={currentOption.previewHtml} />
+              <MockupFrame
+                html={(currentOption as MockupOption).previewHtml}
+                draftIndex={(currentOption as MockupOption).draftIndex}
+                port={port}
+              />
             ) : (
-              <PreviewFrame html={currentOption.previewHtml} />
+              <PreviewFrame html={(currentOption as ThemeOption | ComponentStyleOption).previewHtml} />
             )}
           </Box>
         </Box>
@@ -164,8 +170,28 @@ function PreviewFrame({ html }: { html: string }) {
 
 /**
  * Mockup frame with fake browser chrome
+ * Supports both direct HTML (previewHtml) and draft fetching (draftIndex)
  */
-function MockupFrame({ html }: { html: string }) {
+function MockupFrame({
+  html,
+  draftIndex,
+  port,
+}: {
+  html?: string;
+  draftIndex?: number;
+  port: number | null;
+}) {
+  // Determine iframe source - either direct HTML (srcDoc) or URL (src)
+  const iframeSrc = useMemo(() => {
+    if (draftIndex !== undefined && port) {
+      return `http://localhost:${port}/api/designer/draft/${draftIndex}`;
+    }
+    return undefined;
+  }, [draftIndex, port]);
+
+  // Use srcDoc for direct HTML, src for draft URL
+  const useDirectHtml = html && draftIndex === undefined;
+
   return (
     <Box
       style={{
@@ -232,16 +258,39 @@ function MockupFrame({ html }: { html: string }) {
         </Box>
       </Box>
 
-      {/* Iframe */}
-      <iframe
-        srcDoc={html}
-        style={{
-          width: '100%',
-          flex: 1,
-          border: 'none',
-        }}
-        title="Mockup Preview"
-      />
+      {/* Iframe - uses src for draft URL, srcDoc for direct HTML */}
+      {useDirectHtml ? (
+        <iframe
+          srcDoc={html}
+          style={{
+            width: '100%',
+            flex: 1,
+            border: 'none',
+          }}
+          title="Mockup Preview"
+        />
+      ) : iframeSrc ? (
+        <iframe
+          src={iframeSrc}
+          style={{
+            width: '100%',
+            flex: 1,
+            border: 'none',
+          }}
+          title="Mockup Preview"
+        />
+      ) : (
+        <Box
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text c="dimmed">No preview available</Text>
+        </Box>
+      )}
     </Box>
   );
 }

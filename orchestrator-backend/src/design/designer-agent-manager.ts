@@ -71,6 +71,9 @@ export class DesignerAgentManager extends EventEmitter {
   private pendingMockupSelection: ((result: MockupSelectionResult) => void) | null = null;
   private pendingSummaryResponse: ((result: 'proceed' | 'continue') => void) | null = null;
 
+  // Draft mockup storage - stores HTML during generation for fast selection
+  private currentMockupDrafts: string[] = [];
+
   // Session timeout
   private static readonly SESSION_TIMEOUT = 3600000; // 1 hour
 
@@ -962,15 +965,100 @@ export class DesignerAgentManager extends EventEmitter {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // Draft Mockup Management (for performance optimization)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Save a mockup draft during generation
+   * Called by Claude via MCP tool - saves HTML to session folder
+   * Returns the draft filename (not full path) for reference
+   */
+  saveMockupDraft(html: string, index: number): string {
+    const filename = `draft-mockup-${index}.html`;
+    this.saveArtifact(filename, html);
+    this.currentMockupDrafts[index] = filename;
+    console.log(`[DesignerAgent] Saved mockup draft: ${filename} (${html.length} chars)`);
+    return filename;
+  }
+
+  /**
+   * Get mockup draft HTML by index
+   * Used by API endpoint to serve draft content
+   */
+  getMockupDraft(index: number): string | null {
+    const filename = `draft-mockup-${index}.html`;
+    return this.loadArtifact(filename);
+  }
+
+  /**
+   * Clear all mockup drafts (called when starting new mockup generation)
+   */
+  clearMockupDrafts(): void {
+    this.currentMockupDrafts = [];
+    console.log('[DesignerAgent] Cleared mockup drafts');
+  }
+
   /**
    * Called when user selects a mockup option (Select button)
+   * Now auto-saves the draft as a page - no Claude round-trip needed!
    */
   onMockupSelected(index: number, pageName: string): void {
+    // Auto-save: Copy draft to final page immediately
+    const draftHtml = this.getMockupDraft(index);
+    if (draftHtml && this.session) {
+      try {
+        // Use sync version to avoid async complexity
+        const page = this.handleSavePageSync({ html: draftHtml, name: pageName });
+        console.log(`[DesignerAgent] Auto-saved page: ${page.name} -> ${page.filename}`);
+
+        // Emit pageSaved event so frontend can update pages panel
+        this.emit('pageSaved', { page });
+      } catch (err) {
+        console.error('[DesignerAgent] Failed to auto-save page:', err);
+      }
+    }
+
+    // Resolve with autoSaved flag so Claude knows not to call save_page
     if (this.pendingMockupSelection) {
       const resolve = this.pendingMockupSelection;
       this.pendingMockupSelection = null;
-      resolve({ selected: index, pageName });
+      resolve({ selected: index, pageName, autoSaved: true });
     }
+  }
+
+  /**
+   * Synchronous version of handleSavePage for auto-save
+   */
+  private handleSavePageSync(pageOption: { html: string; name: string }): DesignPage {
+    if (!this.session) {
+      throw new Error('No active session');
+    }
+
+    // Generate filename from page name
+    const filename = pageOption.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') + '.html';
+
+    // Save page HTML
+    const pagePath = this.saveArtifact(filename, pageOption.html);
+
+    // Create page object
+    const page: DesignPage = {
+      id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      name: pageOption.name,
+      filename,
+      path: pagePath,
+      createdAt: Date.now(),
+    };
+
+    // Add to session pages
+    this.session.pages.push(page);
+
+    console.log(`[DesignerAgent] Saved page: ${page.name} -> ${pagePath}`);
+
+    return page;
   }
 
   /**

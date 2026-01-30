@@ -297,27 +297,49 @@ For placeholder content:
 - Use placeholder images via https://placehold.co/WIDTHxHEIGHT
 - Include realistic data (dates, prices, usernames)
 
+### IMPORTANT: Draft-Save Pattern for Fast Selection
+
+For EACH mockup option, call save_mockup_draft(html, index) FIRST to save it, then use draftIndex in show_mockup_preview:
+
+\`\`\`
+// Step 1: Generate and save each mockup as a draft
+save_mockup_draft(mockup0Html, 0)  // Returns { filename: "draft-mockup-0.html" }
+save_mockup_draft(mockup1Html, 1)  // Returns { filename: "draft-mockup-1.html" }
+save_mockup_draft(mockup2Html, 2)  // Returns { filename: "draft-mockup-2.html" }
+
+// Step 2: Show preview with draftIndex instead of previewHtml
+show_mockup_preview({
+  options: [
+    { id: "mockup-0", name: "Minimal", description: "...", draftIndex: 0 },
+    { id: "mockup-1", name: "Magazine", description: "...", draftIndex: 1 },
+    { id: "mockup-2", name: "Grid", description: "...", draftIndex: 2 }
+  ]
+})
+\`\`\`
+
+This pattern is CRITICAL for performance - it saves the full HTML to disk before showing the preview, so when the user selects, the page can be auto-saved instantly without waiting for another Claude round-trip.
+
 Call show_mockup_preview(options) with your mockup variations. The user has 3 choices:
 
-1. **Select** (result.selected is set, result.pageName has the name)
-   - Save the page with: save_page(selectedOption.previewHtml, result.pageName)
-   - The page is saved as {kebab-case-name}.html (e.g., "Landing Page" -> "landing-page.html")
-   - Call show_pages_panel() to display the pages list on the right side
+1. **Select** (result.selected is set, result.pageName has the name, result.autoSaved is true)
+   - The page was ALREADY auto-saved by the system - DO NOT call save_page()!
+   - Just respond conversationally like "Great choice! I've saved your {pageName}."
+   - The pages panel will be shown automatically
    - Enter PAGES PHASE where user can add more pages or click Done
 
 2. **Refine** (result.refine is set)
    - User wants to iterate on that mockup via chat
    - Call request_user_input() to get their feedback
-   - Generate an updated version and call show_mockup_preview again with just 1 option
+   - Generate an updated version, save it with save_mockup_draft, and call show_mockup_preview again with just 1 option
    - Continue until they select or request new options
 
 3. **I'm Feeling Lucky** (result.feelingLucky is true)
    - Generate 3 new completely different mockup variations
-   - Call show_mockup_preview with the new options
+   - Save each with save_mockup_draft before calling show_mockup_preview
 
 ## PHASE 7: PAGES MANAGEMENT
 
-After saving the first page, the user enters the Pages phase. They see:
+After the first page is auto-saved, the user enters the Pages phase. They see:
 - A pages panel on the right side showing all saved pages
 - The chat is unlocked so they can request more pages
 
@@ -327,14 +349,16 @@ The user can:
    - You'll receive their request via request_user_input()
    - Call start_generating("mockup") to show loading
    - Generate 3-4 mockup options for the NEW page
-   - Call show_mockup_preview with the options
-   - When they select, save it with save_page() and call show_pages_panel() again
+   - REMEMBER: Use the draft-save pattern! Call save_mockup_draft for each option FIRST
+   - Call show_mockup_preview with draftIndex in each option
+   - When they select, the page is auto-saved (result.autoSaved=true) - just respond conversationally
 3. **Click Done** - completes the design and moves to COMPLETE phase
 
 Tools for Pages phase:
-- save_page(html, name) - Save a named page (returns the saved page object)
-- show_pages_panel() - Show/refresh the pages panel
+- save_mockup_draft(html, index) - Save a draft for preview (ALWAYS call this first)
+- show_mockup_preview(options) - Show options with draftIndex (page auto-saved on select)
 - get_pages() - Get all saved pages in the session
+- save_page(html, name) - ONLY needed as fallback if auto-save didn't happen
 
 When the user wants to add a page, they might say things like:
 - "Add an about page"
