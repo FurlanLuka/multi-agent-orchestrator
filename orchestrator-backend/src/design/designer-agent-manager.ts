@@ -19,8 +19,18 @@ import {
   SavedDesignFolderContents,
 } from '@orchy/types';
 import { spawnWithShellEnv } from '../utils/shell-env';
-import { getCacheDir, getConfigDir, ensureDesignSessionDir, getDesignArtifactPath } from '../config/paths';
+import { getCacheDir, getConfigDir, ensureDesignSessionDir, getDesignArtifactPath, getDesignTemplatesDir } from '../config/paths';
 import { getDesignerSystemPrompt } from './design-prompts';
+
+/**
+ * Session paths for the Zero-HTML MCP Architecture.
+ * MCP tools only pass paths - Claude uses native Read/Write for file operations.
+ */
+interface SessionPaths {
+  root: string;           // ~/.orchy-config/design-sessions/{sessionId}/
+  drafts: string;         // ~/.orchy-config/design-sessions/{sessionId}/drafts/
+  themeTemplate: string;  // ~/.orchy-config/design-sessions/{sessionId}/theme-template.html
+}
 
 // Stream JSON message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -63,6 +73,9 @@ interface StreamJsonMessage {
 export class DesignerAgentManager extends EventEmitter {
   private currentProcess: ChildProcess | null = null;
   private session: DesignSession | null = null;
+
+  // Session paths for Zero-HTML MCP Architecture
+  private sessionPaths: SessionPaths | null = null;
 
   // Pending response resolvers (for MCP tool calls)
   private pendingUserInput: ((message: string) => void) | null = null;
@@ -111,6 +124,9 @@ export class DesignerAgentManager extends EventEmitter {
 
     console.log(`[DesignerAgent] Starting session: ${sessionId}${category ? ` with category: ${category}` : ''}`);
 
+    // Setup session folder and copy templates (Zero-HTML Architecture)
+    this.setupSessionFolder(sessionId);
+
     // Emit session started event
     this.emit('sessionStarted', this.session);
 
@@ -118,6 +134,48 @@ export class DesignerAgentManager extends EventEmitter {
     await this.spawnDesignerAgent(category);
 
     return this.session;
+  }
+
+  /**
+   * Setup session folder structure and copy templates.
+   * Zero-HTML Architecture: MCP tools only pass paths, Claude uses Read/Write.
+   */
+  private setupSessionFolder(sessionId: string): void {
+    const sessionDir = ensureDesignSessionDir(sessionId);
+    const draftsDir = path.join(sessionDir, 'drafts');
+
+    // Create drafts subfolder
+    if (!fs.existsSync(draftsDir)) {
+      fs.mkdirSync(draftsDir, { recursive: true });
+    }
+
+    // Copy theme template from setup directory (handles pkg bundling)
+    const templatesDir = getDesignTemplatesDir();
+    const themeTemplateSrc = path.join(templatesDir, 'theme-template.html');
+    const themeTemplateDest = path.join(sessionDir, 'theme-template.html');
+
+    if (fs.existsSync(themeTemplateSrc)) {
+      fs.copyFileSync(themeTemplateSrc, themeTemplateDest);
+      console.log(`[DesignerAgent] Copied theme template to: ${themeTemplateDest}`);
+    } else {
+      console.warn(`[DesignerAgent] Theme template not found at: ${themeTemplateSrc}`);
+    }
+
+    // Store paths for MCP tools
+    this.sessionPaths = {
+      root: sessionDir,
+      drafts: draftsDir,
+      themeTemplate: themeTemplateDest,
+    };
+
+    console.log(`[DesignerAgent] Session folder setup complete: ${sessionDir}`);
+  }
+
+  /**
+   * Get session paths for MCP tools
+   */
+  getSessionPaths(): SessionPaths | null {
+    return this.sessionPaths;
   }
 
   /**
@@ -966,8 +1024,133 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // Draft Mockup Management (for performance optimization)
+  // Draft Management (Zero-HTML Architecture)
+  // - Themes: CSS-only, injected into template for preview
+  // - Components: Full HTML (uses theme CSS vars)
+  // - Mockups: Full HTML
   // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Get draft content for preview by type and index.
+   * Zero-HTML Architecture:
+   * - Theme: Reads CSS file, injects into template, returns combined HTML
+   * - Component/Mockup: Returns HTML file directly
+   */
+  getDraft(type: 'theme' | 'component' | 'mockup', index: number): string | null {
+    if (!this.sessionPaths) {
+      console.error('[DesignerAgent] No session paths available');
+      return null;
+    }
+
+    const draftsDir = this.sessionPaths.drafts;
+
+    if (type === 'theme') {
+      // Theme: CSS-only, inject into template
+      const cssPath = path.join(draftsDir, `theme-${index}.css`);
+      const templatePath = this.sessionPaths.themeTemplate;
+
+      if (!fs.existsSync(cssPath)) {
+        console.log(`[DesignerAgent] Theme CSS not found: ${cssPath}`);
+        return null;
+      }
+
+      if (!fs.existsSync(templatePath)) {
+        console.log(`[DesignerAgent] Theme template not found: ${templatePath}`);
+        return null;
+      }
+
+      const css = fs.readFileSync(cssPath, 'utf-8');
+      const template = fs.readFileSync(templatePath, 'utf-8');
+
+      // Inject CSS variables into template
+      // The template should have a <style> tag or we inject before </head>
+      const injectedHtml = this.injectCssIntoTemplate(template, css);
+      console.log(`[DesignerAgent] Injected theme CSS into template (${css.length} chars CSS)`);
+      return injectedHtml;
+
+    } else if (type === 'component') {
+      // Component: Full HTML
+      const htmlPath = path.join(draftsDir, `component-${index}.html`);
+      if (!fs.existsSync(htmlPath)) {
+        console.log(`[DesignerAgent] Component HTML not found: ${htmlPath}`);
+        return null;
+      }
+      return fs.readFileSync(htmlPath, 'utf-8');
+
+    } else if (type === 'mockup') {
+      // Mockup: Full HTML
+      const htmlPath = path.join(draftsDir, `mockup-${index}.html`);
+      if (!fs.existsSync(htmlPath)) {
+        console.log(`[DesignerAgent] Mockup HTML not found: ${htmlPath}`);
+        return null;
+      }
+      return fs.readFileSync(htmlPath, 'utf-8');
+    }
+
+    return null;
+  }
+
+  /**
+   * Inject CSS variables into the template HTML.
+   * Looks for <!-- INJECT_CSS --> placeholder or injects before </head>.
+   */
+  private injectCssIntoTemplate(template: string, css: string): string {
+    const cssBlock = `<style>\n${css}\n</style>`;
+
+    // Try placeholder first
+    if (template.includes('<!-- INJECT_CSS -->')) {
+      return template.replace('<!-- INJECT_CSS -->', cssBlock);
+    }
+
+    // Otherwise inject before </head>
+    if (template.includes('</head>')) {
+      return template.replace('</head>', `${cssBlock}\n</head>`);
+    }
+
+    // Fallback: prepend to template
+    return cssBlock + '\n' + template;
+  }
+
+  /**
+   * Auto-save selected draft as the final artifact.
+   * Called when user selects an option - instant save, no Claude round-trip.
+   */
+  autoSaveSelectedDraft(type: 'theme' | 'component' | 'mockup', index: number, pageName?: string): { path: string; page?: DesignPage } {
+    if (!this.sessionPaths || !this.session) {
+      throw new Error('No active session');
+    }
+
+    const draftsDir = this.sessionPaths.drafts;
+    const sessionDir = this.sessionPaths.root;
+
+    if (type === 'theme') {
+      // Copy theme CSS to final location
+      const srcPath = path.join(draftsDir, `theme-${index}.css`);
+      const destPath = path.join(sessionDir, 'theme.css');
+      fs.copyFileSync(srcPath, destPath);
+      console.log(`[DesignerAgent] Auto-saved theme: ${destPath}`);
+      return { path: destPath };
+
+    } else if (type === 'component') {
+      // Copy component HTML to final location
+      const srcPath = path.join(draftsDir, `component-${index}.html`);
+      const destPath = path.join(sessionDir, 'components.html');
+      fs.copyFileSync(srcPath, destPath);
+      console.log(`[DesignerAgent] Auto-saved components: ${destPath}`);
+      return { path: destPath };
+
+    } else if (type === 'mockup') {
+      // Save mockup as a named page
+      const srcPath = path.join(draftsDir, `mockup-${index}.html`);
+      const html = fs.readFileSync(srcPath, 'utf-8');
+      const name = pageName || 'Page';
+      const page = this.handleSavePageSync({ html, name });
+      console.log(`[DesignerAgent] Auto-saved mockup as page: ${page.name}`);
+      return { path: page.path!, page };
+    }
+
+    throw new Error(`Unknown draft type: ${type}`);
+  }
 
   /**
    * Save a mockup draft during generation
@@ -1310,12 +1493,37 @@ Generated by Orchy Design System
     // Copy artifacts from session to design folder
     const sessionDir = ensureDesignSessionDir(this.session.id);
 
-    // Copy theme.html if exists
-    const themeSource = path.join(sessionDir, 'theme.html');
+    // Copy theme.css and generate theme.html from CSS + template (zero-HTML architecture)
+    const themeCssSource = path.join(sessionDir, 'theme.css');
     const themeDest = path.join(designFolderPath, 'theme.html');
-    const hasTheme = fs.existsSync(themeSource);
-    if (hasTheme) {
-      fs.copyFileSync(themeSource, themeDest);
+    const themeCssDest = path.join(designFolderPath, 'theme.css');
+    const themeTemplateSource = path.join(sessionDir, 'theme-template.html');
+    let hasTheme = false;
+
+    // Always copy theme.css if it exists
+    if (fs.existsSync(themeCssSource)) {
+      fs.copyFileSync(themeCssSource, themeCssDest);
+      hasTheme = true;
+      console.log(`[DesignerAgent] Copied theme.css to design folder`);
+
+      // Try to generate theme.html by injecting CSS into template
+      if (fs.existsSync(themeTemplateSource)) {
+        const themeCss = fs.readFileSync(themeCssSource, 'utf-8');
+        const template = fs.readFileSync(themeTemplateSource, 'utf-8');
+        const themeHtml = this.injectCssIntoTemplate(template, themeCss);
+        fs.writeFileSync(themeDest, themeHtml, 'utf-8');
+        console.log(`[DesignerAgent] Generated theme.html from theme.css + template`);
+      } else {
+        console.log(`[DesignerAgent] Theme template not found, skipping theme.html generation`);
+      }
+    } else {
+      // Fallback: try copying theme.html directly (legacy)
+      const themeHtmlSource = path.join(sessionDir, 'theme.html');
+      if (fs.existsSync(themeHtmlSource)) {
+        fs.copyFileSync(themeHtmlSource, themeDest);
+        hasTheme = true;
+        console.log(`[DesignerAgent] Copied legacy theme.html`);
+      }
     }
 
     // Copy components.html if exists
@@ -1446,10 +1654,12 @@ Generated by Orchy Design System
 
     const stats = fs.statSync(folderPath);
 
-    // Load theme.html
+    // Load theme.html (preview) and theme.css (raw variables)
     const themePath = path.join(folderPath, 'theme.html');
+    const themeCssPath = path.join(folderPath, 'theme.css');
     const hasTheme = fs.existsSync(themePath);
     const themeHtml = hasTheme ? fs.readFileSync(themePath, 'utf-8') : undefined;
+    const themeCss = fs.existsSync(themeCssPath) ? fs.readFileSync(themeCssPath, 'utf-8') : undefined;
 
     // Load components.html
     const componentsPath = path.join(folderPath, 'components.html');
@@ -1488,6 +1698,7 @@ Generated by Orchy Design System
       hasComponents,
       pages,
       themeHtml,
+      themeCss,
       componentsHtml,
       pageHtmls,
       agentsMarkdown,

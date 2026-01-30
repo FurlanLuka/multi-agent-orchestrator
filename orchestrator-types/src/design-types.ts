@@ -592,7 +592,8 @@ export interface SavedDesignFolder {
  * Full design folder contents (for detail modal)
  */
 export interface SavedDesignFolderContents extends SavedDesignFolder {
-  themeHtml?: string;                    // Contents of theme.html
+  themeHtml?: string;                    // Contents of theme.html (preview with template)
+  themeCss?: string;                     // Contents of theme.css (raw CSS variables)
   componentsHtml?: string;               // Contents of components.html
   pageHtmls: Record<string, string>;     // Filename -> HTML content
   agentsMarkdown: string;                // Contents of AGENTS.md

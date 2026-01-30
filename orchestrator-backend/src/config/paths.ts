@@ -217,6 +217,11 @@ export class PathResolver {
     return path.join(this.setupDir, 'project-templates');
   }
 
+  /** Directory containing design templates (theme-template.html, etc.) */
+  get designTemplatesDir(): string {
+    return path.join(this.setupDir, 'design-templates');
+  }
+
   // Helper methods for specific file paths
 
   /** Path to projects.json config file */
@@ -505,6 +510,10 @@ export function getHooksDir(): string {
 
 export function getHookTemplatesDir(): string {
   return getPaths().hookTemplatesDir;
+}
+
+export function getDesignTemplatesDir(): string {
+  return getPaths().designTemplatesDir;
 }
 
 export function getProjectTemplatesDir(): string {

@@ -693,8 +693,20 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     });
 
     // Handle designer option selection (palette, component, or mockup)
-    socket.on('design:option_selected', ({ index }: { index: number }) => {
-      console.log(`[UIServer] Designer option selected: ${index}`);
+    socket.on('design:option_selected', ({ index, pageName }: { index: number; pageName?: string }) => {
+      console.log(`[UIServer] Designer option selected: ${index}${pageName ? `, pageName: ${pageName}` : ''}`);
+
+      // First check for pending mockup selection (mockups have their own resolver)
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent?.pendingMockupSelection) {
+        // For mockups, just pass the index - the page name will be looked up from the option
+        console.log(`[UIServer] Resolving mockup selection with index: ${index}`);
+        designerAgent.pendingMockupSelection({ selected: index });
+        designerAgent.pendingMockupSelection = null;
+        return;
+      }
+
+      // Otherwise check pending theme/component previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -706,6 +718,18 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Handle designer feedback submission (refinement request)
     socket.on('design:feedback_submitted', ({ feedback }: { feedback: string }) => {
       console.log(`[UIServer] Designer feedback submitted: ${feedback.substring(0, 50)}...`);
+
+      // First check for pending mockup selection (to go back to discovery from mockup)
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent?.pendingMockupSelection) {
+        console.log(`[UIServer] Resolving mockup with feedback`);
+        // Mockup doesn't have a feedback option, treat it as refine for the first option
+        designerAgent.pendingMockupSelection({ refine: 0 });
+        designerAgent.pendingMockupSelection = null;
+        return;
+      }
+
+      // Otherwise check pending theme/component previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -717,6 +741,17 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Handle entering refine mode (iterate on single option)
     socket.on('design:enter_refine', ({ index }: { index: number }) => {
       console.log(`[UIServer] Designer entering refine mode for option: ${index}`);
+
+      // First check for pending mockup selection
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent?.pendingMockupSelection) {
+        console.log(`[UIServer] Resolving mockup refine for index: ${index}`);
+        designerAgent.pendingMockupSelection({ refine: index });
+        designerAgent.pendingMockupSelection = null;
+        return;
+      }
+
+      // Otherwise check pending theme/component previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string; refine?: number }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -1071,7 +1106,322 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     res.send(JSON.stringify({ category }));
   });
 
-  // Designer: show theme preview
+  // ═══════════════════════════════════════════════════════════════
+  // Zero-HTML Architecture: Generation Start Endpoints
+  // These return paths for Claude to use with native Read/Write tools
+  // ═══════════════════════════════════════════════════════════════
+
+  // Designer: start theme generation (returns paths for CSS writing)
+  app.post('/api/designer/start-theme-generation', (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+
+    console.log(`[UIServer] Start theme generation for session ${sessionId}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    const paths = designerAgent.getSessionPaths();
+    if (!paths) {
+      res.status(500).json({ error: 'Session paths not initialized' });
+      return;
+    }
+
+    // Transition phase
+    designSessionPhases.set(sessionId, 'generating_theme');
+
+    // Emit generating event to frontend
+    io.emit('design:generating', { type: 'theme', message: 'Generating theme options...' });
+
+    // Return paths for Claude to use with Read/Write tools
+    res.json({
+      templatePath: paths.themeTemplate,
+      outputDir: paths.drafts,
+      count: 3,
+      instructions: 'Write CSS files: theme-0.css, theme-1.css, theme-2.css to outputDir'
+    });
+  });
+
+  // Designer: start component generation (returns paths for HTML writing)
+  app.post('/api/designer/start-component-generation', (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+
+    console.log(`[UIServer] Start component generation for session ${sessionId}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    const paths = designerAgent.getSessionPaths();
+    if (!paths) {
+      res.status(500).json({ error: 'Session paths not initialized' });
+      return;
+    }
+
+    // Transition phase
+    designSessionPhases.set(sessionId, 'generating_component');
+
+    // Emit generating event to frontend
+    io.emit('design:generating', { type: 'component', message: 'Generating component styles...' });
+
+    // Return paths - themePath points to saved theme.css for reading CSS vars
+    res.json({
+      themePath: path.join(paths.root, 'theme.css'),
+      outputDir: paths.drafts,
+      count: 3,
+      instructions: 'Read theme.css for CSS variables, then write HTML files: component-0.html, component-1.html, component-2.html to outputDir'
+    });
+  });
+
+  // Designer: start mockup generation (returns paths for HTML writing)
+  app.post('/api/designer/start-mockup-generation', (req: Request, res: Response) => {
+    const { sessionId } = req.body;
+
+    console.log(`[UIServer] Start mockup generation for session ${sessionId}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    const paths = designerAgent.getSessionPaths();
+    if (!paths) {
+      res.status(500).json({ error: 'Session paths not initialized' });
+      return;
+    }
+
+    // Transition phase
+    designSessionPhases.set(sessionId, 'generating_mockup');
+
+    // Emit generating event to frontend
+    io.emit('design:generating', { type: 'mockup', message: 'Generating mockups...' });
+
+    // Get existing pages for reference
+    const existingPages = designerAgent.getPages() || [];
+
+    // Return paths - themePath and componentsPath for reading, pagesDir for existing pages, outputDir for writing
+    res.json({
+      themePath: path.join(paths.root, 'theme.css'),
+      componentsPath: path.join(paths.root, 'components.html'),
+      pagesDir: paths.root, // Existing pages are saved here
+      outputDir: paths.drafts,
+      existingPages: existingPages.map((p: any) => ({
+        name: p.name,
+        filename: p.filename,
+        path: path.join(paths.root, p.filename)
+      })),
+      count: 3,
+      instructions: 'Read theme.css and components.html for context. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir.'
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Zero-HTML Architecture: Preview Show Endpoints (with auto-save)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Designer: show theme preview (new Zero-HTML version)
+  app.post('/api/designer/show-theme-preview', async (req: Request, res: Response) => {
+    const { sessionId, options } = req.body;
+    const key = `theme_${sessionId}_${Date.now()}`;
+
+    console.log(`[UIServer] Show theme preview for session ${sessionId}: ${options?.length || 0} options`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    // Transition to theme_preview
+    designSessionPhases.set(sessionId, 'theme_preview');
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'theme', options });
+
+    // Wait for user response
+    const result = await new Promise<{ selected?: number; feedback?: string; refine?: number }>((resolve) => {
+      pendingDesignerPreviews.set(key, { resolve });
+      setTimeout(() => {
+        if (pendingDesignerPreviews.has(key)) {
+          pendingDesignerPreviews.delete(key);
+          resolve({ selected: 0 });
+        }
+      }, 600000);
+    });
+
+    pendingDesignerPreviews.delete(key);
+
+    // Auto-save if user selected
+    if (result.selected !== undefined) {
+      try {
+        designerAgent.autoSaveSelectedDraft('theme', result.selected);
+        designSessionPhases.set(sessionId, 'component_discovery');
+        res.json({ selected: result.selected, autoSaved: true });
+      } catch (err) {
+        console.error('[UIServer] Failed to auto-save theme:', err);
+        res.json({ selected: result.selected, autoSaved: false });
+      }
+    } else if (result.refine !== undefined) {
+      // Include draftsDir so Claude knows where to read the CSS
+      const paths = designerAgent.getSessionPaths();
+      res.json({
+        refine: result.refine,
+        draftsDir: paths?.drafts,
+        cssPath: paths ? `${paths.drafts}/theme-${result.refine}.css` : undefined
+      });
+    } else if (result.feedback) {
+      designSessionPhases.set(sessionId, 'discovery');
+      res.json({ feedback: result.feedback });
+    } else {
+      res.json(result);
+    }
+  });
+
+  // Designer: show component preview (new Zero-HTML version)
+  app.post('/api/designer/show-component-preview', async (req: Request, res: Response) => {
+    const { sessionId, options } = req.body;
+    const key = `component_${sessionId}_${Date.now()}`;
+
+    console.log(`[UIServer] Show component preview for session ${sessionId}: ${options?.length || 0} options`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    // Transition to component_preview
+    designSessionPhases.set(sessionId, 'component_preview');
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'component', options });
+
+    // Wait for user response
+    const result = await new Promise<{ selected?: number; feedback?: string; refine?: number }>((resolve) => {
+      pendingDesignerPreviews.set(key, { resolve });
+      setTimeout(() => {
+        if (pendingDesignerPreviews.has(key)) {
+          pendingDesignerPreviews.delete(key);
+          resolve({ selected: 0 });
+        }
+      }, 600000);
+    });
+
+    pendingDesignerPreviews.delete(key);
+
+    // Auto-save if user selected
+    if (result.selected !== undefined) {
+      try {
+        designerAgent.autoSaveSelectedDraft('component', result.selected);
+        designSessionPhases.set(sessionId, 'layout_discovery');
+        res.json({ selected: result.selected, autoSaved: true });
+      } catch (err) {
+        console.error('[UIServer] Failed to auto-save components:', err);
+        res.json({ selected: result.selected, autoSaved: false });
+      }
+    } else if (result.refine !== undefined) {
+      // Include draftsDir so Claude knows where to read the HTML
+      const paths = designerAgent.getSessionPaths();
+      res.json({
+        refine: result.refine,
+        draftsDir: paths?.drafts,
+        htmlPath: paths ? `${paths.drafts}/component-${result.refine}.html` : undefined
+      });
+    } else if (result.feedback) {
+      designSessionPhases.set(sessionId, 'component_discovery');
+      res.json({ feedback: result.feedback });
+    } else {
+      res.json(result);
+    }
+  });
+
+  // Designer: show mockup preview (new Zero-HTML version)
+  app.post('/api/designer/show-mockup-preview', async (req: Request, res: Response) => {
+    const { sessionId, options, pageName } = req.body;
+    const key = `mockup_${sessionId}_${Date.now()}`;
+
+    console.log(`[UIServer] Show mockup preview for session ${sessionId}: ${options?.length || 0} options, pageName: "${pageName}"`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    // Transition to mockup_preview
+    designSessionPhases.set(sessionId, 'mockup_preview');
+
+    // Store current options and page name so we can use them when user selects
+    designerAgent.currentMockupOptions = options;
+    designerAgent.currentMockupPageName = pageName;
+
+    // Clear generating state and show preview
+    io.emit('design:generation_complete');
+    io.emit('design:show_preview', { type: 'mockup', options });
+
+    // Wait for user response (mockups have additional options: feelingLucky, pageName)
+    const result = await new Promise<{ selected?: number; refine?: number; feelingLucky?: boolean; pageName?: string }>((resolve) => {
+      // For mockups, we use the pendingMockupSelection on the designerAgent
+      designerAgent.pendingMockupSelection = resolve;
+      setTimeout(() => {
+        if (designerAgent.pendingMockupSelection === resolve) {
+          designerAgent.pendingMockupSelection = null;
+          resolve({ selected: 0, pageName: 'Page' });
+        }
+      }, 600000);
+    });
+
+    // Auto-save if user selected
+    if (result.selected !== undefined) {
+      try {
+        // Get page name from the stored pageName (set when show_mockup_preview was called)
+        const existingPages = designerAgent.getPages();
+        const pageName = designerAgent.currentMockupPageName || result.pageName || `Page ${existingPages.length + 1}`;
+        console.log(`[UIServer] Mockup selected: index=${result.selected}, pageName="${pageName}"`);
+
+        const { page } = designerAgent.autoSaveSelectedDraft('mockup', result.selected, pageName);
+        console.log(`[UIServer] Mockup auto-saved as page: ${page?.name}`);
+
+        const allPages = designerAgent.getPages();
+        console.log(`[UIServer] Emitting design:show_pages_panel with ${allPages.length} pages`);
+        // Only emit show_pages_panel - it sets the full list
+        // Don't also emit page_added as that would duplicate the page
+        io.emit('design:show_pages_panel', { pages: allPages });
+
+        res.json({ selected: result.selected, pageName: page?.name || pageName, autoSaved: true });
+      } catch (err) {
+        console.error('[UIServer] Failed to auto-save mockup:', err);
+        res.json({ selected: result.selected, pageName: result.pageName, autoSaved: false });
+      }
+    } else if (result.refine !== undefined) {
+      // Include draftsDir so Claude knows where to read the HTML
+      const paths = designerAgent.getSessionPaths();
+      res.json({
+        refine: result.refine,
+        draftsDir: paths?.drafts,
+        htmlPath: paths ? `${paths.drafts}/mockup-${result.refine}.html` : undefined
+      });
+    } else if (result.feelingLucky) {
+      // Go back to generating state
+      designSessionPhases.set(sessionId, 'generating_mockup');
+      res.json({ feelingLucky: true });
+    } else {
+      res.json(result);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Legacy Designer Endpoints (kept for backwards compatibility)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Designer: show theme preview (legacy)
   app.post('/api/designer/show-theme', async (req: Request, res: Response) => {
     const { sessionId, options } = req.body;
     const key = `theme_${sessionId}_${Date.now()}`;
@@ -1399,11 +1749,39 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     }
   });
 
-  // Designer: get mockup draft HTML (for frontend preview)
+  // Designer: get draft HTML by type and index (Zero-HTML Architecture)
+  // - theme: CSS is injected into template, returns combined HTML
+  // - component/mockup: Returns HTML directly
+  app.get('/api/designer/draft/:type/:index', (req: Request, res: Response) => {
+    const { type, index } = req.params;
+    const indexNum = parseInt(index, 10);
+
+    console.log(`[UIServer] GET /api/designer/draft/${type}/${index}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).send('Designer agent not available');
+      return;
+    }
+
+    if (!['theme', 'component', 'mockup'].includes(type)) {
+      res.status(400).send('Invalid draft type. Must be theme, component, or mockup.');
+      return;
+    }
+
+    const html = designerAgent.getDraft(type as 'theme' | 'component' | 'mockup', indexNum);
+    if (html) {
+      res.type('html').send(html);
+    } else {
+      res.status(404).send('Draft not found');
+    }
+  });
+
+  // Legacy endpoint for backwards compatibility
   app.get('/api/designer/draft/:index', (req: Request, res: Response) => {
     const index = parseInt(req.params.index, 10);
 
-    console.log(`[UIServer] GET /api/designer/draft/${index}`);
+    console.log(`[UIServer] GET /api/designer/draft/${index} (legacy)`);
 
     const designerAgent = (io as any).designerAgent;
     if (!designerAgent) {

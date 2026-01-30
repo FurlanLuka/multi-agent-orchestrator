@@ -644,8 +644,22 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                     <Text size="sm">{page.name}</Text>
                   </Group>
                 ))}
-                <Text size="xs" c="dimmed" ta="center" mt="xs">
-                  Ask for more pages or click Done when finished
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  fullWidth
+                  leftSection={<IconSparkles size={14} />}
+                  onClick={() => {
+                    // Unlock input and send message to generate more mockups
+                    sendDesignMessage('Generate another page mockup');
+                  }}
+                  mt="xs"
+                >
+                  Add Another Page
+                </Button>
+                <Text size="xs" c="dimmed" ta="center">
+                  Or ask in chat for specific pages
                 </Text>
               </Stack>
             </FormCard>

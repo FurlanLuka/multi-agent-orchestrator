@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 /**
  * MCP server for the Designer Agent workflow.
- * Provides tools for UI control during the design process:
+ *
+ * Zero-HTML Architecture: MCP tools only pass paths and metadata.
+ * Claude uses native Read/Write tools for all file operations.
+ *
+ * Tools:
  * - request_user_input: Unlock chat input for user response
  * - show_category_selector: Display category selection cards
- * - show_theme_preview: Display theme options overlay (colors + typography colors)
- * - show_component_preview: Display component style options overlay
- * - show_mockup_preview: Display full-page mockup options overlay
- * - save_design: Save the final design to filesystem
+ * - start_theme_generation: Get paths for theme CSS generation
+ * - show_theme_preview: Display theme options, auto-saves on selection
+ * - start_component_generation: Get paths for component HTML generation
+ * - show_component_preview: Display component options, auto-saves on selection
+ * - start_mockup_generation: Get paths for mockup HTML generation
+ * - show_mockup_preview: Display mockup options, auto-saves on selection
  *
  * This server implements the MCP protocol and communicates with the
  * orchestrator backend via HTTP endpoints.
@@ -38,12 +44,15 @@ async function handleMessage(msg) {
     respond(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'designer-agent', version: '1.0.0' }
+      serverInfo: { name: 'designer-agent', version: '2.0.0' }
     });
   }
   else if (method === 'tools/list') {
     respond(id, {
       tools: [
+        // ═══════════════════════════════════════════════════════════════
+        // User Interaction Tools
+        // ═══════════════════════════════════════════════════════════════
         {
           name: 'request_user_input',
           description: 'Unlock the chat input field so the user can type a response. Call this whenever you need the user to provide text input. The input will be locked again after the user submits their message.',
@@ -59,21 +68,6 @@ async function handleMessage(msg) {
           }
         },
         {
-          name: 'start_generating',
-          description: 'Signal that you are starting to generate design options. Call this BEFORE you start generating themes, components, or mockups. This shows a loading indicator to the user.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['theme', 'component', 'mockup'],
-                description: 'What type of design you are generating'
-              }
-            },
-            required: ['type']
-          }
-        },
-        {
           name: 'show_category_selector',
           description: 'Display category selection cards for the user to choose what they are building (blog, landing page, dashboard, etc.). Returns the selected category.',
           inputSchema: {
@@ -82,111 +76,54 @@ async function handleMessage(msg) {
             required: []
           }
         },
+
+        // ═══════════════════════════════════════════════════════════════
+        // Theme Generation (CSS-only approach)
+        // ═══════════════════════════════════════════════════════════════
+        {
+          name: 'start_theme_generation',
+          description: `Start theme generation phase. Returns paths for you to use with Read/Write tools.
+
+WORKFLOW:
+1. Call this tool to get paths
+2. Read the template: Read(templatePath)
+3. Generate 3 theme variations as CSS variables only (:root { ... })
+4. Write each to the output directory:
+   - Write(outputDir + "/theme-0.css", cssVariables1)
+   - Write(outputDir + "/theme-1.css", cssVariables2)
+   - Write(outputDir + "/theme-2.css", cssVariables3)
+5. Call show_theme_preview() to display options
+
+IMPORTANT: Only write CSS variables, not full HTML. The backend injects your CSS into the template for preview.`,
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        },
         {
           name: 'show_theme_preview',
-          description: 'Display a full-screen overlay with theme options. Each option shows primary/neutral color scales, typography colors, and surface colors. The user can select one or provide feedback for refinement.',
+          description: `Display theme options to the user. Backend reads CSS from drafts dir and injects into template.
+
+Returns one of:
+- { selected: number, autoSaved: true } - User selected option, already saved to theme.css
+- { refine: number, cssPath: string } - User wants to refine. Read the CSS from cssPath, ask what to change, update it
+- { feedback: string } - User wants to explain more
+
+When autoSaved=true, just respond conversationally.
+When refine is set, use Read(cssPath) to get current CSS, ask user what to change, then Write updated CSS back to same path.`,
           inputSchema: {
             type: 'object',
             properties: {
               options: {
                 type: 'array',
-                description: 'Array of theme options to display',
+                description: 'Metadata for each theme option (names/descriptions only, no HTML)',
                 items: {
                   type: 'object',
                   properties: {
-                    id: { type: 'string', description: 'Unique identifier for this option' },
+                    id: { type: 'string', description: 'Unique identifier (e.g., "theme-0")' },
                     name: { type: 'string', description: 'Display name (e.g., "Ocean Breeze")' },
-                    description: { type: 'string', description: 'Brief description of the theme' },
-                    colors: {
-                      type: 'object',
-                      description: 'Theme color tokens',
-                      properties: {
-                        primary: { type: 'array', description: 'Array of 10 hex colors for primary scale (light to dark)', items: { type: 'string' } },
-                        neutral: { type: 'array', description: 'Array of 10 hex colors for neutral gray scale (light to dark)', items: { type: 'string' } },
-                        background: { type: 'string', description: 'Page background color' },
-                        surface: { type: 'string', description: 'Card/modal background color' },
-                        surfaceElevated: { type: 'string', description: 'Elevated surface color' },
-                        border: { type: 'string', description: 'Default border color' },
-                        success: { type: 'string' },
-                        warning: { type: 'string' },
-                        error: { type: 'string' },
-                        info: { type: 'string' },
-                        successBg: { type: 'string' },
-                        warningBg: { type: 'string' },
-                        errorBg: { type: 'string' },
-                        infoBg: { type: 'string' }
-                      },
-                      required: ['primary', 'neutral', 'background', 'surface', 'border', 'success', 'warning', 'error', 'info']
-                    },
-                    typographyColors: {
-                      type: 'object',
-                      description: 'Text color tokens',
-                      properties: {
-                        heading: { type: 'string', description: 'Heading text color' },
-                        body: { type: 'string', description: 'Body text color' },
-                        muted: { type: 'string', description: 'Muted/neutral text color' },
-                        link: { type: 'string', description: 'Link color' },
-                        linkHover: { type: 'string', description: 'Link hover color' },
-                        onPrimary: { type: 'string', description: 'Text on primary background' },
-                        onSecondary: { type: 'string', description: 'Text on neutral background' },
-                        disabled: { type: 'string', description: 'Disabled text color' }
-                      },
-                      required: ['heading', 'body', 'muted', 'link', 'linkHover', 'onPrimary', 'onSecondary', 'disabled']
-                    },
-                    previewHtml: { type: 'string', description: 'Pre-rendered HTML preview using theme-template.html' }
-                  },
-                  required: ['id', 'name', 'description', 'colors', 'typographyColors', 'previewHtml']
-                }
-              }
-            },
-            required: ['options']
-          }
-        },
-        {
-          name: 'show_component_preview',
-          description: 'Display a full-screen overlay with component style options. Each option shows buttons, inputs, cards, and badges with different styling. The user can select one or provide feedback for refinement.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              options: {
-                type: 'array',
-                description: 'Array of component style options to display',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', description: 'Unique identifier for this option' },
-                    name: { type: 'string', description: 'Display name (e.g., "Rounded Modern")' },
-                    description: { type: 'string', description: 'Brief description of the style' },
-                    components: { type: 'object', description: 'Component style tokens' },
-                    typography: { type: 'object', description: 'Typography tokens' },
-                    effects: { type: 'object', description: 'Effect tokens (shadows, radii)' },
-                    previewHtml: { type: 'string', description: 'Pre-rendered HTML preview using components-template.html' }
-                  },
-                  required: ['id', 'name', 'description', 'previewHtml']
-                }
-              }
-            },
-            required: ['options']
-          }
-        },
-        {
-          name: 'show_mockup_preview',
-          description: 'Display a full-screen overlay with full-page mockup options. IMPORTANT: Call save_mockup_draft() for each option FIRST to save the HTML, then pass draftIndex in options instead of previewHtml. User has 3 actions: Select (auto-saves page, shows pages panel), Refine (goes back to chat), or "Feeling Lucky" (regenerate). Returns: { selected: index, pageName: string, autoSaved: true } OR { refine: index } OR { feelingLucky: true }. When autoSaved=true, the page was already saved - just respond conversationally, no need to call save_page().',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              options: {
-                type: 'array',
-                description: 'Array of mockup options to display',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', description: 'Unique identifier for this option' },
-                    name: { type: 'string', description: 'Layout style name (e.g., "Minimal", "Magazine")' },
-                    description: { type: 'string', description: 'Brief description of this layout style' },
-                    styleName: { type: 'string', description: 'Reference to style from design-references.json' },
-                    draftIndex: { type: 'number', description: 'Index of the draft saved via save_mockup_draft(). Frontend fetches HTML from /api/designer/draft/:index' },
-                    previewHtml: { type: 'string', description: 'DEPRECATED: Use draftIndex instead. Full HTML mockup (only used if draftIndex not provided)' }
+                    description: { type: 'string', description: 'Brief description of the theme' }
                   },
                   required: ['id', 'name', 'description']
                 }
@@ -195,68 +132,139 @@ async function handleMessage(msg) {
             required: ['options']
           }
         },
+
+        // ═══════════════════════════════════════════════════════════════
+        // Component Generation (HTML approach, uses theme CSS)
+        // ═══════════════════════════════════════════════════════════════
         {
-          name: 'save_design',
-          description: 'Save the completed design to a markdown file in the designs/ directory. Call this when the user has approved all design choices.',
+          name: 'start_component_generation',
+          description: `Start component generation phase. Returns paths for you to use with Read/Write tools.
+
+WORKFLOW:
+1. Call this tool to get paths
+2. Read the saved theme CSS: Read(themePath)
+3. Generate 3 component variations as complete HTML documents
+   - Include the theme CSS variables in each HTML's <style>
+   - Show buttons, inputs, cards, badges, alerts, etc.
+4. Write each to the output directory:
+   - Write(outputDir + "/component-0.html", html1)
+   - Write(outputDir + "/component-1.html", html2)
+   - Write(outputDir + "/component-2.html", html3)
+5. Call show_component_preview() to display options`,
           inputSchema: {
             type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Design name (used for filename, e.g., "my-blog-design" -> designs/my-blog-design.md)'
-              },
-              tokens: {
-                type: 'object',
-                description: 'Complete design tokens object with colors, typography, spacing, effects, and components'
-              },
-              guidelines: {
-                type: 'string',
-                description: 'Markdown content with component guidelines and usage notes'
-              }
-            },
-            required: ['name', 'tokens', 'guidelines']
+            properties: {},
+            required: []
           }
         },
         {
-          name: 'save_selected_artifact',
-          description: 'Save the selected artifact (theme or components) to the session folder. Call this when the user selects an option to persist it for the next phase. The HTML should contain CSS variables in a :root block that serve as design tokens.',
+          name: 'show_component_preview',
+          description: `Display component options to the user. Backend serves HTML directly from drafts dir.
+
+Returns one of:
+- { selected: number, autoSaved: true } - User selected, saved to components.html
+- { refine: number, htmlPath: string } - User wants to refine. Read HTML from htmlPath, ask what to change, update it
+- { feedback: string } - User wants to explain more
+
+When autoSaved=true, just respond conversationally.
+When refine is set, use Read(htmlPath) to get current HTML, ask user what to change, then Write updated HTML back.`,
           inputSchema: {
             type: 'object',
             properties: {
-              type: {
-                type: 'string',
-                enum: ['theme', 'components'],
-                description: 'Type of artifact being saved (theme or components)'
-              },
-              html: {
-                type: 'string',
-                description: 'The HTML content of the selected option (should include CSS variables in :root)'
+              options: {
+                type: 'array',
+                description: 'Metadata for each component style option',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string', description: 'Style name (e.g., "Rounded Modern")' },
+                    description: { type: 'string' }
+                  },
+                  required: ['id', 'name', 'description']
+                }
               }
             },
-            required: ['type', 'html']
+            required: ['options']
+          }
+        },
+
+        // ═══════════════════════════════════════════════════════════════
+        // Mockup Generation (HTML approach, uses theme + components)
+        // ═══════════════════════════════════════════════════════════════
+        {
+          name: 'start_mockup_generation',
+          description: `Start mockup generation phase. Returns paths for you to use with Read/Write tools.
+
+RETURNS:
+- themePath: Path to saved theme.css
+- componentsPath: Path to saved components.html
+- outputDir: Directory to write mockup drafts
+- existingPages: Array of previously saved pages (for design consistency)
+  Each page has: { name, filename, path }
+
+WORKFLOW:
+1. Call this tool to get paths
+2. Read the saved theme: Read(themePath)
+3. Read the saved components for reference: Read(componentsPath)
+4. If existingPages has items, read them too to match the design style
+5. Generate 3 full-page mockup variations as complete HTML
+   - Include the theme CSS variables
+   - Use component patterns from components.html
+   - Match the style of existing pages if any
+6. Write each to the output directory:
+   - Write(outputDir + "/mockup-0.html", html1)
+   - Write(outputDir + "/mockup-1.html", html2)
+   - Write(outputDir + "/mockup-2.html", html3)
+7. Call show_mockup_preview() with pageName (what the page IS, e.g., "Dashboard")`,
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
           }
         },
         {
-          name: 'save_page',
-          description: 'Save a page (mockup) with a specific name. Called when user selects a mockup option. The page is saved as {name}.html in the session folder and added to the pages list.',
+          name: 'show_mockup_preview',
+          description: `Display mockup options to the user. Backend serves HTML from drafts dir.
+
+Returns one of:
+- { selected: number, pageName: string, autoSaved: true } - Saved as page
+- { refine: number, htmlPath: string } - User wants to refine. Read HTML from htmlPath, ask what to change, update it
+- { feelingLucky: true } - Generate 3 new options
+
+When autoSaved=true, the page is already saved. Just respond conversationally.
+When refine is set, use Read(htmlPath) to get current HTML, ask user what to change, then Write updated HTML back.`,
           inputSchema: {
             type: 'object',
             properties: {
-              name: {
+              pageName: {
                 type: 'string',
-                description: 'Display name for the page (e.g., "Landing Page", "About", "Pricing")'
+                description: 'The actual page name (e.g., "Dashboard", "Pricing", "Landing Page"). This is what the page will be saved as, NOT the style variation name.'
               },
-              html: {
-                type: 'string',
-                description: 'The HTML content of the page (should include CSS variables in :root)'
+              options: {
+                type: 'array',
+                description: 'Metadata for each mockup style variation',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string', description: 'Style variation name (e.g., "Minimal", "Card-Heavy", "Data-Dense")' },
+                    description: { type: 'string', description: 'Description of this style variation' }
+                  },
+                  required: ['id', 'name', 'description']
+                }
               }
             },
-            required: ['name', 'html']
+            required: ['pageName', 'options']
           }
         },
+
+        // ═══════════════════════════════════════════════════════════════
+        // Pages Management
+        // ═══════════════════════════════════════════════════════════════
         {
           name: 'show_pages_panel',
-          description: 'Show the pages panel on the right side of chat. This displays all saved pages and allows the user to view them or add new pages.',
+          description: 'Show the pages panel on the right side of chat. Displays all saved pages.',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -272,271 +280,145 @@ async function handleMessage(msg) {
             required: []
           }
         },
+
+        // ═══════════════════════════════════════════════════════════════
+        // Design Completion
+        // ═══════════════════════════════════════════════════════════════
         {
-          name: 'get_page_html',
-          description: 'Get the HTML content of a specific page by its ID.',
+          name: 'save_design_folder',
+          description: 'Save the completed design to a named folder in the designs library. Copies all artifacts (theme.css, components.html, pages) and generates AGENTS.md.',
           inputSchema: {
             type: 'object',
             properties: {
-              pageId: {
+              name: {
                 type: 'string',
-                description: 'The ID of the page to retrieve'
+                description: 'Design name (used for folder name, e.g., "My Blog Design")'
               }
             },
-            required: ['pageId']
-          }
-        },
-        {
-          name: 'save_mockup_draft',
-          description: 'Save a mockup draft to the session folder during generation. Returns the draft filename. Call this for each mockup option BEFORE calling show_mockup_preview. The drafts are used for fast auto-save when user selects.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              html: {
-                type: 'string',
-                description: 'The full HTML content of the mockup'
-              },
-              index: {
-                type: 'number',
-                description: 'The index of this mockup option (0, 1, 2, etc.)'
-              }
-            },
-            required: ['html', 'index']
-          }
-        },
-        {
-          name: 'load_previous_artifacts',
-          description: 'DEPRECATED: Use get_design_tokens instead. Loads full HTML artifacts which is wasteful.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              artifacts: {
-                type: 'array',
-                description: 'Array of artifact filenames to load',
-                items: { type: 'string' }
-              }
-            },
-            required: ['artifacts']
-          }
-        },
-        {
-          name: 'get_design_tokens',
-          description: 'Get the CSS variables from saved theme.html as a compact string. Use this instead of load_previous_artifacts - it returns only the :root CSS block (~2k chars vs 15k for full HTML). Call this before generating components or mockups.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-            required: []
+            required: ['name']
           }
         }
       ]
     });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Tool Handlers
+  // ═══════════════════════════════════════════════════════════════
+
   else if (method === 'tools/call' && params?.name === 'request_user_input') {
     const placeholder = params.arguments?.placeholder || '';
-
     const result = await callDesignerEndpoint('/api/designer/request-input', {
       sessionId: SESSION_ID,
       placeholder
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
-  else if (method === 'tools/call' && params?.name === 'start_generating') {
-    const type = params.arguments?.type || 'palette';
 
-    const result = await callDesignerEndpoint('/api/designer/start-generating', {
-      sessionId: SESSION_ID,
-      type
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
   else if (method === 'tools/call' && params?.name === 'show_category_selector') {
     const result = await callDesignerEndpoint('/api/designer/show-categories', {
       sessionId: SESSION_ID
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Theme Generation
+  // ═══════════════════════════════════════════════════════════════
+
+  else if (method === 'tools/call' && params?.name === 'start_theme_generation') {
+    const result = await callDesignerEndpoint('/api/designer/start-theme-generation', {
+      sessionId: SESSION_ID
+    });
+    respond(id, { content: [{ type: 'text', text: result }] });
+  }
+
   else if (method === 'tools/call' && params?.name === 'show_theme_preview') {
     const options = params.arguments?.options || [];
-
-    const result = await callDesignerEndpoint('/api/designer/show-theme', {
+    const result = await callDesignerEndpoint('/api/designer/show-theme-preview', {
       sessionId: SESSION_ID,
       options
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Component Generation
+  // ═══════════════════════════════════════════════════════════════
+
+  else if (method === 'tools/call' && params?.name === 'start_component_generation') {
+    const result = await callDesignerEndpoint('/api/designer/start-component-generation', {
+      sessionId: SESSION_ID
+    });
+    respond(id, { content: [{ type: 'text', text: result }] });
+  }
+
   else if (method === 'tools/call' && params?.name === 'show_component_preview') {
     const options = params.arguments?.options || [];
-
-    const result = await callDesignerEndpoint('/api/designer/show-components', {
+    const result = await callDesignerEndpoint('/api/designer/show-component-preview', {
       sessionId: SESSION_ID,
       options
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Mockup Generation
+  // ═══════════════════════════════════════════════════════════════
+
+  else if (method === 'tools/call' && params?.name === 'start_mockup_generation') {
+    const result = await callDesignerEndpoint('/api/designer/start-mockup-generation', {
+      sessionId: SESSION_ID
+    });
+    respond(id, { content: [{ type: 'text', text: result }] });
+  }
+
   else if (method === 'tools/call' && params?.name === 'show_mockup_preview') {
     const options = params.arguments?.options || [];
-
-    const result = await callDesignerEndpoint('/api/designer/show-mockups', {
+    const result = await callDesignerEndpoint('/api/designer/show-mockup-preview', {
       sessionId: SESSION_ID,
       options
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
-  else if (method === 'tools/call' && params?.name === 'save_design') {
-    const { name, tokens, guidelines } = params.arguments || {};
 
-    if (!name || !tokens || !guidelines) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: name, tokens, guidelines' }) }]
-      });
-      return;
-    }
+  // ═══════════════════════════════════════════════════════════════
+  // Pages Management
+  // ═══════════════════════════════════════════════════════════════
 
-    const result = await callDesignerEndpoint('/api/designer/save-design', {
-      sessionId: SESSION_ID,
-      name,
-      tokens,
-      guidelines
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
-  else if (method === 'tools/call' && params?.name === 'save_selected_artifact') {
-    const { type, html } = params.arguments || {};
-
-    if (!type || !html) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: type, html' }) }]
-      });
-      return;
-    }
-
-    const result = await callDesignerEndpoint('/api/designer/save-artifact', {
-      sessionId: SESSION_ID,
-      type,
-      html
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
-  else if (method === 'tools/call' && params?.name === 'load_previous_artifacts') {
-    const { artifacts } = params.arguments || {};
-
-    if (!artifacts || !Array.isArray(artifacts)) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required field: artifacts (array)' }) }]
-      });
-      return;
-    }
-
-    const result = await callDesignerEndpoint('/api/designer/load-artifacts', {
-      sessionId: SESSION_ID,
-      artifacts
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
-  else if (method === 'tools/call' && params?.name === 'save_page') {
-    const { name, html } = params.arguments || {};
-
-    if (!name || !html) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: name, html' }) }]
-      });
-      return;
-    }
-
-    const result = await callDesignerEndpoint('/api/designer/save-page', {
-      sessionId: SESSION_ID,
-      name,
-      html
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
   else if (method === 'tools/call' && params?.name === 'show_pages_panel') {
     const result = await callDesignerEndpoint('/api/designer/show-pages-panel', {
       sessionId: SESSION_ID
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
+
   else if (method === 'tools/call' && params?.name === 'get_pages') {
     const result = await callDesignerEndpoint('/api/designer/get-pages', {
       sessionId: SESSION_ID
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
-  else if (method === 'tools/call' && params?.name === 'get_page_html') {
-    const { pageId } = params.arguments || {};
 
-    if (!pageId) {
+  // ═══════════════════════════════════════════════════════════════
+  // Design Completion
+  // ═══════════════════════════════════════════════════════════════
+
+  else if (method === 'tools/call' && params?.name === 'save_design_folder') {
+    const { name } = params.arguments || {};
+    if (!name) {
       respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required field: pageId' }) }]
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required field: name' }) }]
       });
       return;
     }
-
-    const result = await callDesignerEndpoint('/api/designer/get-page-html', {
+    const result = await callDesignerEndpoint('/api/designer/save-design-folder', {
       sessionId: SESSION_ID,
-      pageId
+      designName: name
     });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
+    respond(id, { content: [{ type: 'text', text: result }] });
   }
-  else if (method === 'tools/call' && params?.name === 'save_mockup_draft') {
-    const { html, index } = params.arguments || {};
 
-    if (html === undefined || index === undefined) {
-      respond(id, {
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: html, index' }) }]
-      });
-      return;
-    }
-
-    const result = await callDesignerEndpoint('/api/designer/save-mockup-draft', {
-      sessionId: SESSION_ID,
-      html,
-      index
-    });
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
   else if (method === 'notifications/initialized') {
     // No response needed for notifications
   }

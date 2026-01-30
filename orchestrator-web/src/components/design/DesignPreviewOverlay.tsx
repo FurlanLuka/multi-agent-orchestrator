@@ -6,12 +6,17 @@ import {
   Text,
   Button,
   ActionIcon,
+  Loader,
 } from '@mantine/core';
 import { IconX, IconMessageCircle, IconCheck, IconWand } from '@tabler/icons-react';
 import type { ThemeOption, ComponentStyleOption, MockupOption } from '@orchy/types';
 import { TabbedCard, glass, radii } from '../../theme';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 
+/**
+ * Zero-HTML Architecture: Options now contain only metadata (id, name, description).
+ * Preview HTML is fetched from /api/designer/draft/:type/:index endpoint.
+ */
 interface DesignPreviewOverlayProps {
   opened: boolean;
   type: 'theme' | 'component' | 'mockup';
@@ -53,6 +58,7 @@ export function DesignPreviewOverlay({
   }));
 
   const currentOption = options[Number(activeTab)] as ThemeOption | ComponentStyleOption | MockupOption;
+  const currentIndex = Number(activeTab);
 
   return (
     <Box
@@ -91,17 +97,15 @@ export function DesignPreviewOverlay({
             {currentOption.description}
           </Text>
 
-          {/* Preview iframe */}
+          {/* Preview iframe - fetches from API based on type */}
           <Box style={{ flex: 1, minHeight: 0 }}>
-            {type === 'mockup' ? (
-              <MockupFrame
-                html={(currentOption as MockupOption).previewHtml}
-                draftIndex={(currentOption as MockupOption).draftIndex}
-                port={port}
-              />
-            ) : (
-              <PreviewFrame html={(currentOption as ThemeOption | ComponentStyleOption).previewHtml} />
-            )}
+            <PreviewFrame
+              type={type}
+              index={currentIndex}
+              port={port}
+              // Legacy support: use previewHtml if provided
+              legacyHtml={(currentOption as any).previewHtml}
+            />
           </Box>
         </Box>
       </TabbedCard>
@@ -142,56 +146,100 @@ export function DesignPreviewOverlay({
 }
 
 /**
- * Standard preview frame for theme and component previews
+ * Unified preview frame that fetches HTML from the API.
+ * Zero-HTML Architecture: Always fetches from /api/designer/draft/:type/:index
+ * Falls back to legacyHtml for backwards compatibility.
  */
-function PreviewFrame({ html }: { html: string }) {
-  return (
-    <Box
-      style={{
-        background: '#ffffff',
-        borderRadius: radii.input,
-        border: glass.surface.border,
-        overflow: 'hidden',
-        height: '100%',
-      }}
-    >
-      <iframe
-        srcDoc={html}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-        }}
-        title="Design Preview"
-      />
-    </Box>
-  );
-}
-
-/**
- * Mockup frame with fake browser chrome
- * Supports both direct HTML (previewHtml) and draft fetching (draftIndex)
- */
-function MockupFrame({
-  html,
-  draftIndex,
+function PreviewFrame({
+  type,
+  index,
   port,
+  legacyHtml,
 }: {
-  html?: string;
-  draftIndex?: number;
+  type: 'theme' | 'component' | 'mockup';
+  index: number;
   port: number | null;
+  legacyHtml?: string;
 }) {
-  // Determine iframe source - either direct HTML (srcDoc) or URL (src)
+  // Build the API URL for fetching the draft
   const iframeSrc = useMemo(() => {
-    if (draftIndex !== undefined && port) {
-      return `http://localhost:${port}/api/designer/draft/${draftIndex}`;
+    if (port) {
+      return `http://localhost:${port}/api/designer/draft/${type}/${index}`;
     }
     return undefined;
-  }, [draftIndex, port]);
+  }, [type, index, port]);
 
-  // Use srcDoc for direct HTML, src for draft URL
-  const useDirectHtml = html && draftIndex === undefined;
+  // Use legacy HTML if provided and no port (backwards compatibility)
+  const useLegacyHtml = legacyHtml && !port;
 
+  // Mockups get browser chrome, themes/components don't
+  if (type === 'mockup') {
+    return (
+      <Box
+        style={{
+          background: '#ffffff',
+          borderRadius: radii.input,
+          border: glass.surface.border,
+          overflow: 'hidden',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Browser Chrome */}
+        <Box
+          style={{
+            background: '#f5f5f5',
+            padding: '10px 16px',
+            borderBottom: '1px solid #e0e0e0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
+          {/* Traffic lights */}
+          <Box style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57' }} />
+          <Box style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }} />
+          <Box style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }} />
+          {/* URL bar */}
+          <Box
+            style={{
+              flex: 1,
+              marginLeft: 16,
+              padding: '4px 12px',
+              background: '#ffffff',
+              borderRadius: 6,
+              border: '1px solid #e0e0e0',
+            }}
+          >
+            <Text size="xs" c="dimmed">preview.design</Text>
+          </Box>
+        </Box>
+
+        {/* Iframe */}
+        {useLegacyHtml ? (
+          <iframe
+            srcDoc={legacyHtml}
+            style={{ width: '100%', flex: 1, border: 'none' }}
+            title="Mockup Preview"
+          />
+        ) : iframeSrc ? (
+          <iframe
+            src={iframeSrc}
+            style={{ width: '100%', flex: 1, border: 'none' }}
+            title="Mockup Preview"
+          />
+        ) : (
+          <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Loader size="sm" color="gray" />
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
+  // Theme and component previews (no browser chrome)
   return (
     <Box
       style={{
@@ -200,95 +248,23 @@ function MockupFrame({
         border: glass.surface.border,
         overflow: 'hidden',
         height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
       }}
     >
-      {/* Browser Chrome */}
-      <Box
-        style={{
-          background: '#f5f5f5',
-          padding: '10px 16px',
-          borderBottom: '1px solid #e0e0e0',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flexShrink: 0,
-        }}
-      >
-        {/* Traffic lights */}
-        <Box
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            background: '#ff5f57',
-          }}
-        />
-        <Box
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            background: '#febc2e',
-          }}
-        />
-        <Box
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            background: '#28c840',
-          }}
-        />
-        {/* URL bar */}
-        <Box
-          style={{
-            flex: 1,
-            marginLeft: 16,
-            padding: '4px 12px',
-            background: '#ffffff',
-            borderRadius: 6,
-            border: '1px solid #e0e0e0',
-          }}
-        >
-          <Text size="xs" c="dimmed">
-            preview.design
-          </Text>
-        </Box>
-      </Box>
-
-      {/* Iframe - uses src for draft URL, srcDoc for direct HTML */}
-      {useDirectHtml ? (
+      {useLegacyHtml ? (
         <iframe
-          srcDoc={html}
-          style={{
-            width: '100%',
-            flex: 1,
-            border: 'none',
-          }}
-          title="Mockup Preview"
+          srcDoc={legacyHtml}
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          title="Design Preview"
         />
       ) : iframeSrc ? (
         <iframe
           src={iframeSrc}
-          style={{
-            width: '100%',
-            flex: 1,
-            border: 'none',
-          }}
-          title="Mockup Preview"
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          title="Design Preview"
         />
       ) : (
-        <Box
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text c="dimmed">No preview available</Text>
+        <Box style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Loader size="sm" color="gray" />
         </Box>
       )}
     </Box>

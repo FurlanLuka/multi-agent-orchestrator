@@ -3,72 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{themeName}} Theme</title>
+  <title>Theme Preview</title>
+  <!-- INJECT_CSS -->
   <style>
+    /* ═══════════════════════════════════════════════════════════════
+       STATIC DEFAULTS (typography sizes, weights, etc.)
+       ═══════════════════════════════════════════════════════════════ */
     :root {
-      /* ═══════════════════════════════════════════════════════════════
-         PRIMARY SCALE (10 shades, light to dark)
-         ═══════════════════════════════════════════════════════════════ */
-      --primary-50: {{primary0}};
-      --primary-100: {{primary1}};
-      --primary-200: {{primary2}};
-      --primary-300: {{primary3}};
-      --primary-400: {{primary4}};
-      --primary-500: {{primary5}};
-      --primary-600: {{primary6}};
-      --primary-700: {{primary7}};
-      --primary-800: {{primary8}};
-      --primary-900: {{primary9}};
-
-      /* ═══════════════════════════════════════════════════════════════
-         NEUTRAL SCALE (10 shades, light to dark)
-         ═══════════════════════════════════════════════════════════════ */
-      --neutral-50: {{neutral0}};
-      --neutral-100: {{neutral1}};
-      --neutral-200: {{neutral2}};
-      --neutral-300: {{neutral3}};
-      --neutral-400: {{neutral4}};
-      --neutral-500: {{neutral5}};
-      --neutral-600: {{neutral6}};
-      --neutral-700: {{neutral7}};
-      --neutral-800: {{neutral8}};
-      --neutral-900: {{neutral9}};
-
-      /* ═══════════════════════════════════════════════════════════════
-         SURFACE COLORS
-         ═══════════════════════════════════════════════════════════════ */
-      --background: {{background}};
-      --surface: {{surface}};
-      --surface-elevated: {{surfaceElevated}};
-      --border: {{border}};
-
-      /* ═══════════════════════════════════════════════════════════════
-         SEMANTIC COLORS
-         ═══════════════════════════════════════════════════════════════ */
-      --success: {{success}};
-      --success-bg: {{successBg}};
-      --warning: {{warning}};
-      --warning-bg: {{warningBg}};
-      --error: {{error}};
-      --error-bg: {{errorBg}};
-      --info: {{info}};
-      --info-bg: {{infoBg}};
-
-      /* ═══════════════════════════════════════════════════════════════
-         TYPOGRAPHY COLORS
-         ═══════════════════════════════════════════════════════════════ */
-      --text-heading: {{textHeading}};
-      --text-body: {{textBody}};
-      --text-muted: {{textMuted}};
-      --text-link: {{textLink}};
-      --text-link-hover: {{textLinkHover}};
-      --text-on-primary: {{textOnPrimary}};
-      --text-on-secondary: {{textOnSecondary}};
-      --text-disabled: {{textDisabled}};
-
-      /* ═══════════════════════════════════════════════════════════════
-         TYPOGRAPHY SIZES
-         ═══════════════════════════════════════════════════════════════ */
+      /* Typography sizes */
       --text-xs: 12px;
       --text-sm: 14px;
       --text-base: 16px;
@@ -78,87 +20,51 @@
       --text-3xl: 40px;
       --text-4xl: 48px;
 
-      /* ═══════════════════════════════════════════════════════════════
-         FONT WEIGHTS
-         ═══════════════════════════════════════════════════════════════ */
+      /* Font weights */
       --font-normal: 400;
       --font-medium: 500;
       --font-semibold: 600;
       --font-bold: 700;
       --font-extrabold: 800;
 
-      /* ═══════════════════════════════════════════════════════════════
-         LINE HEIGHTS
-         ═══════════════════════════════════════════════════════════════ */
+      /* Line heights */
       --leading-tight: 1.25;
       --leading-normal: 1.5;
       --leading-relaxed: 1.75;
-
-      /* ═══════════════════════════════════════════════════════════════
-         SPACING
-         ═══════════════════════════════════════════════════════════════ */
-      --space-1: 4px;
-      --space-2: 8px;
-      --space-3: 12px;
-      --space-4: 16px;
-      --space-5: 20px;
-      --space-6: 24px;
-      --space-8: 32px;
-      --space-10: 40px;
-      --space-12: 48px;
-      --space-16: 64px;
-
-      /* ═══════════════════════════════════════════════════════════════
-         BORDER RADIUS
-         ═══════════════════════════════════════════════════════════════ */
-      --radius-sm: 4px;
-      --radius-md: 8px;
-      --radius-lg: 12px;
-      --radius-xl: 16px;
-      --radius-2xl: 24px;
-      --radius-full: 9999px;
-
-      /* ═══════════════════════════════════════════════════════════════
-         SHADOWS
-         ═══════════════════════════════════════════════════════════════ */
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       PREVIEW STYLES (using CSS variables)
+       PREVIEW STYLES (using CSS variables from injected CSS)
        ═══════════════════════════════════════════════════════════════ */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: var(--space-8);
-      background: var(--background);
-      color: var(--text-body);
+      padding: var(--space-8, 32px);
+      background: var(--background, #ffffff);
+      color: var(--text-body, #3d3d3d);
       line-height: var(--leading-normal);
     }
 
-    h1 { margin-bottom: var(--space-1); font-size: var(--text-2xl); font-weight: var(--font-bold); color: var(--text-heading); }
-    .subtitle { margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--text-muted); }
+    h1 { margin-bottom: var(--space-1, 4px); font-size: var(--text-2xl); font-weight: var(--font-bold); color: var(--text-heading, #1a1a1a); }
+    .subtitle { margin-bottom: var(--space-8, 32px); font-size: var(--text-sm); color: var(--text-muted, #6b6b6b); }
     h2 {
-      margin: var(--space-6) 0 var(--space-3);
+      margin: var(--space-6, 24px) 0 var(--space-3, 12px);
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 1.5px;
-      color: var(--text-muted);
+      color: var(--text-muted, #6b6b6b);
       font-weight: var(--font-semibold);
     }
 
     /* Color Scales */
-    .scale-row { display: flex; gap: var(--space-1); margin-bottom: var(--space-2); }
+    .scale-row { display: flex; gap: var(--space-1, 4px); margin-bottom: var(--space-2, 8px); }
     .swatch {
       flex: 1;
       height: 48px;
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-md, 8px);
       display: flex;
       align-items: flex-end;
-      padding: var(--space-1) var(--space-2);
+      padding: var(--space-1, 4px) var(--space-2, 8px);
       font-size: 9px;
       font-weight: var(--font-semibold);
     }
@@ -166,11 +72,11 @@
     .dt { color: #333; }
 
     /* Surface Demo */
-    .surface-row { display: flex; gap: var(--space-3); margin: var(--space-3) 0 var(--space-6); flex-wrap: wrap; }
+    .surface-row { display: flex; gap: var(--space-3, 12px); margin: var(--space-3, 12px) 0 var(--space-6, 24px); flex-wrap: wrap; }
     .surface-swatch {
       width: 100px;
       height: 70px;
-      border-radius: var(--radius-lg);
+      border-radius: var(--radius-lg, 12px);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -178,19 +84,18 @@
       font-size: 11px;
       text-align: center;
       line-height: var(--leading-normal);
-      color: var(--text-muted);
+      color: var(--text-muted, #6b6b6b);
     }
-    .surface-swatch .hex { font-family: monospace; font-size: 9px; margin-top: var(--space-1); opacity: 0.7; }
 
     /* Semantic Colors */
-    .semantic-row { display: flex; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-4); }
-    .semantic-item { display: flex; flex-direction: column; gap: var(--space-1); }
-    .semantic-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    .semantic-swatches { display: flex; gap: var(--space-1); }
+    .semantic-row { display: flex; gap: var(--space-4, 16px); flex-wrap: wrap; margin-bottom: var(--space-4, 16px); }
+    .semantic-item { display: flex; flex-direction: column; gap: var(--space-1, 4px); }
+    .semantic-label { font-size: 10px; color: var(--text-muted, #6b6b6b); text-transform: uppercase; letter-spacing: 0.5px; }
+    .semantic-swatches { display: flex; gap: var(--space-1, 4px); }
     .semantic-swatch {
       width: 48px;
       height: 36px;
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-md, 8px);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -201,13 +106,13 @@
     /* Buttons */
     .btn {
       display: inline-block;
-      padding: var(--space-2) var(--space-6);
-      border-radius: var(--radius-md);
+      padding: var(--space-2, 8px) var(--space-6, 24px);
+      border-radius: var(--radius-md, 8px);
       font-size: var(--text-sm);
       font-weight: var(--font-semibold);
       border: none;
       cursor: pointer;
-      margin: var(--space-1);
+      margin: var(--space-1, 4px);
     }
     .btn-outline {
       background: transparent;
@@ -215,43 +120,43 @@
     }
 
     /* Cards */
-    .demo-cards { display: flex; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-3) 0 var(--space-6); }
+    .demo-cards { display: flex; gap: var(--space-4, 16px); flex-wrap: wrap; margin: var(--space-3, 12px) 0 var(--space-6, 24px); }
     .demo-card {
-      border-radius: var(--radius-lg);
-      padding: var(--space-5);
+      border-radius: var(--radius-lg, 12px);
+      padding: var(--space-5, 20px);
       min-width: 160px;
       flex: 1;
     }
-    .demo-card .card-title { font-weight: var(--font-semibold); margin-bottom: var(--space-1); color: var(--text-heading); }
-    .demo-card .card-desc { font-size: var(--text-sm); color: var(--text-muted); }
+    .demo-card .card-title { font-weight: var(--font-semibold); margin-bottom: var(--space-1, 4px); color: var(--text-heading, #1a1a1a); }
+    .demo-card .card-desc { font-size: var(--text-sm); color: var(--text-muted, #6b6b6b); }
 
     /* Typography Scale */
     .type-scale {
       display: flex;
       flex-direction: column;
-      gap: var(--space-2);
-      margin-bottom: var(--space-6);
+      gap: var(--space-2, 8px);
+      margin-bottom: var(--space-6, 24px);
     }
     .type-item {
       display: flex;
       align-items: baseline;
-      gap: var(--space-5);
+      gap: var(--space-5, 20px);
     }
     .type-label {
       font-size: 10px;
-      color: var(--text-muted);
+      color: var(--text-muted, #6b6b6b);
       width: 56px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       flex-shrink: 0;
-      padding-top: var(--space-1);
+      padding-top: var(--space-1, 4px);
     }
   </style>
 </head>
 <body>
 
-<h1>{{themeName}}</h1>
-<p class="subtitle">{{themeDescription}}</p>
+<h1>Theme Preview</h1>
+<p class="subtitle">Color palette and typography</p>
 
 <h2>Primary Scale</h2>
 <div class="scale-row">
@@ -304,10 +209,6 @@
     <span style="font-size: var(--text-lg); font-weight: var(--font-semibold); color: var(--text-heading);">Card Title</span>
   </div>
   <div class="type-item">
-    <span class="type-label">Subtitle</span>
-    <span style="font-size: var(--text-lg); font-weight: var(--font-normal); color: var(--text-muted); line-height: var(--leading-normal);">Supporting text below titles</span>
-  </div>
-  <div class="type-item">
     <span class="type-label">Body</span>
     <span style="font-size: var(--text-base); font-weight: var(--font-normal); color: var(--text-body); line-height: var(--leading-relaxed);">Regular body text for paragraphs and content</span>
   </div>
@@ -316,8 +217,8 @@
     <span style="font-size: var(--text-sm); font-weight: var(--font-normal); color: var(--text-body); line-height: var(--leading-normal);">Smaller text for secondary content</span>
   </div>
   <div class="type-item">
-    <span class="type-label">Caption</span>
-    <span style="font-size: var(--text-xs); font-weight: var(--font-medium); color: var(--text-muted);">Captions, timestamps, metadata</span>
+    <span class="type-label">Muted</span>
+    <span style="font-size: var(--text-sm); font-weight: var(--font-normal); color: var(--text-muted);">Helper text and captions</span>
   </div>
   <div class="type-item">
     <span class="type-label">Link</span>
@@ -329,19 +230,15 @@
 <div class="surface-row">
   <div class="surface-swatch" style="background: var(--background); border: 1px solid var(--border);">
     Background
-    <span class="hex">{{background}}</span>
   </div>
   <div class="surface-swatch" style="background: var(--surface); border: 1px solid var(--border);">
     Surface
-    <span class="hex">{{surface}}</span>
   </div>
   <div class="surface-swatch" style="background: var(--surface-elevated); border: 1px solid var(--border);">
     Elevated
-    <span class="hex">{{surfaceElevated}}</span>
   </div>
   <div class="surface-swatch" style="background: var(--background); border: 2px solid var(--border);">
     Border
-    <span class="hex">{{border}}</span>
   </div>
 </div>
 
@@ -378,7 +275,7 @@
 </div>
 
 <h2>Buttons</h2>
-<div style="margin-bottom: var(--space-6);">
+<div style="margin-bottom: var(--space-6, 24px);">
   <button class="btn" style="background: var(--primary-600); color: var(--text-on-primary);">Primary Action</button>
   <button class="btn" style="background: var(--neutral-200); color: var(--neutral-800);">Secondary</button>
   <button class="btn btn-outline" style="border-color: var(--primary-600); color: var(--primary-600);">Outline</button>
