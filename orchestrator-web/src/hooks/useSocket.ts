@@ -86,6 +86,8 @@ export function useSocket() {
   });
 
   const [connected, setConnected] = useState(false);
+  const [clientRole, setClientRole] = useState<'main' | 'secondary' | null>(null);
+  const [secondaryMessage, setSecondaryMessage] = useState<string | null>(null);
   const [checkingDependencies, setCheckingDependencies] = useState(true);
   const [dependencyCheck, setDependencyCheck] = useState<DependencyCheckResult | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
@@ -262,6 +264,15 @@ export function useSocket() {
       // Check dependencies on connect
       setCheckingDependencies(true);
       socket.emit('checkDependencies');
+    });
+
+    // Client role event (single tab enforcement)
+    socket.on('clientRole', (event: { role: 'main' | 'secondary'; message?: string }) => {
+      console.log(`[useSocket] Client role: ${event.role}`);
+      setClientRole(event.role);
+      if (event.role === 'secondary' && event.message) {
+        setSecondaryMessage(event.message);
+      }
     });
 
     // Dependency check result
@@ -1401,6 +1412,8 @@ export function useSocket() {
   return {
     port,
     connected,
+    clientRole,
+    secondaryMessage,
     checkingDependencies,
     dependencyCheck,
     backendError,

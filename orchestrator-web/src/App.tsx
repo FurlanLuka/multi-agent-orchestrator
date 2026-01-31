@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useOrchestrator } from './context/OrchestratorContext';
 import { SplashScreen } from './components/SplashScreen';
+import { SecondaryTabScreen } from './components/SecondaryTabScreen';
 import { HomePage } from './components/home/HomePage';
 import { PromptScreen } from './components/home/PromptScreen';
 import { CreateWorkspaceView } from './components/home/CreateWorkspaceView';
@@ -27,7 +28,8 @@ type View =
 
 function App() {
   const {
-    port,
+    clientRole,
+    secondaryMessage,
     checkingDependencies,
     dependencyCheck,
     backendError,
@@ -52,38 +54,27 @@ function App() {
     }
   }, [session]);
 
-  // Handle shutdown on close (keep at App level for beforeunload)
-  const shutdownServer = useCallback(() => {
-    if (port) {
-      navigator.sendBeacon(`http://localhost:${port}/api/shutdown`, '');
-    }
-  }, [port]);
-
+  // Show confirmation dialog when main tab is closing (will shut down orchestrator)
+  // Show dialog unless we're explicitly a secondary tab
   useEffect(() => {
-    const shutdownOnClose = localStorage.getItem('orchy-shutdown-on-close') === 'true';
-
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (shutdownOnClose && session) {
+      console.log('[App] beforeunload triggered, clientRole:', clientRole);
+      // Show confirmation unless we're a secondary tab
+      // (null means still connecting, treat as potentially main)
+      if (clientRole !== 'secondary') {
         e.preventDefault();
-        e.returnValue = '';
-        return '';
+        e.returnValue = 'Leave site?';
+        return e.returnValue;
       }
     };
 
-    const handleUnload = () => {
-      if (shutdownOnClose) {
-        shutdownServer();
-      }
-    };
-
+    console.log('[App] Registering beforeunload handler, clientRole:', clientRole);
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleUnload);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('unload', handleUnload);
     };
-  }, [session, shutdownServer]);
+  }, [clientRole]);
 
   // Show splash screen while checking dependencies
   if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
@@ -95,6 +86,11 @@ function App() {
         onRetry={recheckDependencies}
       />
     );
+  }
+
+  // Show secondary tab screen if another tab is the main client
+  if (clientRole === 'secondary') {
+    return <SecondaryTabScreen message={secondaryMessage || 'UI is active on another tab'} />;
   }
 
   const goHome = () => {

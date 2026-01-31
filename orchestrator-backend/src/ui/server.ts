@@ -61,6 +61,11 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     }
   });
 
+  // Single tab enforcement
+  let mainClientId: string | null = null;
+  let mainClientDisconnectTimer: NodeJS.Timeout | null = null;
+  const MAIN_CLIENT_GRACE_PERIOD_MS = 5000; // 5 seconds for reconnection
+
   // Middleware
   app.use(cors());
   app.use(express.json());
@@ -501,25 +506,47 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   io.on('connection', (socket: Socket) => {
     console.log(`[UIServer] Client connected: ${socket.id}`);
 
-    // Send current state on connect
-    if (deps?.sessionManager) {
-      const session = deps.sessionManager.getCurrentSession();
-      if (session) {
-        socket.emit('session', session);
-      }
-    }
+    // Single tab enforcement: check if this is the main client or a secondary
+    if (mainClientId === null) {
+      // This is the first client - assign as main
+      mainClientId = socket.id;
+      console.log(`[UIServer] Main client assigned: ${socket.id}`);
 
-    if (deps?.statusMonitor) {
-      socket.emit('statuses', deps.statusMonitor.getStatusesObject());
-      // Send initial task states
-      socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
-    }
-
-    if (deps?.approvalQueue) {
-      const current = deps.approvalQueue.getCurrentRequest();
-      if (current) {
-        socket.emit('approval', current);
+      // Clear any pending disconnect timer (handles reconnection during grace period)
+      if (mainClientDisconnectTimer) {
+        clearTimeout(mainClientDisconnectTimer);
+        mainClientDisconnectTimer = null;
+        console.log(`[UIServer] Reconnection during grace period - timer cleared`);
       }
+
+      // Emit main role to client
+      socket.emit('clientRole', { role: 'main' });
+
+      // Send current state on connect (only for main client)
+      if (deps?.sessionManager) {
+        const session = deps.sessionManager.getCurrentSession();
+        if (session) {
+          socket.emit('session', session);
+        }
+      }
+
+      if (deps?.statusMonitor) {
+        socket.emit('statuses', deps.statusMonitor.getStatusesObject());
+        // Send initial task states
+        socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
+      }
+
+      if (deps?.approvalQueue) {
+        const current = deps.approvalQueue.getCurrentRequest();
+        if (current) {
+          socket.emit('approval', current);
+        }
+      }
+    } else {
+      // Another client is already main - this is a secondary tab
+      console.log(`[UIServer] Secondary client connected: ${socket.id} (main is ${mainClientId})`);
+      socket.emit('clientRole', { role: 'secondary', message: 'UI is active on another tab' });
+      // Don't send other state to secondary clients
     }
 
     // Handle client events
@@ -842,6 +869,18 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
+
+      // Single tab enforcement: if main client disconnects, start grace period
+      if (socket.id === mainClientId) {
+        console.log(`[UIServer] Main client disconnected, starting ${MAIN_CLIENT_GRACE_PERIOD_MS}ms grace period...`);
+        mainClientId = null; // Allow reconnection to claim main role
+
+        mainClientDisconnectTimer = setTimeout(() => {
+          console.log(`[UIServer] Grace period expired, no reconnection - shutting down orchestrator`);
+          process.stdout.write('\n\x1b[33mMain UI tab closed. Goodbye!\x1b[0m\n');
+          process.exit(0);
+        }, MAIN_CLIENT_GRACE_PERIOD_MS);
+      }
     });
   });
 
