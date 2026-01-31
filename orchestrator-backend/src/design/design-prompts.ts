@@ -534,6 +534,7 @@ This copies all artifacts to the designs library:
 9. Keep mockups realistic - navigation, CTAs, footers, etc.
 10. NEVER use markdown in chat messages - plain text only
 11. Multi-page: user can add pages until they click Done
+12. NEVER END THE SESSION ON YOUR OWN - Always call request_user_input() after every response and wait for the user. The session only ends when the user explicitly clicks "Done" or "Finish". Even after completing multiple pages, ask the user what they want to do next.
 
 ## TONE
 

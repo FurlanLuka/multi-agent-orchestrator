@@ -758,7 +758,7 @@ async function main() {
         }
 
         chatHandler.systemMessage(`E2E tests failed for ${project} after ${MAX_E2E_RETRIES} fix attempts. Manual intervention required.`);
-        statusMonitor.updateStatus(project, 'BLOCKED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
+        statusMonitor.updateStatus(project, 'FAILED', `E2E failed after ${MAX_E2E_RETRIES} fix attempts`);
         // Mark agent idle now that E2E analysis is complete
         stateMachine.markAgentIdle(project);
         return;
@@ -883,7 +883,7 @@ After fixing, the E2E tests will be re-run automatically.`;
 
             if (!result.success) {
               console.error(`[Orchestrator] E2E fix task failed for ${targetProject}`);
-              statusMonitor.updateStatus(targetProject, 'BLOCKED', `E2E fix failed`);
+              statusMonitor.updateStatus(targetProject, 'FAILED', `E2E fix failed`);
               pendingE2ERetry.delete(targetProject);
               e2eFixingFor.delete(targetProject);
             } else {
@@ -911,7 +911,7 @@ After fixing, the E2E tests will be re-run automatically.`;
           });
           activeE2EFlows.delete(project);
         }
-        statusMonitor.updateStatus(project, 'BLOCKED', 'E2E failed, no fix available');
+        statusMonitor.updateStatus(project, 'FAILED', 'E2E failed, no fix available');
         // Mark agent idle now that E2E analysis is complete
         stateMachine.markAgentIdle(project);
       }
@@ -1352,10 +1352,34 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Check if this project has pending E2E retry (completed a fix task)
     const pendingRetry = pendingE2ERetry.get(project);
     if (pendingRetry) {
-      console.log(`[Orchestrator] ${project} completed E2E fix, re-running E2E tests`);
+      console.log(`[Orchestrator] ${project} completed E2E fix for ${pendingRetry.failedProject}`);
+
+      // Check if there are OTHER projects still fixing for the same failed project
+      // This happens when E2E failure requires fixes across multiple projects
+      // Important: Check BEFORE deleting current project's entry
+      const stillFixing: string[] = [];
+      for (const [fixProject, retry] of pendingE2ERetry.entries()) {
+        if (fixProject !== project && retry.failedProject === pendingRetry.failedProject) {
+          stillFixing.push(fixProject);
+        }
+      }
+
+      // Now safe to delete current project's entry
       pendingE2ERetry.delete(project);
 
-      // Trigger E2E re-run with preserved test scenarios and retry count
+      if (stillFixing.length > 0) {
+        console.log(`[Orchestrator] Waiting for ${stillFixing.join(', ')} to complete fixes before re-running E2E for ${pendingRetry.failedProject}`);
+        // Don't trigger E2E yet - other projects are still fixing
+        // The last project to complete will trigger E2E
+        // Set this project back to IDLE since it completed its fix
+        statusMonitor.updateStatus(project, 'IDLE', 'E2E fix completed, waiting for other fixes');
+        return;
+      }
+
+      // All fixes complete - trigger E2E re-run with preserved test scenarios and retry count
+      console.log(`[Orchestrator] All fixes complete, re-running E2E tests for ${pendingRetry.failedProject}`);
+      // Clean up pendingE2E entry if it exists
+      pendingE2E.delete(pendingRetry.failedProject);
       e2eRetryCount.set(pendingRetry.failedProject, pendingRetry.retryCount);
       await tryTriggerE2E(pendingRetry.failedProject, `E2E re-run after fix attempt ${pendingRetry.retryCount}`);
       return;

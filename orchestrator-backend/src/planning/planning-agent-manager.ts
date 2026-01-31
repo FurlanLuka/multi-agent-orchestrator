@@ -87,11 +87,11 @@ export class PlanningAgentManager extends EventEmitter {
   // Per-method timeouts (ms)
   private static readonly TIMEOUTS = {
     CHAT: 600000,           // 2 min - general chat responses
-    PLAN_CREATION: 1200000,  // 20 min - explores codebase extensively
-    TASK_ANALYSIS: 180000,  // 3 min - analyzing task results
-    E2E_PROMPT: 180000,     // 3 min - generating E2E prompts
-    E2E_ANALYSIS: 300000,   // 5 min - analyzing E2E results
-    FAILURE_ANALYSIS: 180000, // 3 min - analyzing failures
+    PLAN_CREATION: 1200000 * 3,  // 20 min - explores codebase extensively
+    TASK_ANALYSIS: 1200000,  // 3 min - analyzing task results
+    E2E_PROMPT: 1200000,     // 3 min - generating E2E prompts
+    E2E_ANALYSIS: 1200000,   // 5 min - analyzing E2E results
+    FAILURE_ANALYSIS: 1200000, // 3 min - analyzing failures
   };
 
   constructor(orchestratorDir: string) {
@@ -753,7 +753,7 @@ User: ${newMessage}`;
                         this.emit('planningStatus', statusEvent);
                       }
                       // MCP tool for asking questions
-                      else if (block.name === 'mcp__orchestrator__ask_planning_question') {
+                      else if (block.name === 'mcp__orchestrator-planning__ask_planning_question') {
                         const question = block.input?.question as string || 'Question';
                         const statusEvent: PlanningStatusEvent = {
                           phase: 'exploring',
@@ -1100,7 +1100,7 @@ Based on exploration:
 
 ## IMPORTANT: Asking Questions
 
-You have access to the \`ask_planning_question\` tool (via MCP). Use it when:
+You have access to the \`mcp__orchestrator-planning__ask_planning_question\` tool. Use it when:
 - Requirements are ambiguous
 - Multiple valid approaches exist and user preference matters
 - You need domain-specific information not in the code
@@ -1119,7 +1119,7 @@ Output status markers as you work:
 
 ## WHEN DONE: Signal Completion
 
-When you have explored enough and analyzed the requirements, call the \`exploration_complete\` tool
+When you have explored enough and analyzed the requirements, call the \`mcp__orchestrator-planning__exploration_complete\` tool
 with a summary of your discoveries. This will trigger Phase 2 (plan generation).
 
 Your summary should include:
@@ -1130,13 +1130,13 @@ Your summary should include:
 - Execution order determined
 - Any considerations or edge cases
 
-DO NOT output a plan JSON yet - that happens in Phase 2 after you call exploration_complete.
+DO NOT output a plan JSON yet - that happens in Phase 2 after you call mcp__orchestrator-planning__exploration_complete.
 
 Start by exploring the projects NOW using their absolute paths listed above.
 For example: Read("${Object.values(projectPaths)[0] || '/path/to/project'}/package.json")
 
 NEVER explore or read files from the current working directory - it's the orchestrator system, not your projects.
-Ask clarifying questions if needed. Then call exploration_complete when ready.`;
+Ask clarifying questions if needed. Then call mcp__orchestrator-planning__exploration_complete when ready.`;
   }
 
   /**
@@ -1235,7 +1235,7 @@ Each task MUST include:
 
 ## Secret/Credential Detection
 
-If the feature requires credentials (OAuth, API keys, etc.), the implementing agent should use the \`request_user_input\` MCP tool during implementation to request values from the user. Do NOT create special tasks for credentials - include instructions in the regular implementation task about which credentials are needed and the agent will request them at runtime.
+If the feature requires credentials (OAuth, API keys, etc.), the implementing agent should use the \`mcp__orchestrator-permission__request_user_input\` tool during implementation to request values from the user. Do NOT create special tasks for credentials - include instructions in the regular implementation task about which credentials are needed and the agent will request them at runtime.
 
 ## Rules
 - Tasks for DIFFERENT projects run IN PARALLEL
@@ -1266,15 +1266,15 @@ flowchart LR\\n    subgraph FE["Frontend"]\\n        Pages["Pages"] --> Store["S
 
 ## IMPORTANT: Plan Approval Flow
 
-After generating the plan, you MUST call the \`submit_plan_for_approval\` tool with the complete plan JSON.
+After generating the plan, you MUST call the \`mcp__orchestrator-planning__submit_plan_for_approval\` tool with the complete plan JSON.
 
 The tool will block until the user responds:
 - If response is \`{ "status": "approved" }\`: Output "[PLAN_APPROVED]" and stop - execution will start
-- If response is \`{ "status": "refine", "feedback": "..." }\`: Read the feedback, revise the plan accordingly, and call \`submit_plan_for_approval\` again with the updated plan
+- If response is \`{ "status": "refine", "feedback": "..." }\`: Read the feedback, revise the plan accordingly, and call \`mcp__orchestrator-planning__submit_plan_for_approval\` again with the updated plan
 
 Continue iterating until the user approves the plan.
 
-Generate the Plan JSON now and then call \`submit_plan_for_approval\`:`;
+Generate the Plan JSON now and then call \`mcp__orchestrator-planning__submit_plan_for_approval\`:`;
   }
 
   /**

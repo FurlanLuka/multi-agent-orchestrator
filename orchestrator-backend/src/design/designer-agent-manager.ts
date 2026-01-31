@@ -313,7 +313,7 @@ export class DesignerAgentManager extends EventEmitter {
       this.currentProcess = null;
 
       if (this.session) {
-        this.emit('sessionEnded');
+        this.emit('sessionEnded', { sessionId: this.session.id });
       }
     });
 

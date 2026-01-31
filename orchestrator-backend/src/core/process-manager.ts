@@ -516,7 +516,7 @@ export class ProcessManager extends EventEmitter {
           this.currentAgentProcess.delete(project);
           reject(new Error('Agent timeout'));
         }
-      }, 300000 * 3); // 15 minute timeout for agent tasks
+      }, 2 * 60 * 60 * 1000); // 2 hour timeout for agent tasks
 
       proc.on('exit', () => clearTimeout(timeout));
     });
@@ -692,15 +692,15 @@ export class ProcessManager extends EventEmitter {
         }
       });
 
-      // 30 minute timeout for persistent sessions (handles multiple tasks)
+      // 2 hour timeout for persistent sessions (handles multiple tasks)
       const timeout = setTimeout(() => {
         if (this.currentAgentProcess.has(project)) {
           console.error(`[ProcessManager] Persistent agent ${project} timeout - killing process`);
           proc.kill('SIGKILL');
           this.currentAgentProcess.delete(project);
-          reject(new Error('Persistent agent timeout (30 minutes)'));
+          reject(new Error('Persistent agent timeout (2 hours)'));
         }
-      }, 30 * 60 * 1000);
+      }, 2 * 60 * 60 * 1000);
 
       proc.on('exit', () => clearTimeout(timeout));
     });
