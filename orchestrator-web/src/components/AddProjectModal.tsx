@@ -476,15 +476,14 @@ export function AddProjectModal({
               </Alert>
             </FeatureSection>
 
-            {!addForm.values.dangerouslyAllowAll && (
-              <CollapsiblePermissions
-                expanded={addPermissionsExpanded}
-                onToggle={() => setAddPermissionsExpanded(!addPermissionsExpanded)}
-                permissions={addForm.values.permissions}
-                onPermissionsChange={(p) => addForm.setFieldValue('permissions', p)}
-                permissionsConfig={permissionsConfig}
-              />
-            )}
+            <CollapsiblePermissions
+              expanded={addPermissionsExpanded}
+              onToggle={() => setAddPermissionsExpanded(!addPermissionsExpanded)}
+              permissions={addForm.values.permissions}
+              onPermissionsChange={(p) => addForm.setFieldValue('permissions', p)}
+              permissionsConfig={permissionsConfig}
+              disabled={addForm.values.dangerouslyAllowAll}
+            />
           </>
         )}
 

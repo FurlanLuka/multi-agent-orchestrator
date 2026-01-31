@@ -1005,11 +1005,11 @@ export function useSocket() {
   }, []);
 
   // Quick start with session: create projects from templates, workspace, and start session
-  const quickStartSession = useCallback((appName: string, feature: string, templateNames: string[]) => {
+  const quickStartSession = useCallback((appName: string, feature: string, templateNames: string[], designName?: string) => {
     if (socketRef.current) {
       setCreatingProject(true);
       setStartingSession(true);
-      socketRef.current.emit('quickStartSession', { appName, feature, templateNames });
+      socketRef.current.emit('quickStartSession', { appName, feature, templateNames, designName });
     }
   }, []);
 

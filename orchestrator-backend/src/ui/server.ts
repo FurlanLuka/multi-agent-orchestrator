@@ -61,10 +61,16 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     }
   });
 
-  // Single tab enforcement
+  // Environment check - allow multiple tabs only in development
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // Single tab enforcement (production only)
   let mainClientId: string | null = null;
   let mainClientDisconnectTimer: NodeJS.Timeout | null = null;
   const MAIN_CLIENT_GRACE_PERIOD_MS = 5000; // 5 seconds for reconnection
+
+  // Track connected clients (for dev mode)
+  const connectedClients = new Set<string>();
 
   // Middleware
   app.use(cors());
@@ -504,25 +510,16 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Socket.io connection handling
   io.on('connection', (socket: Socket) => {
-    console.log(`[UIServer] Client connected: ${socket.id}`);
+    console.log(`[UIServer] Client connected: ${socket.id}${isDev ? ' (dev mode)' : ''}`);
+    connectedClients.add(socket.id);
 
-    // Single tab enforcement: check if this is the main client or a secondary
-    if (mainClientId === null) {
-      // This is the first client - assign as main
-      mainClientId = socket.id;
-      console.log(`[UIServer] Main client assigned: ${socket.id}`);
-
-      // Clear any pending disconnect timer (handles reconnection during grace period)
-      if (mainClientDisconnectTimer) {
-        clearTimeout(mainClientDisconnectTimer);
-        mainClientDisconnectTimer = null;
-        console.log(`[UIServer] Reconnection during grace period - timer cleared`);
-      }
-
-      // Emit main role to client
+    // In dev mode, all clients are treated equally
+    // In production, enforce single tab
+    if (isDev) {
+      // Dev mode: all clients are main
       socket.emit('clientRole', { role: 'main' });
 
-      // Send current state on connect (only for main client)
+      // Send current state on connect
       if (deps?.sessionManager) {
         const session = deps.sessionManager.getCurrentSession();
         if (session) {
@@ -532,7 +529,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
       if (deps?.statusMonitor) {
         socket.emit('statuses', deps.statusMonitor.getStatusesObject());
-        // Send initial task states
         socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
       }
 
@@ -543,10 +539,47 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
         }
       }
     } else {
-      // Another client is already main - this is a secondary tab
-      console.log(`[UIServer] Secondary client connected: ${socket.id} (main is ${mainClientId})`);
-      socket.emit('clientRole', { role: 'secondary', message: 'UI is active on another tab' });
-      // Don't send other state to secondary clients
+      // Production mode: single tab enforcement
+      if (mainClientId === null) {
+        // This is the first client - assign as main
+        mainClientId = socket.id;
+        console.log(`[UIServer] Main client assigned: ${socket.id}`);
+
+        // Clear any pending disconnect timer (handles reconnection during grace period)
+        if (mainClientDisconnectTimer) {
+          clearTimeout(mainClientDisconnectTimer);
+          mainClientDisconnectTimer = null;
+          console.log(`[UIServer] Reconnection during grace period - timer cleared`);
+        }
+
+        // Emit main role to client
+        socket.emit('clientRole', { role: 'main' });
+
+        // Send current state on connect (only for main client)
+        if (deps?.sessionManager) {
+          const session = deps.sessionManager.getCurrentSession();
+          if (session) {
+            socket.emit('session', session);
+          }
+        }
+
+        if (deps?.statusMonitor) {
+          socket.emit('statuses', deps.statusMonitor.getStatusesObject());
+          socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
+        }
+
+        if (deps?.approvalQueue) {
+          const current = deps.approvalQueue.getCurrentRequest();
+          if (current) {
+            socket.emit('approval', current);
+          }
+        }
+      } else {
+        // Another client is already main - this is a secondary tab
+        console.log(`[UIServer] Secondary client connected: ${socket.id} (main is ${mainClientId})`);
+        socket.emit('clientRole', { role: 'secondary', message: 'UI is active on another tab' });
+        // Don't send other state to secondary clients
+      }
     }
 
     // Handle client events
@@ -869,8 +902,14 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
+      connectedClients.delete(socket.id);
 
-      // Single tab enforcement: if main client disconnects, start grace period
+      // In dev mode, don't shutdown - allow multiple tabs
+      if (isDev) {
+        return;
+      }
+
+      // Production mode: if main client disconnects, start grace period
       if (socket.id === mainClientId) {
         console.log(`[UIServer] Main client disconnected, starting ${MAIN_CLIENT_GRACE_PERIOD_MS}ms grace period...`);
         mainClientId = null; // Allow reconnection to claim main role
@@ -1928,6 +1967,60 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       console.error(`[UIServer] Failed to delete design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Project Design Attachment API
+  // ═══════════════════════════════════════════════════════════════
+
+  // POST /api/projects/:projectName/design - Attach design to project
+  app.post('/api/projects/:projectName/design', async (req: Request, res: Response) => {
+    const { projectName } = req.params;
+    const { designName } = req.body;
+
+    console.log(`[UIServer] POST /api/projects/${projectName}/design - attaching ${designName}`);
+
+    const projectManager = (io as any).projectManager;
+    if (!projectManager) {
+      res.status(500).json({ error: 'Project manager not available' });
+      return;
+    }
+
+    if (!designName) {
+      res.status(400).json({ error: 'designName is required' });
+      return;
+    }
+
+    try {
+      await projectManager.attachDesignToProject(projectName, designName);
+      res.json({ status: 'attached', project: projectName, design: designName });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to attach design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // DELETE /api/projects/:projectName/design - Detach design from project
+  app.delete('/api/projects/:projectName/design', (req: Request, res: Response) => {
+    const { projectName } = req.params;
+
+    console.log(`[UIServer] DELETE /api/projects/${projectName}/design - detaching`);
+
+    const projectManager = (io as any).projectManager;
+    if (!projectManager) {
+      res.status(500).json({ error: 'Project manager not available' });
+      return;
+    }
+
+    try {
+      projectManager.detachDesignFromProject(projectName);
+      res.json({ status: 'detached', project: projectName });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to detach design: ${error}`);
       res.status(500).json({ error });
     }
   });

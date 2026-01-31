@@ -9,6 +9,8 @@ import {
   SimpleGrid,
   MultiSelect,
   Group,
+  Select,
+  Text,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import {
@@ -22,8 +24,9 @@ import {
   IconTestPipe,
   IconTerminal2,
   IconShieldOff,
+  IconPalette,
 } from '@tabler/icons-react';
-import type { ProjectConfig } from '@orchy/types';
+import type { ProjectConfig, SavedDesignFolder } from '@orchy/types';
 import { StyledModal } from '../theme';
 
 import { FeatureSection } from './FeatureSection';
@@ -48,6 +51,7 @@ interface EditProjectFormValues {
   mainBranch: string;
   dangerouslyAllowAll: boolean;
   permissions: string[];
+  attachedDesign: string | null;
 }
 
 interface EditProjectModalProps {
@@ -58,7 +62,10 @@ interface EditProjectModalProps {
   projects: Record<string, ProjectConfig>;
   gitAvailable: boolean;
   permissionsConfig: PermissionsConfig | null;
+  savedDesigns?: SavedDesignFolder[];
   onSave: (name: string, updates: Partial<ProjectConfig>) => void;
+  onAttachDesign?: (projectName: string, designName: string) => Promise<void>;
+  onDetachDesign?: (projectName: string) => Promise<void>;
 }
 
 export function EditProjectModal({
@@ -69,9 +76,14 @@ export function EditProjectModal({
   projects,
   gitAvailable,
   permissionsConfig,
+  savedDesigns = [],
   onSave,
+  onAttachDesign,
+  onDetachDesign,
 }: EditProjectModalProps) {
   const [permissionsExpanded, setPermissionsExpanded] = useState(false);
+  const [attachingDesign, setAttachingDesign] = useState(false);
+  const [designSectionEnabled, setDesignSectionEnabled] = useState(false);
 
   const form = useForm<EditProjectFormValues>({
     initialValues: {
@@ -92,6 +104,7 @@ export function EditProjectModal({
       mainBranch: 'main',
       dangerouslyAllowAll: false,
       permissions: [],
+      attachedDesign: null,
     },
     validate: {
       installCommand: (value, values) => values.installEnabled && !value.trim() ? 'Command is required' : null,
@@ -107,6 +120,7 @@ export function EditProjectModal({
   useEffect(() => {
     if (projectConfig && opened) {
       setPermissionsExpanded(false);
+      setDesignSectionEnabled(!!projectConfig.attachedDesign);
       form.setValues({
         installEnabled: projectConfig.installEnabled ?? false,
         installCommand: projectConfig.installCommand || 'npm install',
@@ -125,6 +139,7 @@ export function EditProjectModal({
         mainBranch: projectConfig.mainBranch || 'main',
         permissions: projectConfig.permissions?.allow || [],
         dangerouslyAllowAll: projectConfig.permissions?.dangerouslyAllowAll || false,
+        attachedDesign: projectConfig.attachedDesign || null,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,6 +178,27 @@ export function EditProjectModal({
   const handleClose = () => {
     form.reset();
     onClose();
+  };
+
+  const handleDesignChange = async (designName: string | null) => {
+    if (!projectName) return;
+
+    setAttachingDesign(true);
+    try {
+      if (designName) {
+        // Attach design
+        await onAttachDesign?.(projectName, designName);
+        form.setFieldValue('attachedDesign', designName);
+      } else {
+        // Detach design
+        await onDetachDesign?.(projectName);
+        form.setFieldValue('attachedDesign', null);
+      }
+    } catch (err) {
+      console.error('Failed to change design:', err);
+    } finally {
+      setAttachingDesign(false);
+    }
   };
 
   return (
@@ -318,6 +354,35 @@ export function EditProjectModal({
           </FeatureSection>
 
           <FeatureSection
+            label="Design System"
+            description="Attach design from library"
+            icon={<IconPalette size={16} color="var(--mantine-color-pink-6)" />}
+            enabled={designSectionEnabled}
+            onToggle={(v) => {
+              setDesignSectionEnabled(v);
+              if (!v && form.values.attachedDesign) {
+                handleDesignChange(null);
+              }
+            }}
+          >
+            <Select
+              label="Design"
+              placeholder="Select a design..."
+              data={savedDesigns.map(d => ({ value: d.name, label: d.name }))}
+              value={form.values.attachedDesign}
+              onChange={(v) => handleDesignChange(v)}
+              clearable
+              size="xs"
+              disabled={attachingDesign}
+            />
+            {projectConfig && (
+              <Text size="xs" c="dimmed">
+                Files will be copied to {projectConfig.path}/ui_mockup/
+              </Text>
+            )}
+          </FeatureSection>
+
+          <FeatureSection
             label="Dangerously Allow All"
             description="Skip all permission checks (not recommended)"
             icon={<IconShieldOff size={16} color="var(--mantine-color-red-6)" />}
@@ -329,15 +394,14 @@ export function EditProjectModal({
             </Alert>
           </FeatureSection>
 
-          {!form.values.dangerouslyAllowAll && (
-            <CollapsiblePermissions
-              expanded={permissionsExpanded}
-              onToggle={() => setPermissionsExpanded(!permissionsExpanded)}
-              permissions={form.values.permissions}
-              onPermissionsChange={(p) => form.setFieldValue('permissions', p)}
-              permissionsConfig={permissionsConfig}
-            />
-          )}
+          <CollapsiblePermissions
+            expanded={permissionsExpanded}
+            onToggle={() => setPermissionsExpanded(!permissionsExpanded)}
+            permissions={form.values.permissions}
+            onPermissionsChange={(p) => form.setFieldValue('permissions', p)}
+            permissionsConfig={permissionsConfig}
+            disabled={form.values.dangerouslyAllowAll}
+          />
         </Stack>
       )}
     </StyledModal>

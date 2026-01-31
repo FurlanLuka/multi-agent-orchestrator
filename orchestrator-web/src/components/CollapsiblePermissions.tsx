@@ -41,6 +41,7 @@ interface CollapsiblePermissionsProps {
   permissions: string[];
   onPermissionsChange: (permissions: string[]) => void;
   permissionsConfig: PermissionsConfig | null;
+  disabled?: boolean;
 }
 
 interface PermissionCardProps {
@@ -103,8 +104,10 @@ export function CollapsiblePermissions({
   permissions,
   onPermissionsChange,
   permissionsConfig,
+  disabled = false,
 }: CollapsiblePermissionsProps) {
   const toggleGroup = (group: PermissionGroup) => {
+    if (disabled) return;
     const allEnabled = group.permissions.every(p => permissions.includes(p));
     if (allEnabled) {
       // Remove all permissions in this group
@@ -118,13 +121,13 @@ export function CollapsiblePermissions({
   if (!permissionsConfig) return null;
 
   return (
-    <GlassSurface style={{ padding: 0 }}>
+    <GlassSurface style={{ padding: 0, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
       <Group
         justify="space-between"
-        onClick={onToggle}
+        onClick={disabled ? undefined : onToggle}
         p="sm"
         style={{
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
           background: 'rgba(160, 130, 110, 0.02)',
         }}
       >

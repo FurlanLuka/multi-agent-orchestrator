@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult, SessionProjectConfig } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -72,6 +72,7 @@ export class PlanningAgentManager extends EventEmitter {
     feature: string;
     projects: string[];
     projectPaths?: Record<string, string>;
+    sessionProjectConfigs?: SessionProjectConfig[];
     flowId: string;
   } | null = null;
 
@@ -1004,8 +1005,17 @@ ${prompt}`;
    * - Phase 1: Exploration + analysis (agent calls exploration_complete MCP tool when done)
    * - Phase 2: Plan generation (agent receives Phase 2 prompt via MCP tool response)
    * This preserves full context from codebase exploration through to plan creation.
+   * @param feature Feature description
+   * @param projects List of project names
+   * @param projectPaths Map of project names to paths
+   * @param sessionProjectConfigs Optional session project configs for read-only/design-enabled settings
    */
-  async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
+  async requestPlan(
+    feature: string,
+    projects: string[],
+    projectPaths?: Record<string, string>,
+    sessionProjectConfigs?: SessionProjectConfig[]
+  ): Promise<void> {
     const flowId = `planning_${Date.now()}`;
 
     // Set planning request flag and emit initial status
@@ -1013,7 +1023,7 @@ ${prompt}`;
     this.currentPlanningPhase = 'exploring';
 
     // Store context for Phase 2 prompt generation (used when exploration_complete is called)
-    this.pendingPlanContext = { feature, projects, projectPaths, flowId };
+    this.pendingPlanContext = { feature, projects, projectPaths, sessionProjectConfigs, flowId };
 
     // Emit flow start for UI tracking
     this.emitFlowStart(flowId);
@@ -1023,7 +1033,7 @@ ${prompt}`;
     this.emit('planningStatus', initialStatus);
 
     // Build Phase 1 prompt (exploration + analysis)
-    const phase1Prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths || {});
+    const phase1Prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths || {}, sessionProjectConfigs);
 
     try {
       // Run persistent agent - it will call exploration_complete MCP tool when done
@@ -1061,8 +1071,40 @@ ${prompt}`;
    * Builds the Phase 1 prompt (exploration + analysis) for persistent planning agent.
    * Agent explores codebase, asks questions via MCP, then calls exploration_complete when ready.
    */
-  private buildExplorationAnalysisPrompt(feature: string, projects: string[], projectPaths: Record<string, string>): string {
+  private buildExplorationAnalysisPrompt(
+    feature: string,
+    projects: string[],
+    projectPaths: Record<string, string>,
+    sessionProjectConfigs?: SessionProjectConfig[]
+  ): string {
     const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
+
+    // Build read-only projects section
+    const readOnlyProjects = sessionProjectConfigs?.filter(c => c.included && c.readOnly) || [];
+    const readOnlySection = readOnlyProjects.length > 0 ? `
+## READ-ONLY PROJECTS
+The following projects should be explored for context only.
+DO NOT generate tasks for them:
+${readOnlyProjects.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}`).join('\n')}
+` : '';
+
+    // Build design-enabled projects section
+    const designEnabledProjects = sessionProjectConfigs?.filter(c => c.included && c.designEnabled) || [];
+    const designSection = designEnabledProjects.length > 0 ? `
+## DESIGN SYSTEM INTEGRATION
+For these projects, read the \`ui_mockup\` folder for design guidance:
+${designEnabledProjects.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}/ui_mockup/`).join('\n')}
+
+IMPORTANT: These are design DEFINITIONS and MOCKUPS for REFERENCE ONLY.
+- theme.css: CSS variables for colors, typography, spacing
+- components.html: Component styling patterns
+- *.html: Page layout examples
+- AGENTS.md: Usage instructions
+
+DO NOT copy or reuse this code directly. Apply these design specifications
+to whatever UI framework the project uses. These mockups define the visual
+language - not the implementation.
+` : '';
 
     return `You are an exploration and analysis agent for a multi-project orchestrator.
 
@@ -1073,7 +1115,7 @@ ${feature}
 ${projectList}
 
 **CRITICAL: You MUST use the absolute paths above when exploring. NEVER use relative paths or search in the current working directory. The current directory is the orchestrator system itself, NOT your projects.**
-
+${readOnlySection}${designSection}
 ## Your Task
 
 ### Part 1: Exploration
@@ -1082,7 +1124,7 @@ For each project, discover:
 2. **Technology Stack** - package.json, framework, language
 3. **Patterns** - API style, state management, component structure
 4. **Key Files** - Entry points, important modules
-5. **Related Features** - Similar existing implementations
+5. **Related Features** - Similar existing implementations${designEnabledProjects.length > 0 ? '\n6. **Design System** - For design-enabled projects, read the ui_mockup folder for design guidance' : ''}
 
 ### Part 2: Analysis
 Based on exploration:
@@ -1128,7 +1170,7 @@ Your summary should include:
 - **Complete API contracts** for every endpoint the feature requires:
   - Method, path, request body (with field types and validations), response body (success + error), status codes, auth requirements
 - Execution order determined
-- Any considerations or edge cases
+- Any considerations or edge cases${designEnabledProjects.length > 0 ? '\n- Design tokens and patterns to apply from the ui_mockup files' : ''}
 
 DO NOT output a plan JSON yet - that happens in Phase 2 after you call mcp__orchestrator-planning__exploration_complete.
 
@@ -1148,7 +1190,7 @@ Ask clarifying questions if needed. Then call mcp__orchestrator-planning__explor
       throw new Error('No pending plan context - exploration_complete called without active planning');
     }
 
-    const { feature, projects, flowId } = this.pendingPlanContext;
+    const { feature, projects, sessionProjectConfigs, flowId } = this.pendingPlanContext;
 
     // Update UI status
     this.currentPlanningPhase = 'generating';
@@ -1171,6 +1213,15 @@ ${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
 DO NOT include these projects in the "testPlan" section.`
       : '';
 
+    // Identify read-only projects (should be explored but not have tasks)
+    const readOnlyProjects = sessionProjectConfigs?.filter(c => c.included && c.readOnly) || [];
+    const readOnlyNote = readOnlyProjects.length > 0
+      ? `\n\nREAD-ONLY PROJECTS:
+The following projects were explored for context only.
+DO NOT generate tasks for them - they are reference implementations:
+${readOnlyProjects.map(p => `- ${p.name}`).join('\n')}`
+      : '';
+
     return `## PHASE 2: PLAN GENERATION
 
 You have completed exploration of the codebase. Your exploration summary:
@@ -1179,7 +1230,7 @@ ${explorationSummary}
 Now generate the implementation plan.
 
 **Feature:** ${feature}
-**Projects:** ${projects.join(', ')}${e2eExclusionNote}
+**Projects:** ${projects.join(', ')}${e2eExclusionNote}${readOnlyNote}
 
 You already have full context from your exploration - you read the files, understand the patterns,
 and have answers to any questions you asked.

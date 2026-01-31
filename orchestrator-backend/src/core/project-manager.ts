@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@orchy/types';
 import { GitManager } from './git-manager';
-import { getHookTemplatesDir, getProjectTemplatesDir } from '../config/paths';
+import { getHookTemplatesDir, getProjectTemplatesDir, getConfigDir } from '../config/paths';
 import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
 
 export interface AddProjectOptions {
@@ -726,5 +726,104 @@ ${fullCommand}
   reloadConfig(): void {
     this.config = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
     this.emit('configReloaded', this.config);
+  }
+
+  /**
+   * Attaches a design from the library to a project.
+   * Copies design files to {projectPath}/ui_mockup/
+   * @param projectName Name of the project
+   * @param designName Name of the design from the library
+   */
+  async attachDesignToProject(projectName: string, designName: string): Promise<void> {
+    const projectConfig = this.config.projects[projectName];
+    if (!projectConfig) {
+      throw new Error(`Project "${projectName}" does not exist`);
+    }
+
+    // Get design library path
+    const designsLibraryDir = path.join(getConfigDir(), 'designs');
+    const sanitizedDesignName = designName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const designDir = path.join(designsLibraryDir, sanitizedDesignName);
+
+    if (!fs.existsSync(designDir)) {
+      throw new Error(`Design "${designName}" not found in library`);
+    }
+
+    // Get project path
+    const projectPath = this.expandPath(projectConfig.path);
+    const uiMockupDir = path.join(projectPath, 'ui_mockup');
+
+    // Create ui_mockup directory
+    fs.mkdirSync(uiMockupDir, { recursive: true });
+
+    // Files to copy from design folder
+    const filesToCopy = [
+      'theme.css',      // CSS variables/tokens
+      'components.html', // Component reference
+      'AGENTS.md',      // Usage instructions
+    ];
+
+    // Copy specific files
+    for (const file of filesToCopy) {
+      const srcPath = path.join(designDir, file);
+      if (fs.existsSync(srcPath)) {
+        const destPath = path.join(uiMockupDir, file);
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`[ProjectManager] Copied ${file} to ui_mockup/`);
+      }
+    }
+
+    // Copy all page HTML files (*.html except theme.html and components.html)
+    const entries = fs.readdirSync(designDir);
+    for (const entry of entries) {
+      if (entry.endsWith('.html') && entry !== 'theme.html' && entry !== 'components.html') {
+        const srcPath = path.join(designDir, entry);
+        const destPath = path.join(uiMockupDir, entry);
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`[ProjectManager] Copied page ${entry} to ui_mockup/`);
+      }
+    }
+
+    // Update project config with attached design
+    this.config.projects[projectName] = {
+      ...projectConfig,
+      attachedDesign: designName,
+    };
+
+    this.saveConfig();
+
+    console.log(`[ProjectManager] Attached design "${designName}" to project "${projectName}"`);
+    this.emit('designAttached', { project: projectName, design: designName });
+  }
+
+  /**
+   * Detaches the design from a project.
+   * Removes the attachedDesign config but does NOT delete the ui_mockup folder.
+   * @param projectName Name of the project
+   */
+  detachDesignFromProject(projectName: string): void {
+    const projectConfig = this.config.projects[projectName];
+    if (!projectConfig) {
+      throw new Error(`Project "${projectName}" does not exist`);
+    }
+
+    if (!projectConfig.attachedDesign) {
+      console.log(`[ProjectManager] Project "${projectName}" has no attached design`);
+      return;
+    }
+
+    const previousDesign = projectConfig.attachedDesign;
+
+    // Remove attachedDesign from config
+    const { attachedDesign, ...rest } = projectConfig;
+    this.config.projects[projectName] = rest;
+
+    this.saveConfig();
+
+    console.log(`[ProjectManager] Detached design "${previousDesign}" from project "${projectName}"`);
+    this.emit('designDetached', { project: projectName, design: previousDesign });
   }
 }

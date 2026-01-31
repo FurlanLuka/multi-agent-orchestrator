@@ -8,6 +8,7 @@ import {
   Alert,
   ActionIcon,
   Title,
+  Tooltip,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -16,8 +17,9 @@ import {
   IconCheck,
   IconTrash,
   IconEdit,
+  IconPalette,
 } from '@tabler/icons-react';
-import type { ProjectTemplateConfig, ProjectConfig } from '@orchy/types';
+import type { ProjectTemplateConfig, ProjectConfig, SavedDesignFolder } from '@orchy/types';
 import { GlassCard, EmptyState } from '../theme';
 
 import { AddProjectModal } from './AddProjectModal';
@@ -58,6 +60,9 @@ export function ProjectManager({
   // Permissions config
   const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
 
+  // Saved designs
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesignFolder[]>([]);
+
   // Success message
   const [justCreated, setJustCreated] = useState<string | null>(null);
 
@@ -71,6 +76,16 @@ export function ProjectManager({
       .then(res => res.json())
       .then(data => setPermissionsConfig(data))
       .catch(err => console.error('Failed to fetch permissions config:', err));
+  }, [effectivePort]);
+
+  // Fetch saved designs
+  useEffect(() => {
+    if (effectivePort === null) return;
+
+    fetch(`http://localhost:${effectivePort}/api/designs`)
+      .then(res => res.json())
+      .then(data => setSavedDesigns(data.designs || []))
+      .catch(err => console.error('Failed to fetch designs:', err));
   }, [effectivePort]);
 
   // Track project creation success using refs to avoid cascading render issues
@@ -108,6 +123,32 @@ export function ProjectManager({
   const handleCloseEditModal = () => {
     closeEditModal();
     setEditingProject(null);
+  };
+
+  const handleAttachDesign = async (projectName: string, designName: string) => {
+    const response = await fetch(`http://localhost:${effectivePort}/api/projects/${projectName}/design`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ designName }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to attach design');
+    }
+    // Trigger a refresh of the project config
+    onUpdateProject(projectName, { attachedDesign: designName });
+  };
+
+  const handleDetachDesign = async (projectName: string) => {
+    const response = await fetch(`http://localhost:${effectivePort}/api/projects/${projectName}/design`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to detach design');
+    }
+    // Trigger a refresh of the project config
+    onUpdateProject(projectName, { attachedDesign: undefined });
   };
 
   const projectList = Object.entries(projects);
@@ -154,6 +195,18 @@ export function ProjectManager({
                         )}
                         {config.gitEnabled && (
                           <Badge size="xs" variant="light" color="lavender">Git</Badge>
+                        )}
+                        {config.attachedDesign && (
+                          <Tooltip label={`Design: ${config.attachedDesign}`}>
+                            <Badge
+                              size="xs"
+                              variant="light"
+                              color="grape"
+                              leftSection={<IconPalette size={10} />}
+                            >
+                              Design
+                            </Badge>
+                          </Tooltip>
                         )}
                       </Group>
 
@@ -211,7 +264,10 @@ export function ProjectManager({
         projects={projects}
         gitAvailable={gitAvailable}
         permissionsConfig={permissionsConfig}
+        savedDesigns={savedDesigns}
         onSave={onUpdateProject}
+        onAttachDesign={handleAttachDesign}
+        onDetachDesign={handleDetachDesign}
       />
     </>
   );

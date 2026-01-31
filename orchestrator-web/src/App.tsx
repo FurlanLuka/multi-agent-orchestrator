@@ -35,7 +35,6 @@ function App() {
     backendError,
     session,
     projects,
-    templates,
     workspaces,
     creatingProject,
     startingSession,
@@ -54,21 +53,6 @@ function App() {
     }
   }, [session]);
 
-  // Show confirmation dialog when main tab is closing (will shut down orchestrator)
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Show confirmation unless we're a secondary tab
-      if (clientRole !== 'secondary') {
-        e.preventDefault();
-        e.returnValue = 'Leave site?';
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [clientRole]);
-
   // Show splash screen while checking dependencies
   if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
     return (
@@ -81,7 +65,7 @@ function App() {
     );
   }
 
-  // Show secondary tab screen if another tab is the main client
+  // Show secondary tab screen if another tab is the main client (production only)
   if (clientRole === 'secondary') {
     return <SecondaryTabScreen message={secondaryMessage || 'UI is active on another tab'} />;
   }
@@ -178,16 +162,12 @@ function App() {
     case 'quickstart':
       return (
         <QuickStartView
-          templates={templates.map(t => ({
-            name: t.name,
-            displayName: t.displayName,
-            description: t.description,
-          }))}
           creatingProject={creatingProject || startingSession}
           onBack={goHome}
-          onStart={(appName, feature, selectedTemplates) => {
-            quickStartSession(appName, feature, selectedTemplates);
+          onStart={(appName, feature, selectedTemplates, designName) => {
+            quickStartSession(appName, feature, selectedTemplates, designName);
           }}
+          onGoToDesigner={() => setView({ page: 'design-session' })}
         />
       );
 

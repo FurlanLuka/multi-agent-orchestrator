@@ -395,6 +395,9 @@ async function main() {
   // Attach designer agent to io for socket handlers
   (ui.io as any).designerAgent = designerAgent;
 
+  // Attach project manager to io for REST API handlers
+  (ui.io as any).projectManager = projectManager;
+
   // Forward agent messages to frontend
   designerAgent.on('agentMessage', (content: string) => {
     console.log(`[DesignerAgent] Agent message: ${content.substring(0, 80)}...`);
@@ -2648,7 +2651,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Quick start with session: create projects, workspace, and start session in one go
-    socket.on('quickStartSession', async ({ appName, feature, templateNames }: { appName: string; feature: string; templateNames: string[] }) => {
+    socket.on('quickStartSession', async ({ appName, feature, templateNames, designName }: { appName: string; feature: string; templateNames: string[]; designName?: string }) => {
       try {
         const targetPath = `~/orchy/${appName}`;
         const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
@@ -2683,6 +2686,16 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           });
 
           createdProjectNames.push(projectName);
+
+          // Attach design to frontend project if specified
+          if (designName && templateName.includes('frontend')) {
+            try {
+              await projectManager.attachDesignToProject(projectName, designName);
+              console.log(`[Orchestrator] Attached design '${designName}' to ${projectName}`);
+            } catch (designErr) {
+              console.error(`[Orchestrator] Failed to attach design to ${projectName}:`, designErr);
+            }
+          }
         }
 
         // Create workspace with the newly created projects

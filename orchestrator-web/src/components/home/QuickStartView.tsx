@@ -1,67 +1,80 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container,
   Stack,
   Text,
   Button,
-  Checkbox,
   SimpleGrid,
   Loader,
   Group,
   ThemeIcon,
+  Select,
 } from '@mantine/core';
 import {
   IconRocket,
   IconBrowser,
   IconServer,
+  IconStack2,
+  IconPalette,
 } from '@tabler/icons-react';
+import type { SavedDesignFolder } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextInput, GlassTextarea } from '../../theme';
 
+type AppType = 'frontend' | 'backend' | 'fullstack';
+
 interface QuickStartViewProps {
-  templates: { name: string; displayName: string; description: string }[];
   creatingProject: boolean;
+  port?: number | null;
   onBack: () => void;
-  onStart: (appName: string, feature: string, selectedTemplates: string[]) => void;
+  onStart: (appName: string, feature: string, selectedTemplates: string[], designName?: string) => void;
+  onGoToDesigner?: () => void;
 }
 
 export function QuickStartView({
-  templates,
   creatingProject,
+  port,
   onBack,
   onStart,
+  onGoToDesigner,
 }: QuickStartViewProps) {
   const [appName, setAppName] = useState('');
   const [feature, setFeature] = useState('');
-  const [selectedTemplates, setSelectedTemplates] = useState<string[]>(['vite-frontend', 'nestjs-backend']);
+  const [appType, setAppType] = useState<AppType>('fullstack');
+  const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesignFolder[]>([]);
 
-  const getTemplateIcon = (name: string) => {
-    if (name.includes('frontend') || name.includes('react') || name.includes('vue')) {
-      return <IconBrowser size={16} />;
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+
+  // Fetch saved designs
+  useEffect(() => {
+    fetch(`http://localhost:${effectivePort}/api/designs`)
+      .then(res => res.json())
+      .then(data => setSavedDesigns(data.designs || []))
+      .catch(err => console.error('Failed to fetch designs:', err));
+  }, [effectivePort]);
+
+  // Map app type to templates
+  const getTemplatesForAppType = (type: AppType): string[] => {
+    switch (type) {
+      case 'frontend':
+        return ['vite-frontend'];
+      case 'backend':
+        return ['nestjs-backend'];
+      case 'fullstack':
+        return ['vite-frontend', 'nestjs-backend'];
     }
-    return <IconServer size={16} />;
   };
 
-  const getTemplateColor = (name: string) => {
-    if (name.includes('frontend') || name.includes('react')) return 'peach';
-    if (name.includes('backend')) return 'lavender';
-    return 'sage';
-  };
-
-  const toggleTemplate = (name: string) => {
-    setSelectedTemplates(prev =>
-      prev.includes(name)
-        ? prev.filter(t => t !== name)
-        : [...prev, name]
-    );
-  };
+  const selectedTemplates = getTemplatesForAppType(appType);
+  const hasFrontend = appType === 'frontend' || appType === 'fullstack';
 
   const handleStart = () => {
-    if (appName.trim() && feature.trim() && selectedTemplates.length > 0) {
-      onStart(appName.trim(), feature.trim(), selectedTemplates);
+    if (appName.trim() && feature.trim()) {
+      onStart(appName.trim(), feature.trim(), selectedTemplates, hasFrontend ? selectedDesign || undefined : undefined);
     }
   };
 
-  const isValid = appName.trim() && feature.trim() && selectedTemplates.length > 0;
+  const isValid = appName.trim() && feature.trim();
 
   return (
     <Container size="sm" pt={60} pb="xl">
@@ -120,63 +133,81 @@ export function QuickStartView({
             <Stack gap="xs">
               <Stack gap={2}>
                 <Text fw={500} size="sm">
-                  Components
+                  Application Type
                 </Text>
                 <Text size="xs" c="dimmed">
-                  Select which project templates to create
+                  Choose what kind of app to create
                 </Text>
               </Stack>
-              <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-                {templates.map(template => {
-                  const isSelected = selectedTemplates.includes(template.name);
-                  return (
-                    <GlassCard
-                      key={template.name}
-                      p="sm"
-                      style={{
-                        cursor: 'pointer',
-                        border: isSelected
-                          ? '2px solid var(--mantine-color-peach-5)'
-                          : '1px solid var(--border-subtle)',
-                        opacity: isSelected ? 1 : 0.7,
-                        transition: 'all 0.15s ease',
-                      }}
-                      onClick={() => toggleTemplate(template.name)}
-                    >
-                      <Group gap="sm" wrap="nowrap">
-                        <Checkbox
-                          checked={isSelected}
-                          onChange={() => toggleTemplate(template.name)}
-                          color="peach"
-                          styles={{ input: { cursor: 'pointer' } }}
-                        />
-                        <ThemeIcon
-                          size="md"
-                          radius="md"
-                          color={getTemplateColor(template.name)}
-                          variant="light"
-                        >
-                          {getTemplateIcon(template.name)}
-                        </ThemeIcon>
-                        <Stack gap={0}>
-                          <Text size="sm" fw={500}>
-                            {template.displayName}
-                          </Text>
-                          <Text size="xs" c="dimmed" lineClamp={1}>
-                            {template.description}
-                          </Text>
-                        </Stack>
-                      </Group>
-                    </GlassCard>
-                  );
-                })}
+              <SimpleGrid cols={3} spacing="sm">
+                {([
+                  { type: 'backend' as AppType, label: 'Backend', icon: <IconServer size={20} />, color: 'lavender', desc: 'API only' },
+                  { type: 'frontend' as AppType, label: 'Frontend', icon: <IconBrowser size={20} />, color: 'peach', desc: 'UI only' },
+                  { type: 'fullstack' as AppType, label: 'Fullstack', icon: <IconStack2 size={20} />, color: 'sage', desc: 'Both' },
+                ]).map(({ type, label, icon, color, desc }) => (
+                  <GlassCard
+                    key={type}
+                    p="sm"
+                    style={{
+                      cursor: 'pointer',
+                      border: appType === type
+                        ? '2px solid var(--mantine-color-peach-5)'
+                        : '1px solid var(--border-subtle)',
+                      opacity: appType === type ? 1 : 0.7,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onClick={() => setAppType(type)}
+                  >
+                    <Stack gap="xs" align="center">
+                      <ThemeIcon size="lg" radius="md" color={color} variant="light">
+                        {icon}
+                      </ThemeIcon>
+                      <Stack gap={0} align="center">
+                        <Text size="sm" fw={500}>{label}</Text>
+                        <Text size="xs" c="dimmed">{desc}</Text>
+                      </Stack>
+                    </Stack>
+                  </GlassCard>
+                ))}
               </SimpleGrid>
-              {selectedTemplates.length === 0 && (
-                <Text size="xs" c="rose.6">
-                  Select at least one component
-                </Text>
-              )}
             </Stack>
+
+            {hasFrontend && (
+              <GlassCard p="sm">
+                <Group gap="sm" wrap="nowrap">
+                  <ThemeIcon size="md" radius="md" color="grape" variant="light">
+                    <IconPalette size={16} />
+                  </ThemeIcon>
+                  <Stack gap={0} style={{ flex: 1 }}>
+                    <Text size="sm" fw={500}>Design System</Text>
+                    <Text size="xs" c="dimmed">Optionally attach a design to the frontend</Text>
+                  </Stack>
+                  <Group gap="xs" wrap="nowrap">
+                    {savedDesigns.length > 0 && (
+                      <Select
+                        placeholder="None"
+                        data={savedDesigns.map(d => ({ value: d.name, label: d.name }))}
+                        value={selectedDesign}
+                        onChange={setSelectedDesign}
+                        clearable
+                        size="xs"
+                        style={{ width: 140 }}
+                      />
+                    )}
+                    {onGoToDesigner && (
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="grape"
+                        onClick={onGoToDesigner}
+                      >
+                        {savedDesigns.length > 0 ? 'New' : 'Create Design'}
+                      </Button>
+                    )}
+                  </Group>
+                </Group>
+              </GlassCard>
+            )}
 
             <GlassTextarea
               label="What do you want to build?"

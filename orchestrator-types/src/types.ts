@@ -32,6 +32,7 @@ export interface ProjectConfig {
   gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
   mainBranch?: string;   // Main branch name (default: 'main')
   permissions?: ProjectPermissions;  // Claude Code agent permissions for this project
+  attachedDesign?: string;  // Name of design from library (singular - one per project)
 }
 
 export interface Config {
@@ -41,6 +42,14 @@ export interface Config {
     maxRestarts: number;
     debugEscalationTime: number;
   };
+}
+
+// Project selection for session planning
+export interface SessionProjectConfig {
+  name: string;
+  included: boolean;          // Include in session
+  readOnly?: boolean;         // Explore but don't plan work
+  designEnabled?: boolean;    // Include design context in planning
 }
 
 // Workspace configuration (stored in workspaces.json)

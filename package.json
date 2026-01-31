@@ -22,7 +22,7 @@
     "build:pkg-windows-x64": "npm run build:backend && npm run build:pkg-windows-x64 -w orchestrator-backend",
     "build:all-backends": "npm run build:backend && npm run build:pkg-macos-arm64 -w orchestrator-backend && npm run build:pkg-macos-x64 -w orchestrator-backend && npm run build:pkg-linux-x64 -w orchestrator-backend && npm run build:pkg-windows-x64 -w orchestrator-backend",
     "build:release": "./scripts/build-release.sh",
-    "dev": "npm run build:types && concurrently -k -n backend,frontend -c blue,green \"npm run dev -w orchestrator-backend\" \"npm run dev -w orchestrator-web\"",
+    "dev": "NODE_ENV=development npm run build:types && concurrently -k -n backend,frontend -c blue,green \"npm run dev -w orchestrator-backend\" \"npm run dev -w orchestrator-web\"",
     "dev:backend": "npm run build:types && npm run dev -w orchestrator-backend",
     "dev:web": "npm run dev -w orchestrator-web",
     "start": "./scripts/orchy",

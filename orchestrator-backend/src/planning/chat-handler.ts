@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult } from '@orchy/types';
+import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult, SessionProjectConfig } from '@orchy/types';
 import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {
@@ -126,14 +126,23 @@ export class ChatHandler extends EventEmitter {
 
   /**
    * Requests a plan for a feature
+   * @param feature Feature description
+   * @param projects List of project names
+   * @param projectPaths Map of project names to paths
+   * @param sessionProjectConfigs Optional session project configs for read-only/design-enabled settings
    */
-  async requestPlan(feature: string, projects: string[], projectPaths?: Record<string, string>): Promise<void> {
+  async requestPlan(
+    feature: string,
+    projects: string[],
+    projectPaths?: Record<string, string>,
+    sessionProjectConfigs?: SessionProjectConfig[]
+  ): Promise<void> {
     this.addMessage('user', `Create a plan for: ${feature}`);
     this.addMessage('system', `Analyzing feature request for projects: ${projects.join(', ')}...`);
     this.addMessage('system', `Exploring project directories to understand codebase structure...`);
 
     try {
-      await this.planningAgent.requestPlan(feature, projects, projectPaths);
+      await this.planningAgent.requestPlan(feature, projects, projectPaths, sessionProjectConfigs);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error creating plan: ${error.message}`);
