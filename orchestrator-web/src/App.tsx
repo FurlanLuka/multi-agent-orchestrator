@@ -55,12 +55,9 @@ function App() {
   }, [session]);
 
   // Show confirmation dialog when main tab is closing (will shut down orchestrator)
-  // Show dialog unless we're explicitly a secondary tab
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      console.log('[App] beforeunload triggered, clientRole:', clientRole);
       // Show confirmation unless we're a secondary tab
-      // (null means still connecting, treat as potentially main)
       if (clientRole !== 'secondary') {
         e.preventDefault();
         e.returnValue = 'Leave site?';
@@ -68,12 +65,8 @@ function App() {
       }
     };
 
-    console.log('[App] Registering beforeunload handler, clientRole:', clientRole);
     window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [clientRole]);
 
   // Show splash screen while checking dependencies
