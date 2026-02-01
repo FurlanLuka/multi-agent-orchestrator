@@ -104,6 +104,7 @@ Use `FormCard` with header/footer zones for a modal-like appearance:
 - `title` — String or ReactNode, renders in warm header zone (left-aligned)
 - `onBack` — Callback, renders back arrow left of title in header
 - `footer` — ReactNode, renders in warm footer zone (typically buttons right-aligned)
+- `showHeader` — Boolean, shows empty warm header zone even without title (for visual consistency)
 
 **For complex titles (e.g., workspace name + badges):**
 ```tsx
@@ -133,6 +134,7 @@ Use `FormCard` with header/footer zones for a modal-like appearance:
 - Back arrow is IN the header zone, left of title
 - Footer has Cancel + Primary button, right-aligned
 - Use `gap="lg"` inside FormCard content
+- **Always use `showHeader` for visual consistency** — all form cards should have the warm header zone, even if empty
 
 ### Modals (StyledModal)
 
@@ -422,8 +424,26 @@ Session start auto-navigates to `session` via useEffect.
 ## Form Input Consistency
 
 - Don't mix `size="md"` inputs with default size — keep consistent within a page
+- **Use `GlassRichTextEditor` for multi-line text inputs** (feature descriptions, prompts) — provides WYSIWYG editing
 - When using `GlassRichTextEditor` alongside `GlassTextInput`, use default size (no `size="md"`) for consistent label sizes
 - Add `description` prop for helper text below labels
+
+**GlassRichTextEditor usage:**
+```tsx
+import { GlassRichTextEditor, useGlassEditor } from '../../theme';
+
+const editor = useGlassEditor({
+  placeholder: 'Describe what to build...',
+});
+
+const hasContent = editor ? editor.getText().trim().length > 0 : false;
+
+<GlassRichTextEditor
+  label="Feature Description"
+  description="Optional helper text"
+  editor={editor}
+/>
+```
 
 ---
 

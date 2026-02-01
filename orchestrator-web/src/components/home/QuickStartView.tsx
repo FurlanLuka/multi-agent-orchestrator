@@ -19,7 +19,7 @@ import {
   IconPalette,
 } from '@tabler/icons-react';
 import type { SavedDesignFolder } from '@orchy/types';
-import { FormCard, GlassCard, GlassTextInput, GlassTextarea } from '../../theme';
+import { FormCard, GlassCard, GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
 
 type AppType = 'frontend' | 'backend' | 'fullstack';
 
@@ -39,10 +39,13 @@ export function QuickStartView({
   onGoToDesigner,
 }: QuickStartViewProps) {
   const [appName, setAppName] = useState('');
-  const [feature, setFeature] = useState('');
   const [appType, setAppType] = useState<AppType>('fullstack');
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
   const [savedDesigns, setSavedDesigns] = useState<SavedDesignFolder[]>([]);
+
+  const editor = useGlassEditor({
+    placeholder: 'Describe what you want to build...',
+  });
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
@@ -70,12 +73,14 @@ export function QuickStartView({
   const hasFrontend = appType === 'frontend' || appType === 'fullstack';
 
   const handleStart = () => {
-    if (appName.trim() && feature.trim()) {
-      onStart(appName.trim(), feature.trim(), selectedTemplates, hasFrontend ? selectedDesign || undefined : undefined);
+    const featureText = editor?.getText().trim();
+    if (appName.trim() && featureText) {
+      onStart(appName.trim(), featureText, selectedTemplates, hasFrontend ? selectedDesign || undefined : undefined);
     }
   };
 
-  const isValid = appName.trim() && feature.trim();
+  const hasContent = editor ? editor.getText().trim().length > 0 : false;
+  const isValid = appName.trim() && hasContent;
 
   return (
     <Container size="sm" pt={60} pb="xl">
@@ -92,6 +97,7 @@ export function QuickStartView({
 
         {/* Form Card */}
         <FormCard
+          showHeader
           footer={
             <Group justify="flex-end">
               <Button variant="subtle" onClick={onBack}>
@@ -211,14 +217,10 @@ export function QuickStartView({
               </GlassCard>
             )}
 
-            <GlassTextarea
+            <GlassRichTextEditor
               label="What do you want to build?"
               description="Describe the feature or app you want to create"
-              placeholder="Build a todo app with user authentication, task CRUD operations, and a clean modern UI..."
-              value={feature}
-              onChange={(e) => setFeature(e.target.value)}
-              minRows={4}
-              autosize
+              editor={editor}
             />
           </Stack>
         </FormCard>

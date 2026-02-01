@@ -1,6 +1,7 @@
 import { Container, Stack, Title, Text, SimpleGrid, Group, Badge } from '@mantine/core';
 import { IconSparkles, IconPalette, IconHammer } from '@tabler/icons-react';
 import { FormCard, GlassBar } from '../theme';
+import { FloatingSettingsButton } from '../components/home/FloatingSettingsButton';
 
 interface ModeSelectionPageProps {
   hasActiveSession: boolean;
@@ -97,17 +98,10 @@ export function ModeSelectionPage({
               </Stack>
             </FormCard>
           </SimpleGrid>
-
-          <Text
-            size="sm"
-            c="dimmed"
-            style={{ cursor: 'pointer' }}
-            onClick={onSettings}
-          >
-            <Text span c="peach.6" fw={500}>Settings</Text>
-          </Text>
         </Stack>
       </Container>
+
+      <FloatingSettingsButton onClick={onSettings} />
     </>
   );
 }

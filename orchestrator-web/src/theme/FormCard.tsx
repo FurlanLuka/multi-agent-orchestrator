@@ -10,6 +10,8 @@ interface FormCardProps extends BoxProps {
   onBack?: () => void;
   /** Footer content - renders in warm footer zone (typically action buttons) */
   footer?: React.ReactNode;
+  /** Show empty header zone even without title (for visual consistency) */
+  showHeader?: boolean;
   /** Enable hover lift effect */
   hoverable?: boolean;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
@@ -24,10 +26,11 @@ interface FormCardProps extends BoxProps {
  * Supports optional title (renders in warm header) and footer (renders in warm footer zone).
  */
 export const FormCard = forwardRef<HTMLDivElement, FormCardProps>(
-  ({ title, onBack, footer, hoverable = false, onClick, style, children, ...rest }, ref) => {
+  ({ title, onBack, footer, showHeader, hoverable = false, onClick, style, children, ...rest }, ref) => {
     const [hovered, setHovered] = useState(false);
 
-    const hasZones = title || footer;
+    const shouldShowHeader = showHeader ?? !!title;
+    const hasZones = shouldShowHeader || footer;
 
     return (
       <Box
@@ -49,29 +52,32 @@ export const FormCard = forwardRef<HTMLDivElement, FormCardProps>(
         {...rest}
       >
         {/* Header zone */}
-        {title && (
+        {shouldShowHeader && (
           <Box
             px="lg"
             py="md"
             style={{
               background: glass.modalZone.bg,
               borderBottom: glass.modalZone.border,
+              minHeight: 48,
             }}
           >
-            <Group gap="sm" align="center">
-              {onBack && (
-                <ActionIcon variant="subtle" color="gray" size="md" onClick={onBack}>
-                  <IconArrowLeft size={18} />
-                </ActionIcon>
-              )}
-              {typeof title === 'string' ? (
-                <Title order={4} style={{ fontWeight: 600 }}>
-                  {title}
-                </Title>
-              ) : (
-                title
-              )}
-            </Group>
+            {(title || onBack) && (
+              <Group gap="sm" align="center">
+                {onBack && (
+                  <ActionIcon variant="subtle" color="gray" size="md" onClick={onBack}>
+                    <IconArrowLeft size={18} />
+                  </ActionIcon>
+                )}
+                {typeof title === 'string' ? (
+                  <Title order={4} style={{ fontWeight: 600 }}>
+                    {title}
+                  </Title>
+                ) : (
+                  title
+                )}
+              </Group>
+            )}
           </Box>
         )}
 

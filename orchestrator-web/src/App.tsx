@@ -196,21 +196,11 @@ function AppRoutes() {
       />
       <Route
         path="/settings"
-        element={
-          <>
-            <BackButton to="/home" />
-            <SettingsPage />
-          </>
-        }
+        element={<SettingsPage />}
       />
       <Route
         path="/settings/:tab"
-        element={
-          <>
-            <BackButton to="/home" />
-            <SettingsPage />
-          </>
-        }
+        element={<SettingsPage />}
       />
       <Route
         path="/session"

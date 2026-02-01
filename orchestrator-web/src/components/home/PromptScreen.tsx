@@ -212,6 +212,7 @@ export function PromptScreen({
           {/* Left card: Feature description */}
           <Grid.Col span={{ base: 12, md: 7 }}>
             <FormCard
+              showHeader
               footer={
                 <Group justify="flex-end">
                   <Button variant="subtle" onClick={onBack}>
