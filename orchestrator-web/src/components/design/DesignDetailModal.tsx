@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Modal,
   Box,
@@ -20,12 +20,7 @@ interface DesignDetailModalProps {
 }
 
 export function DesignDetailModal({ opened, design, onClose }: DesignDetailModalProps) {
-  const [activeTab, setActiveTab] = useState<string | null>('theme');
-
-  // Reset tab when design changes
-  if (design && activeTab === null) {
-    setActiveTab('theme');
-  }
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // Build tabs array
   const tabs: Array<{ value: string; label: string; icon: React.ReactNode; html?: string }> = [];
@@ -66,6 +61,13 @@ export function DesignDetailModal({ opened, design, onClose }: DesignDetailModal
       });
     }
   }
+
+  // Set active tab to first available when design changes or modal opens
+  useEffect(() => {
+    if (opened && design && tabs.length > 0) {
+      setActiveTab(tabs[0].value);
+    }
+  }, [opened, design?.name]);
 
   return (
     <Modal.Root

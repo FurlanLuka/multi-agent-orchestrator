@@ -39,7 +39,7 @@ const availableCategories: Array<{ id: DesignCategory; name: string; description
 
 // Extended phases including category selection
 type ExtendedPhase = 'category' | DesignPhase;
-const phases: ExtendedPhase[] = ['category', 'discovery', 'theme', 'components', 'mockups', 'complete'];
+const phases: ExtendedPhase[] = ['category', 'discovery', 'theme', 'components', 'mockups', 'pages', 'complete'];
 
 const phaseLabels: Record<ExtendedPhase, string> = {
   category: 'Type',
@@ -330,16 +330,36 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <>
-      <Container size={(designRefine || showPagesPanel) ? 'lg' : 'sm'} py={40}>
-        <Stack gap="lg">
-          {/* Header with back + progress */}
-          <Group justify="space-between" align="center">
-            <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
-              <IconArrowLeft size={20} />
-            </ActionIcon>
+      {/* Back Button - fixed top left */}
+      <Box style={{ position: 'absolute', top: 24, left: 24 }}>
+        <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
+          <IconArrowLeft size={20} />
+        </ActionIcon>
+      </Box>
 
-            {/* Progress Steps (visual only) */}
-            <Group gap="xs">
+      <Container size={(designRefine || showPagesPanel) ? 'lg' : 'sm'} py={60}>
+        <Stack align="center" gap="xl">
+          {/* Title and Progress */}
+          <Stack align="center" gap="md">
+            <Stack align="center" gap={4}>
+              <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
+                Design Assistant
+              </Title>
+              <Text c="dimmed" size="sm" ta="center">
+                {showGenerating
+                  ? designGenerating?.type === 'theme'
+                    ? 'Generating theme options...'
+                    : designGenerating?.type === 'component'
+                      ? 'Generating component styles...'
+                      : 'Generating mockups...'
+                  : designComplete
+                    ? 'Design complete!'
+                    : 'Tell me about your vision'}
+              </Text>
+            </Stack>
+
+            {/* Progress Steps */}
+            <Group gap="xs" justify="center">
               {phases.map((p, index) => {
                 if (p === 'summary' || p === 'category') return null;
 
@@ -383,11 +403,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                 );
               })}
             </Group>
-          </Group>
+          </Stack>
 
           {/* Error Alert */}
           {designError && (
-            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
+            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error" w="100%">
               {designError}
             </Alert>
           )}
@@ -397,27 +417,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
           {/* Chat Card */}
           <FormCard
             style={{ flex: 1, minWidth: 0 }}
-            title={
-              <Group justify="space-between" style={{ flex: 1 }}>
-                <Text fw={600} size="lg">Design Assistant</Text>
-                <Badge
-                  color={showGenerating ? 'peach' : 'gray'}
-                  variant="light"
-                  size="sm"
-                  leftSection={showGenerating ? <Loader size={10} color="peach" /> : null}
-                >
-                  {showGenerating
-                    ? designGenerating?.type === 'theme'
-                      ? 'Generating themes'
-                      : designGenerating?.type === 'component'
-                        ? 'Generating styles'
-                        : 'Generating mockups'
-                    : designComplete
-                      ? 'Complete'
-                      : 'Chatting'}
-                </Badge>
-              </Group>
-            }
+            title={<Box style={{ height: 8 }} />}
             footer={!designComplete ? (
               <Group gap="sm" align="flex-end">
                 <GlassTextarea
@@ -454,11 +454,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
               <Stack gap="md">
                 {/* Empty state */}
                 {designMessages.length === 0 && !designComplete && !showGenerating && !designRefine && (
-                  <Stack gap="md" align="center" py="xl">
+                  <Stack gap="sm" align="center" py="xl">
                     <Box
                       style={{
-                        width: 64,
-                        height: 64,
+                        width: 48,
+                        height: 48,
                         borderRadius: '50%',
                         background: 'var(--mantine-color-peach-1)',
                         display: 'flex',
@@ -466,13 +466,10 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                         justifyContent: 'center',
                       }}
                     >
-                      <IconSparkles size={32} color="var(--mantine-color-peach-6)" />
+                      <IconSparkles size={24} color="var(--mantine-color-peach-6)" />
                     </Box>
-                    <Title order={5} fw={600} ta="center">
-                      Let's design something beautiful
-                    </Title>
-                    <Text size="sm" c="dimmed" ta="center" maw={300}>
-                      Tell me about your project. I'll ask a few questions to understand your vision, then generate design options for you.
+                    <Text size="sm" c="dimmed" ta="center">
+                      Describe your project to get started
                     </Text>
                   </Stack>
                 )}

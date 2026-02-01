@@ -124,13 +124,10 @@ function AppRoutes() {
       <Route
         path="/design-session"
         element={
-          <>
-            <BackButton to="/designs-library" />
-            <DesignSessionPage
-              onBack={() => navigate('/designs-library')}
-              onComplete={() => navigate('/designs-library')}
-            />
-          </>
+          <DesignSessionPage
+            onBack={() => navigate('/designs-library')}
+            onComplete={() => navigate('/designs-library')}
+          />
         }
       />
       <Route
