@@ -1307,21 +1307,31 @@ If the feature requires credentials (OAuth, API keys, etc.), the implementing ag
 
 ## Architecture Diagram
 
-The "architecture" field must contain ONLY raw Mermaid syntax (no \`\`\` fences, no "mermaid" prefix).
-It goes into a JSON string — use \\n for newlines.
+The "architecture" field must be SIMPLE Mermaid syntax. Keep it minimal.
 
-STRICT RULES (Mermaid v11 compatible):
-- Use ONLY: flowchart LR (left-to-right) or flowchart TD (top-down)
-- Node IDs: alphanumeric and underscores ONLY (e.g., user_service, NOT user-service)
-- Node labels: ALWAYS use bracket syntax: NodeID["Label Text"]
-- Database nodes: DB[("Database Name")]
-- Edge labels: -->|"label text"| (always quote edge labels)
-- Subgraph: subgraph id["Display Name"] ... end
-- NO classDef, style, click, :::, or HTML tags
-- Keep it simple: max 15 nodes, focus on data flow between key components
+REQUIRED FORMAT:
+- Start with: flowchart LR
+- Use \\n for newlines in JSON
+- Max 6 nodes total
+- NO subgraphs
 
-Example:
-flowchart LR\\n    subgraph FE["Frontend"]\\n        Pages["Pages"] --> Store["State Store"]\\n    end\\n    subgraph BE["Backend"]\\n        API["REST API"] --> SVC["Service Layer"]\\n        SVC --> DB[("PostgreSQL")]\\n    end\\n    Store -->|"HTTP requests"| API
+NODE SYNTAX:
+- NodeID["Label"] - IDs must be lowercase letters only (no underscores, no numbers)
+- Database: db[("Database")]
+
+ARROW SYNTAX:
+- Simple arrows ONLY: A --> B
+- NO edge labels (they break in JSON)
+
+DO NOT USE:
+- Edge labels like -->|"text"|
+- Subgraphs
+- Underscores or hyphens in node IDs
+- classDef, style, :::
+- More than 6 nodes
+
+EXAMPLE:
+flowchart LR\\n    ui["Frontend"] --> api["Backend API"]\\n    api --> db[("Database")]
 
 ## IMPORTANT: Plan Approval Flow
 

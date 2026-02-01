@@ -25,6 +25,7 @@ import { AssistantChat } from '../AssistantChat';
 import { ApprovalPanel } from '../ApprovalPanel';
 import { ProjectTabContent } from '../ProjectTabContent';
 import { MarkdownMessage } from '../MarkdownMessage';
+import { MermaidDiagram } from '../MermaidDiagram';
 import { UserInputOverlay } from '../UserInputOverlay';
 import { CompletionPanel } from './CompletionPanel';
 import { TaskList } from '../plan/TaskList';
@@ -57,6 +58,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
   const sessionProjects = session?.projects || Object.keys(statuses);
   const [showInitialPrompt, setShowInitialPrompt] = useState(false);
   const [showArchitecture, setShowArchitecture] = useState(false);
+  const [architectureValid, setArchitectureValid] = useState(true);
   const [stopModalOpen, setStopModalOpen] = useState(false);
   const [activeTasksTab, setActiveTasksTab] = useState<string>(sessionProjects[0] || '');
   const [activeTrackingTab, setActiveTrackingTab] = useState<string>(sessionProjects[0] || '');
@@ -324,8 +326,8 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                               </Text>
                             )}
 
-                            {/* Architecture - collapsible */}
-                            {session.plan.architecture && (
+                            {/* Architecture - collapsible, hidden when diagram fails */}
+                            {session.plan.architecture && architectureValid && (
                               <Box>
                                 <UnstyledButton
                                   onClick={() => setShowArchitecture(!showArchitecture)}
@@ -350,7 +352,14 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                                       border: '1px solid var(--border-subtle)',
                                     }}
                                   >
-                                    <MarkdownMessage content={session.plan.architecture} />
+                                    {session.plan.architecture.includes('```') ? (
+                                      <MarkdownMessage content={session.plan.architecture} />
+                                    ) : (
+                                      <MermaidDiagram
+                                        chart={session.plan.architecture}
+                                        onRenderError={() => setArchitectureValid(false)}
+                                      />
+                                    )}
                                   </Box>
                                 </Collapse>
                               </Box>

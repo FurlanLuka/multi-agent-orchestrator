@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import mermaid from 'mermaid';
-import { Card, Text, Button, Group, Loader } from '@mantine/core';
+import { Card, Group, Loader } from '@mantine/core';
 
 // Track initialization state
 let mermaidInitialized = false;
@@ -29,6 +29,8 @@ async function initMermaid() {
 
 interface Props {
   chart: string;
+  onRenderError?: () => void;
+  onRenderSuccess?: () => void;
 }
 
 // Sanitize Mermaid chart syntax to fix common LLM mistakes
@@ -38,22 +40,39 @@ function sanitizeChart(chart: string): string {
   // Strip markdown fences if LLM wrapped them
   cleaned = cleaned.replace(/^```(?:mermaid)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
 
-  // Quote edge labels containing special characters
-  cleaned = cleaned.replace(/\|([^|"]+)\|/g, (match, label) => {
-    if (/[\[\]<>{}()\/:.&]/.test(label)) {
-      return `|"${label}"|`;
-    }
-    return match;
+  // AGGRESSIVE: Strip all edge labels completely (they break in JSON)
+  // Matches -->|"anything"| or -->|anything| and replaces with -->
+  cleaned = cleaned.replace(/-->\|[^|]*\|/g, '-->');
+
+  // Remove subgraph blocks but keep inner content
+  // This handles: subgraph id["Label"] ... end
+  cleaned = cleaned.replace(/subgraph\s+\w+(?:\["[^"]*"\])?\s*\n?/gi, '');
+  cleaned = cleaned.replace(/\bend\b(?:\s*\n)?/g, '');
+
+  // Simplify problematic node IDs (replace underscores/hyphens with nothing)
+  // But only in node ID positions, not in labels
+  cleaned = cleaned.replace(/^(\s*)(\w+[-_]\w+)(\[)/gm, (_, indent, id, bracket) => {
+    const simplified = id.replace(/[-_]/g, '');
+    return `${indent}${simplified}${bracket}`;
+  });
+
+  // Fix arrow references to simplified IDs
+  cleaned = cleaned.replace(/(\s)([\w]+[-_][\w]+)(\s*-->)/g, (_, before, id, arrow) => {
+    const simplified = id.replace(/[-_]/g, '');
+    return `${before}${simplified}${arrow}`;
+  });
+  cleaned = cleaned.replace(/(-->\s*)([\w]+[-_][\w]+)(\s|$|\n)/g, (_, arrow, id, after) => {
+    const simplified = id.replace(/[-_]/g, '');
+    return `${arrow}${simplified}${after}`;
   });
 
   return cleaned.trim();
 }
 
-export function MermaidDiagram({ chart }: Props) {
+export function MermaidDiagram({ chart, onRenderError, onRenderSuccess }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
 
   const renderDiagram = useCallback(async () => {
     if (!containerRef.current) return;
@@ -92,54 +111,29 @@ export function MermaidDiagram({ chart }: Props) {
       }
 
       setError(null);
+      onRenderSuccess?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to render diagram';
-      // Detect dynamic import failures (stale chunks after rebuild)
-      if (message.includes('dynamically imported module') || message.includes('Failed to fetch') || message.includes('Loading chunk')) {
-        setError('Module loading failed - try refreshing the page');
-      } else {
-        setError(message);
+      setError(message);
+      // Clear container to remove any Mermaid error SVGs that may have been injected
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
       }
+      onRenderError?.();
     } finally {
       console.error = originalError;
       console.warn = originalWarn;
       setLoading(false);
     }
-  }, [chart]);
+  }, [chart, onRenderError, onRenderSuccess]);
 
   useEffect(() => {
     renderDiagram();
-  }, [renderDiagram, retryCount]);
+  }, [renderDiagram]);
 
-  const handleRetry = () => {
-    setError(null);
-    setRetryCount(c => c + 1);
-  };
-
+  // On error, render nothing (graceful degradation - parent will hide the section)
   if (error) {
-    const isModuleError = error.includes('Module loading failed') || error.includes('refresh');
-    return (
-      <Card p="xs" bg="red.0" withBorder style={{ borderColor: 'var(--mantine-color-red-3)' }}>
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Text size="xs" c="red.7">Diagram error: {error}</Text>
-            {!isModuleError && (
-              <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{chart}</Text>
-            )}
-          </div>
-          <Group gap="xs">
-            <Button size="xs" variant="light" color="red" onClick={handleRetry}>
-              Retry
-            </Button>
-            {isModuleError && (
-              <Button size="xs" variant="light" color="red" onClick={() => window.location.reload()}>
-                Refresh
-              </Button>
-            )}
-          </Group>
-        </Group>
-      </Card>
-    );
+    return null;
   }
 
   return (

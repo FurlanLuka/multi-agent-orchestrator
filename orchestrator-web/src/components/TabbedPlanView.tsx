@@ -82,6 +82,9 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
   // Track completion order for stable sorting
   const [completionOrder, setCompletionOrder] = useState<Map<string, number>>(new Map());
 
+  // Track if architecture diagram rendered successfully
+  const [architectureValid, setArchitectureValid] = useState(true);
+
   // Calculate which projects are truly complete
   const projectCompletionStatus = useMemo(() => {
     const status = new Map<string, boolean>();
@@ -181,8 +184,8 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
         </Text>
       )}
 
-      {/* Collapsible Architecture diagram */}
-      {plan.architecture && (
+      {/* Collapsible Architecture diagram - hidden when diagram fails to render */}
+      {plan.architecture && architectureValid && (
         <Box>
           <UnstyledButton
             onClick={() => setArchitectureExpanded(!architectureExpanded)}
@@ -210,7 +213,10 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
               {plan.architecture.includes('```') ? (
                 <MarkdownMessage content={plan.architecture} />
               ) : (
-                <MermaidDiagram chart={plan.architecture} />
+                <MermaidDiagram
+                  chart={plan.architecture}
+                  onRenderError={() => setArchitectureValid(false)}
+                />
               )}
             </Box>
           </Collapse>

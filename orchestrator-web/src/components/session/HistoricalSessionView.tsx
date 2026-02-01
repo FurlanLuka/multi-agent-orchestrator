@@ -30,6 +30,7 @@ import type {
   SessionCompletionReason,
 } from '@orchy/types';
 import { MarkdownMessage } from '../MarkdownMessage';
+import { MermaidDiagram } from '../MermaidDiagram';
 import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
 import { GlassCard, TabbedCard } from '../../theme';
@@ -73,6 +74,7 @@ export function HistoricalSessionView() {
 
   const [showOverview, setShowOverview] = useState(true);
   const [showArchitecture, setShowArchitecture] = useState(false);
+  const [architectureValid, setArchitectureValid] = useState(true);
   const [activeTab, setActiveTab] = useState<string | null>('overview');
 
   useEffect(() => {
@@ -256,8 +258,8 @@ export function HistoricalSessionView() {
                         </Collapse>
                       </Box>
 
-                      {/* Architecture Section */}
-                      {session.plan.architecture && (
+                      {/* Architecture Section - hidden when diagram fails */}
+                      {session.plan.architecture && architectureValid && (
                         <Box>
                           <UnstyledButton onClick={() => setShowArchitecture(!showArchitecture)}>
                             <Group gap={4}>
@@ -279,7 +281,14 @@ export function HistoricalSessionView() {
                                 border: '1px solid var(--border-subtle)',
                               }}
                             >
-                              <MarkdownMessage content={session.plan.architecture} />
+                              {session.plan.architecture.includes('```') ? (
+                                <MarkdownMessage content={session.plan.architecture} />
+                              ) : (
+                                <MermaidDiagram
+                                  chart={session.plan.architecture}
+                                  onRenderError={() => setArchitectureValid(false)}
+                                />
+                              )}
                             </Box>
                           </Collapse>
                         </Box>
