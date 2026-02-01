@@ -30,6 +30,8 @@ import { UserInputOverlay } from '../UserInputOverlay';
 import { CompletionPanel } from './CompletionPanel';
 import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
+import { PlanningSidebar } from '../planning/PlanningSidebar';
+import { StageApprovalCard } from '../planning/StageApprovalCard';
 import { glass, radii, TabbedCard } from '../../theme';
 
 interface SessionViewProps {
@@ -53,6 +55,9 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     respondToPermission,
     retryProject,
     startNewSession,
+    planningSessionState,
+    pendingStageApproval,
+    respondToStageApproval,
   } = useOrchestrator();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -177,9 +182,16 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
 
           {session && (
             <Grid gutter="lg" style={{ flex: 1, minHeight: 0 }}>
+              {/* Planning Sidebar (shown during multi-stage planning before plan is created) */}
+              {planningSessionState && !session.plan && (
+                <Grid.Col span={{ base: 12, lg: 3 }} style={{ minWidth: 250 }}>
+                  <PlanningSidebar planningState={planningSessionState} />
+                </Grid.Col>
+              )}
+
               {/* LEFT PANEL: Planning Chat */}
               <Grid.Col
-                span={{ base: 12, lg: session.plan ? 5 : 12 }}
+                span={{ base: 12, lg: session.plan ? 5 : planningSessionState ? 9 : 12 }}
                 style={{ minWidth: 380 }}
               >
                 <Stack gap="lg" h="calc(100vh - 100px)">
@@ -231,8 +243,20 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                         {isStreaming ? 'Thinking...' : 'Ready'}
                       </Badge>
                     </Group>
-                    <Box style={{ flex: 1, minHeight: 0 }}>
-                      <AssistantChat />
+                    <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {/* Stage Approval Card (shown when a planning stage is awaiting approval) */}
+                      {pendingStageApproval && (
+                        <Box p="md" style={{ flexShrink: 0 }}>
+                          <StageApprovalCard
+                            approval={pendingStageApproval}
+                            onApprove={() => respondToStageApproval(pendingStageApproval.stageId, true)}
+                            onReject={(feedback) => respondToStageApproval(pendingStageApproval.stageId, false, feedback)}
+                          />
+                        </Box>
+                      )}
+                      <Box style={{ flex: 1, minHeight: 0 }}>
+                        <AssistantChat />
+                      </Box>
                     </Box>
                   </Box>
                   </Collapse>

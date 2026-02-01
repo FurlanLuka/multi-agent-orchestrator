@@ -9,7 +9,7 @@ import { StatusMonitor } from '../core/status-monitor';
 import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
+import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, SubFeaturesData, SubFeatureRefinementData, TechnicalSpecData, SubFeature } from '@orchy/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@orchy/types';
 import { getWebDistPath } from '../config/paths';
 
@@ -28,8 +28,6 @@ export interface UIServerDependencies {
   };
   // Callback for task completion (set after TaskExecutor is created)
   onTaskComplete?: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>;
-  // Callback for exploration completion (set after PlanningAgent is created)
-  onExplorationComplete?: (summary: string) => Promise<string>;
   // Callback for plan approval (set after PlanningAgent is created)
   onPlanApproval?: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>;
   // Callback to kill planning agent when plan is approved (prevents duplicate submissions)
@@ -43,7 +41,6 @@ export interface UIServer {
   start: () => void;
   stop: () => void;
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
-  setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => void;
   setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
   setKillPlanningAgentHandler: (handler: () => void) => void;
 }
@@ -272,35 +269,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Exploration Complete Handling (for persistent planning agent)
-  // ═══════════════════════════════════════════════════════════════
-
-  // HTTP endpoint for MCP server to call when planning agent signals exploration complete
-  app.post('/api/exploration-complete', async (req: Request, res: Response) => {
-    const { summary } = req.body;
-
-    console.log(`[UIServer] Exploration complete: ${(summary || '').substring(0, 100)}...`);
-
-    // Check if callback is registered
-    if (!deps.onExplorationComplete) {
-      console.error(`[UIServer] No exploration complete handler registered`);
-      res.send('Error: No exploration handler registered. Please generate a plan based on your exploration.');
-      return;
-    }
-
-    try {
-      // Call the handler to generate Phase 2 prompt (blocks until ready)
-      const phase2Prompt = await deps.onExplorationComplete(summary || '');
-      console.log(`[UIServer] Phase 2 prompt generated (${phase2Prompt.length} chars)`);
-      res.send(phase2Prompt);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[UIServer] Exploration complete error:`, err);
-      res.send(`Error generating Phase 2 prompt: ${errorMsg}. Please generate a plan based on your exploration.`);
-    }
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // Plan Approval Handling (for interactive plan approval via MCP)
   // ═══════════════════════════════════════════════════════════════
 
@@ -396,6 +364,290 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Expose pendingUserInputs for socket handler
   (io as any).pendingUserInputs = pendingUserInputs;
+
+  // ═══════════════════════════════════════════════════════════════
+  // Multi-Stage Planning Endpoints (6-stage workflow)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Planning session state (shared across stages)
+  let planningSessionState: PlanningSessionState | null = null;
+
+  // Store pending stage approvals (key -> resolver)
+  const pendingStageApprovals = new Map<string, {
+    resolve: (result: { status: 'approved' } | { status: 'refine'; feedback: string }) => void;
+    data: StageApprovalRequest['data'];
+  }>();
+
+  // Helper to persist planning state to session store
+  const persistPlanningState = () => {
+    if (!planningSessionState || !deps.sessionManager) return;
+    const currentSessionId = deps.sessionManager.getSessionStore().getCurrentSessionId();
+    if (currentSessionId) {
+      deps.sessionManager.getSessionStore().setPlanningState(currentSessionId, planningSessionState);
+    }
+  };
+
+  // Helper to initialize planning session
+  const initPlanningSession = () => {
+    planningSessionState = {
+      currentStage: 'feature_refinement',
+      stages: [
+        { stage: 'feature_refinement', status: 'active', startedAt: Date.now() },
+        { stage: 'sub_feature_breakdown', status: 'pending' },
+        { stage: 'sub_feature_refinement', status: 'pending' },
+        { stage: 'project_exploration', status: 'pending' },
+        { stage: 'technical_planning', status: 'pending' },
+        { stage: 'task_generation', status: 'pending' },
+      ],
+      subFeatures: [],
+      currentSubFeatureIndex: 0,
+    };
+    io.emit('planningSessionState', { sessionState: planningSessionState });
+    persistPlanningState();
+  };
+
+  // Helper to advance to next stage
+  const advanceStage = (currentStage: string) => {
+    if (!planningSessionState) return;
+
+    const stageOrder = [
+      'feature_refinement',
+      'sub_feature_breakdown',
+      'sub_feature_refinement',
+      'project_exploration',
+      'technical_planning',
+      'task_generation',
+    ];
+
+    const currentIdx = stageOrder.indexOf(currentStage);
+    if (currentIdx >= 0 && currentIdx < stageOrder.length - 1) {
+      // Mark current stage as completed
+      const currentStageObj = planningSessionState.stages.find(s => s.stage === currentStage);
+      if (currentStageObj) {
+        currentStageObj.status = 'completed';
+        currentStageObj.completedAt = Date.now();
+      }
+
+      // Mark next stage as active
+      const nextStage = stageOrder[currentIdx + 1];
+      const nextStageObj = planningSessionState.stages.find(s => s.stage === nextStage);
+      if (nextStageObj) {
+        nextStageObj.status = 'active';
+        nextStageObj.startedAt = Date.now();
+      }
+
+      planningSessionState.currentStage = nextStage as PlanningSessionState['currentStage'];
+    }
+
+    io.emit('planningSessionState', { sessionState: planningSessionState });
+    persistPlanningState();
+  };
+
+  // Stage 1: Submit Refined Feature
+  app.post('/api/submit-refined-feature', async (req: Request, res: Response) => {
+    const { refinedDescription, keyRequirements } = req.body;
+    const stageId = `stage_refined_${Date.now()}`;
+
+    console.log(`[UIServer] Refined feature submitted: ${stageId}`);
+
+    // Initialize session if not exists
+    if (!planningSessionState) {
+      initPlanningSession();
+    }
+
+    // Store refined feature
+    if (planningSessionState) {
+      planningSessionState.refinedFeature = { description: refinedDescription, requirements: keyRequirements };
+      // Mark stage as awaiting approval
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'feature_refinement');
+      if (stageObj) stageObj.status = 'awaiting_approval';
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    // Emit stage approval request to frontend
+    const data: RefinedFeatureData = { type: 'refined_feature', refinedDescription, keyRequirements };
+    io.emit('stageApproval', { stageId, stage: 'feature_refinement', data } as StageApprovalRequest);
+
+    // Block until user responds
+    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+      pendingStageApprovals.set(stageId, { resolve, data });
+    });
+
+    pendingStageApprovals.delete(stageId);
+
+    // Handle response
+    if (response.status === 'approved') {
+      advanceStage('feature_refinement');
+    } else if (planningSessionState) {
+      // Mark stage as active again for refinement
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'feature_refinement');
+      if (stageObj) stageObj.status = 'active';
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    res.json(response);
+  });
+
+  // Stage 2: Submit Sub-features
+  app.post('/api/submit-sub-features', async (req: Request, res: Response) => {
+    const { subFeatures } = req.body;
+    const stageId = `stage_subfeatures_${Date.now()}`;
+
+    console.log(`[UIServer] Sub-features submitted: ${subFeatures.length} items`);
+
+    // Create sub-feature objects with IDs
+    const subFeatureObjs: SubFeature[] = subFeatures.map((sf: { name: string; description: string }, idx: number) => ({
+      id: `sf_${Date.now()}_${idx}`,
+      name: sf.name,
+      description: sf.description,
+      status: 'pending' as const,
+    }));
+
+    if (planningSessionState) {
+      planningSessionState.subFeatures = subFeatureObjs;
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'sub_feature_breakdown');
+      if (stageObj) stageObj.status = 'awaiting_approval';
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    // Emit stage approval request
+    const data: SubFeaturesData = { type: 'sub_features', subFeatures };
+    io.emit('stageApproval', { stageId, stage: 'sub_feature_breakdown', data } as StageApprovalRequest);
+
+    // Block until user responds
+    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+      pendingStageApprovals.set(stageId, { resolve, data });
+    });
+
+    pendingStageApprovals.delete(stageId);
+
+    if (response.status === 'approved') {
+      advanceStage('sub_feature_breakdown');
+      // Return sub-feature IDs so agent knows what to refine
+      res.json({ ...response, subFeatureIds: subFeatureObjs.map(sf => sf.id) });
+    } else {
+      if (planningSessionState) {
+        const stageObj = planningSessionState.stages.find(s => s.stage === 'sub_feature_breakdown');
+        if (stageObj) stageObj.status = 'active';
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+      }
+      res.json(response);
+    }
+  });
+
+  // Stage 3: Submit Sub-feature Refinement (per item)
+  app.post('/api/submit-sub-feature-refinement', async (req: Request, res: Response) => {
+    const { subFeatureId, refinedDescription, acceptanceCriteria } = req.body;
+    const stageId = `stage_sfrefine_${subFeatureId}_${Date.now()}`;
+
+    console.log(`[UIServer] Sub-feature refinement submitted: ${subFeatureId}`);
+
+    // Find sub-feature and update
+    let subFeatureName = 'Unknown';
+    if (planningSessionState) {
+      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
+      if (sf) {
+        sf.status = 'refining';
+        sf.acceptanceCriteria = acceptanceCriteria;
+        subFeatureName = sf.name;
+      }
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    // Emit sub-feature approval request
+    const data: SubFeatureRefinementData = {
+      type: 'sub_feature_refinement',
+      subFeatureId,
+      subFeatureName,
+      refinedDescription,
+      acceptanceCriteria,
+    };
+    io.emit('subFeatureApproval', { stageId, data });
+
+    // Block until user responds
+    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+      pendingStageApprovals.set(stageId, { resolve, data });
+    });
+
+    pendingStageApprovals.delete(stageId);
+
+    if (response.status === 'approved' && planningSessionState) {
+      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
+      if (sf) {
+        sf.status = 'approved';
+        sf.description = refinedDescription;
+      }
+
+      // Check if all sub-features are approved
+      const allApproved = planningSessionState.subFeatures.every(s => s.status === 'approved');
+      if (allApproved) {
+        advanceStage('sub_feature_refinement');
+      }
+
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    } else if (planningSessionState) {
+      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
+      if (sf) {
+        // Add to refinement history
+        if (!sf.refinementHistory) sf.refinementHistory = [];
+        sf.refinementHistory.push({ feedback: response.status === 'refine' ? response.feedback : '', response: refinedDescription });
+      }
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    res.json(response);
+  });
+
+  // Stage 5: Submit Technical Spec
+  app.post('/api/submit-technical-spec', async (req: Request, res: Response) => {
+    const { apiContracts, architectureDecisions, executionOrder } = req.body;
+    const stageId = `stage_techspec_${Date.now()}`;
+
+    console.log(`[UIServer] Technical spec submitted: ${apiContracts?.length || 0} contracts`);
+
+    if (planningSessionState) {
+      planningSessionState.technicalSpec = { apiContracts, architectureDecisions: architectureDecisions || [], executionOrder };
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'technical_planning');
+      if (stageObj) stageObj.status = 'awaiting_approval';
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    // Emit stage approval request
+    const data: TechnicalSpecData = { type: 'technical_spec', apiContracts, architectureDecisions: architectureDecisions || [], executionOrder };
+    io.emit('stageApproval', { stageId, stage: 'technical_planning', data } as StageApprovalRequest);
+
+    // Block until user responds
+    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+      pendingStageApprovals.set(stageId, { resolve, data });
+    });
+
+    pendingStageApprovals.delete(stageId);
+
+    if (response.status === 'approved') {
+      advanceStage('technical_planning');
+    } else if (planningSessionState) {
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'technical_planning');
+      if (stageObj) stageObj.status = 'active';
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+    }
+
+    res.json(response);
+  });
+
+  // Expose for socket handlers
+  (io as any).pendingStageApprovals = pendingStageApprovals;
+  (io as any).planningSessionState = () => planningSessionState;
+  (io as any).initPlanningSession = initPlanningSession;
+  (io as any).advanceStage = advanceStage;
 
   // ═══════════════════════════════════════════════════════════════
   // Planning Question Handling (for interactive Q&A during planning)
@@ -707,6 +959,50 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       if (pending?.resolve) {
         pending.resolve({ requestId, values });
         (io as any).pendingUserInputs.delete(requestId);
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Multi-Stage Planning Socket Handlers
+    // ═══════════════════════════════════════════════════════════════
+
+    // Approve a stage
+    socket.on('approveStage', ({ stageId, feedback }: { stageId: string; feedback?: string }) => {
+      console.log(`[UIServer] Stage approved: ${stageId}`);
+      const pending = (io as any).pendingStageApprovals?.get(stageId);
+      if (pending?.resolve) {
+        pending.resolve({ status: 'approved' });
+        (io as any).pendingStageApprovals.delete(stageId);
+      }
+    });
+
+    // Reject/request changes to a stage
+    socket.on('rejectStage', ({ stageId, feedback }: { stageId: string; feedback: string }) => {
+      console.log(`[UIServer] Stage rejected: ${stageId}, feedback: ${feedback}`);
+      const pending = (io as any).pendingStageApprovals?.get(stageId);
+      if (pending?.resolve) {
+        pending.resolve({ status: 'refine', feedback });
+        (io as any).pendingStageApprovals.delete(stageId);
+      }
+    });
+
+    // Approve a sub-feature (stage 3 per-item approval)
+    socket.on('approveSubFeature', ({ stageId }: { stageId: string }) => {
+      console.log(`[UIServer] Sub-feature approved: ${stageId}`);
+      const pending = (io as any).pendingStageApprovals?.get(stageId);
+      if (pending?.resolve) {
+        pending.resolve({ status: 'approved' });
+        (io as any).pendingStageApprovals.delete(stageId);
+      }
+    });
+
+    // Reject/refine a sub-feature
+    socket.on('rejectSubFeature', ({ stageId, feedback }: { stageId: string; feedback: string }) => {
+      console.log(`[UIServer] Sub-feature rejected: ${stageId}, feedback: ${feedback}`);
+      const pending = (io as any).pendingStageApprovals?.get(stageId);
+      if (pending?.resolve) {
+        pending.resolve({ status: 'refine', feedback });
+        (io as any).pendingStageApprovals.delete(stageId);
       }
     });
 
@@ -2098,9 +2394,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     },
     setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => {
       deps.onTaskComplete = handler;
-    },
-    setExplorationCompleteHandler: (handler: (summary: string) => Promise<string>) => {
-      deps.onExplorationComplete = handler;
     },
     setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => {
       deps.onPlanApproval = handler;

@@ -30,6 +30,9 @@ import type {
   PermissionPrompt,
   PlanningQuestion,
   WorkspaceConfig,
+  // Multi-stage planning types
+  PlanningSessionState,
+  StageApprovalRequest,
   // Design session types
   DesignPhase,
   DesignCategory,
@@ -169,6 +172,10 @@ export function useSocket() {
     approvalId: string;
     plan: Plan;
   } | null>(null);
+
+  // Multi-stage planning state
+  const [planningSessionState, setPlanningSessionState] = useState<PlanningSessionState | null>(null);
+  const [pendingStageApproval, setPendingStageApproval] = useState<StageApprovalRequest | null>(null);
 
   // ═══════════════════════════════════════════════════════════════
   // Design Session State
@@ -829,6 +836,26 @@ export function useSocket() {
       });
     });
 
+    // Multi-stage planning events
+    socket.on('planningSessionState', (event: { sessionState: PlanningSessionState }) => {
+      console.log(`[Planning] Session state update: stage=${event.sessionState.currentStage}`);
+      setPlanningSessionState(event.sessionState);
+    });
+
+    socket.on('stageApproval', (event: StageApprovalRequest) => {
+      console.log(`[Planning] Stage approval requested: ${event.stage} (${event.stageId})`);
+      setPendingStageApproval(event);
+    });
+
+    socket.on('subFeatureApproval', (event: { stageId: string; data: StageApprovalRequest['data'] }) => {
+      console.log(`[Planning] Sub-feature approval requested: ${event.stageId}`);
+      setPendingStageApproval({
+        stageId: event.stageId,
+        stage: 'sub_feature_refinement',
+        data: event.data,
+      });
+    });
+
     // ═══════════════════════════════════════════════════════════════
     // Design Session Events
     // ═══════════════════════════════════════════════════════════════
@@ -1155,6 +1182,8 @@ export function useSocket() {
     setFlows([]);
     setPlanningStatus(null);
     setPendingPlanApproval(null);
+    setPlanningSessionState(null);
+    setPendingStageApproval(null);
     // Clear refs
     activeSessionMessagesRef.current = [];
     activeSessionIdRef.current = null;
@@ -1336,6 +1365,32 @@ export function useSocket() {
       setPendingPlanApproval(null);
     }
   }, [pendingPlanApproval]);
+
+  // Respond to stage approval (for multi-stage planning)
+  const respondToStageApproval = useCallback((stageId: string, approved: boolean, feedback?: string) => {
+    if (socketRef.current) {
+      console.log(`[Planning] Responding to stage approval: ${stageId}, approved=${approved}`);
+      if (approved) {
+        socketRef.current.emit('approveStage', { stageId });
+      } else {
+        socketRef.current.emit('rejectStage', { stageId, feedback: feedback || '' });
+      }
+      setPendingStageApproval(null);
+    }
+  }, []);
+
+  // Respond to sub-feature approval (stage 3 per-item approval)
+  const respondToSubFeatureApproval = useCallback((stageId: string, approved: boolean, feedback?: string) => {
+    if (socketRef.current) {
+      console.log(`[Planning] Responding to sub-feature approval: ${stageId}, approved=${approved}`);
+      if (approved) {
+        socketRef.current.emit('approveSubFeature', { stageId });
+      } else {
+        socketRef.current.emit('rejectSubFeature', { stageId, feedback: feedback || '' });
+      }
+      setPendingStageApproval(null);
+    }
+  }, []);
 
   // Retry a failed project task (FATAL_DEBUGGING or FAILED status)
   const retryProject = useCallback((project: string) => {
@@ -1527,6 +1582,8 @@ export function useSocket() {
     userInputRequest: userInputQueue.length > 0 ? userInputQueue[0] : null,
     planningQuestion,
     pendingPlanApproval,
+    planningSessionState,
+    pendingStageApproval,
     sendChat,
     startSession,
     startExecution,
@@ -1561,6 +1618,8 @@ export function useSocket() {
     refinePlan,
     retryProject,
     retryPlan,
+    respondToStageApproval,
+    respondToSubFeatureApproval,
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,

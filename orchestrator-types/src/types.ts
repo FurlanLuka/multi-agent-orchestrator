@@ -724,6 +724,7 @@ export interface PersistedSession {
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   updatedAt: number;
   completedAt?: number;
+  planningState?: PlanningSessionState;  // Multi-stage planning workflow state
 }
 
 export interface PersistedTestState {
@@ -886,4 +887,131 @@ export interface TaskCompleteResponse {
   attemptNumber?: number;
   maxAttempts?: number;
   escalationReason?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Multi-Stage Planning Types (6-stage workflow with approval loops)
+// ═══════════════════════════════════════════════════════════════
+
+/** Planning stages in order */
+export type PlanningStage =
+  | 'feature_refinement'      // Stage 1: Socratic Q&A to understand requirements
+  | 'sub_feature_breakdown'   // Stage 2: Split into 3-7 manageable chunks
+  | 'sub_feature_refinement'  // Stage 3: Refine each chunk with approval loop
+  | 'project_exploration'     // Stage 4: Read CLAUDE.md, skills, explore codebase
+  | 'technical_planning'      // Stage 5: Define API contracts, architecture
+  | 'task_generation';        // Stage 6: Create implementation tasks & E2E tests
+
+/** Stage display names for UI */
+export const PLANNING_STAGE_NAMES: Record<PlanningStage, string> = {
+  feature_refinement: 'Feature Refinement',
+  sub_feature_breakdown: 'Sub-feature Breakdown',
+  sub_feature_refinement: 'Sub-feature Refinement',
+  project_exploration: 'Project Exploration',
+  technical_planning: 'Technical Planning',
+  task_generation: 'Task Generation',
+};
+
+/** Sub-feature tracking for Stage 3 */
+export interface SubFeature {
+  id: string;
+  name: string;
+  description: string;
+  status: 'pending' | 'refining' | 'approved';
+  acceptanceCriteria?: string[];
+  refinementHistory?: Array<{ feedback: string; response: string }>;
+}
+
+/** Stage progress tracking */
+export interface StageProgress {
+  stage: PlanningStage;
+  status: 'pending' | 'active' | 'awaiting_approval' | 'completed';
+  startedAt?: number;
+  completedAt?: number;
+}
+
+/** API contract structure for Stage 5 */
+export interface ApiContract {
+  endpoint: string;
+  method: string;
+  request?: Record<string, string>;
+  response?: Record<string, string>;
+  providedBy: string;
+  consumedBy: string[];
+}
+
+/** Technical spec from Stage 5 */
+export interface TechnicalSpec {
+  apiContracts: ApiContract[];
+  architectureDecisions: string[];
+  executionOrder: Array<{ project: string; dependsOn: string[] }>;
+}
+
+/** Full planning session state */
+export interface PlanningSessionState {
+  currentStage: PlanningStage;
+  stages: StageProgress[];
+  refinedFeature?: {
+    description: string;
+    requirements: string[];
+  };
+  subFeatures: SubFeature[];
+  currentSubFeatureIndex: number;
+  technicalSpec?: TechnicalSpec;
+}
+
+/** Stage approval request sent to frontend */
+export interface StageApprovalRequest {
+  stageId: string;
+  stage: PlanningStage;
+  data: RefinedFeatureData | SubFeaturesData | SubFeatureRefinementData | TechnicalSpecData;
+}
+
+/** Data for Stage 1 approval */
+export interface RefinedFeatureData {
+  type: 'refined_feature';
+  refinedDescription: string;
+  keyRequirements: string[];
+}
+
+/** Data for Stage 2 approval */
+export interface SubFeaturesData {
+  type: 'sub_features';
+  subFeatures: Array<{ name: string; description: string }>;
+}
+
+/** Data for Stage 3 per-item approval */
+export interface SubFeatureRefinementData {
+  type: 'sub_feature_refinement';
+  subFeatureId: string;
+  subFeatureName: string;
+  refinedDescription: string;
+  acceptanceCriteria: string[];
+}
+
+/** Data for Stage 5 approval */
+export interface TechnicalSpecData {
+  type: 'technical_spec';
+  apiContracts: ApiContract[];
+  architectureDecisions: string[];
+  executionOrder: Array<{ project: string; dependsOn: string[] }>;
+}
+
+/** Socket events for planning session state updates */
+export interface PlanningSessionStateEvent {
+  sessionState: PlanningSessionState;
+}
+
+/** Socket event for stage approval response */
+export interface StageApprovalResponse {
+  stageId: string;
+  approved: boolean;
+  feedback?: string;
+}
+
+/** Socket event for sub-feature approval response */
+export interface SubFeatureApprovalResponse {
+  subFeatureId: string;
+  approved: boolean;
+  feedback?: string;
 }

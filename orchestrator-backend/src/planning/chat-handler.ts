@@ -125,7 +125,7 @@ export class ChatHandler extends EventEmitter {
   }
 
   /**
-   * Requests a plan for a feature
+   * Requests a plan for a feature using the new multi-stage planning workflow
    * @param feature Feature description
    * @param projects List of project names
    * @param projectPaths Map of project names to paths
@@ -138,14 +138,14 @@ export class ChatHandler extends EventEmitter {
     sessionProjectConfigs?: SessionProjectConfig[]
   ): Promise<void> {
     this.addMessage('user', `Create a plan for: ${feature}`);
-    this.addMessage('system', `Analyzing feature request for projects: ${projects.join(', ')}...`);
-    this.addMessage('system', `Exploring project directories to understand codebase structure...`);
+    this.addMessage('system', `Starting multi-stage planning workflow for projects: ${projects.join(', ')}...`);
 
     try {
-      await this.planningAgent.requestPlan(feature, projects, projectPaths, sessionProjectConfigs);
+      // Use the new 6-stage planning workflow
+      await this.planningAgent.startPlanningWorkflow(feature, projects, projectPaths, sessionProjectConfigs);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this.addMessage('system', `Error creating plan: ${error.message}`);
+      this.addMessage('system', `Error in planning workflow: ${error.message}`);
     }
   }
 

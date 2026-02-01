@@ -366,18 +366,6 @@ async function main() {
   processManager.setOrchestratorPort(orchestratorPort);
 
   // ═══════════════════════════════════════════════════════════════
-  // Set up exploration_complete handler for persistent planning agent
-  // ═══════════════════════════════════════════════════════════════
-
-  ui.setExplorationCompleteHandler(async (summary: string) => {
-    console.log(`[Orchestrator] Exploration complete: ${summary.substring(0, 100)}...`);
-    chatHandler.systemMessage('Exploration complete. Generating plan...');
-
-    // Generate Phase 2 prompt - planningAgent has the context from requestPlan()
-    return planningAgent.generatePhase2Prompt(summary);
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // Set up kill planning agent handler (called when plan is approved)
   // This prevents the planning agent from making any more MCP calls
   // (e.g., duplicate plan submissions after approval)
@@ -1720,6 +1708,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
   // Forward flow events for 2-phase planning UI
   chatHandler.on('flowStart', (flow) => {
     ui.io.emit('flowStart', flow);
+    // Initialize planning session state when multi-stage planning workflow starts
+    if (flow.type === 'planning' && flow.id?.startsWith('planning_workflow_')) {
+      (ui.io as any).initPlanningSession?.();
+    }
   });
 
   chatHandler.on('flowStep', (data) => {

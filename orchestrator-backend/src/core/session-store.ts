@@ -18,6 +18,7 @@ import {
   TaskState,
   TaskDefinition,
   ExplorationAnalysisResult,
+  PlanningSessionState,
 } from '@orchy/types';
 
 /**
@@ -314,6 +315,18 @@ export class SessionStore extends EventEmitter {
     session.explorationResult = result;
     this.writeSession(session);
     console.log(`[SessionStore] Set exploration result for session ${sessionId}`);
+  }
+
+  /**
+   * Sets the planning state from the multi-stage planning workflow
+   */
+  setPlanningState(sessionId: string, planningState: PlanningSessionState): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    session.planningState = planningState;
+    this.writeSession(session);
+    console.log(`[SessionStore] Set planning state for session ${sessionId} (stage: ${planningState.currentStage})`);
   }
 
   /**

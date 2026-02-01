@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult, SessionProjectConfig } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult, SessionProjectConfig, PlanningSessionState, PlanningStage, PLANNING_STAGE_NAMES } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -68,7 +68,7 @@ export class PlanningAgentManager extends EventEmitter {
   private currentPlanningPhase: PlanningPhase = 'exploring';
   private isPlanningRequest: boolean = false;
 
-  // Pending plan context for Phase 2 prompt generation (persistent planning agent)
+  // Planning context for multi-stage workflow (used by startPlanningWorkflow)
   private pendingPlanContext: {
     feature: string;
     projects: string[];
@@ -1007,64 +1007,64 @@ ${prompt}`;
   }
 
   /**
-   * Requests the Planning Agent to create a plan for a feature.
-   * Two-phase planning with persistent agent:
-   * - Phase 1: Exploration + analysis (agent calls exploration_complete MCP tool when done)
-   * - Phase 2: Plan generation (agent receives Phase 2 prompt via MCP tool response)
-   * This preserves full context from codebase exploration through to plan creation.
-   * @param feature Feature description
+   * Starts the new 6-stage planning workflow with approval loops at each stage.
+   * Stages:
+   * 1. Feature Refinement - Socratic Q&A to understand requirements
+   * 2. Sub-feature Breakdown - Split into 3-7 manageable chunks
+   * 3. Sub-feature Refinement - Refine each chunk with approval loop
+   * 4. Project Exploration - Read CLAUDE.md, skills, explore codebase
+   * 5. Technical Planning - Define API contracts, architecture
+   * 6. Task Generation - Create implementation tasks & E2E tests
+   *
+   * @param feature Initial feature description
    * @param projects List of project names
    * @param projectPaths Map of project names to paths
-   * @param sessionProjectConfigs Optional session project configs for read-only/design-enabled settings
+   * @param sessionProjectConfigs Optional session project configs
    */
-  async requestPlan(
+  async startPlanningWorkflow(
     feature: string,
     projects: string[],
     projectPaths?: Record<string, string>,
     sessionProjectConfigs?: SessionProjectConfig[]
   ): Promise<void> {
-    const flowId = `planning_${Date.now()}`;
+    const flowId = `planning_workflow_${Date.now()}`;
 
-    // Set planning request flag and emit initial status
     this.isPlanningRequest = true;
     this.currentPlanningPhase = 'exploring';
 
-    // Store context for Phase 2 prompt generation (used when exploration_complete is called)
+    // Store context for later stages
     this.pendingPlanContext = { feature, projects, projectPaths, sessionProjectConfigs, flowId };
 
     // Emit flow start for UI tracking
     this.emitFlowStart(flowId);
-    this.emitFlowStep(flowId, 'exploring', 'active', 'Exploring codebase');
+    this.emitFlowStep(flowId, 'stage1', 'active', 'Feature Refinement');
 
-    const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Exploring codebase...' };
+    const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Starting feature refinement...' };
     this.emit('planningStatus', initialStatus);
 
-    // Build Phase 1 prompt (exploration + analysis)
-    const phase1Prompt = this.buildExplorationAnalysisPrompt(feature, projects, projectPaths || {}, sessionProjectConfigs);
-
     try {
-      // Run persistent agent - it will call exploration_complete MCP tool when done
-      // The MCP tool handler calls generatePhase2Prompt() and returns Phase 2 prompt
+      // Build Stage 1 prompt (Feature Refinement with Socratic Q&A)
+      const stage1Prompt = this.buildFeatureRefinementPrompt(feature, projects, projectPaths || {});
+
+      // Run the planning agent with MCP tools enabled
+      // Agent will call submit_refined_feature when done with Q&A
+      // That tool blocks for user approval
+      // If approved, returns { status: "approved" } and agent proceeds
+      // If refine, returns { status: "refine", feedback: "..." } and agent revises
       const result = await this.executeOneShotWithMCP(
-        phase1Prompt,
+        stage1Prompt,
         PlanningAgentManager.TIMEOUTS.PLAN_CREATION,
         projectPaths
       );
 
-      // Process output to clear planning status
-      console.log(`[PlanningAgent] Persistent planning completed, result length: ${result.length}`);
+      console.log(`[PlanningAgent] Planning workflow completed, result length: ${result.length}`);
       this.processOutput(result);
 
-      // Mark final step as complete
-      // Note: The flow is completed by /api/plan-approval when plan is submitted,
-      // before blocking for user approval. This ensures the flow shows all steps
-      // and gets updated to "Plan approved" when user approves.
-      this.emitFlowStep(flowId, 'complete', 'completed', 'Plan created');
+      this.emitFlowStep(flowId, 'complete', 'completed', 'Planning complete');
     } catch (err) {
-      // Emit flow failure
       this.emitFlowComplete(flowId, 'failed', {
         passed: false,
-        summary: 'Planning failed',
+        summary: 'Planning workflow failed',
         details: String(err)
       });
       throw err;
@@ -1075,275 +1075,185 @@ ${prompt}`;
   }
 
   /**
-   * Builds the Phase 1 prompt (exploration + analysis) for persistent planning agent.
-   * Agent explores codebase, asks questions via MCP, then calls exploration_complete when ready.
+   * Builds the Stage 1 prompt for Feature Refinement.
+   * Agent conducts Socratic Q&A then calls submit_refined_feature.
    */
-  private buildExplorationAnalysisPrompt(
+  private buildFeatureRefinementPrompt(
     feature: string,
     projects: string[],
-    projectPaths: Record<string, string>,
-    sessionProjectConfigs?: SessionProjectConfig[]
+    projectPaths: Record<string, string>
   ): string {
     const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
 
-    // Build read-only projects section
-    const readOnlyProjects = sessionProjectConfigs?.filter(c => c.included && c.readOnly) || [];
-    const readOnlySection = readOnlyProjects.length > 0 ? `
-## READ-ONLY PROJECTS
-The following projects should be explored for context only.
-DO NOT generate tasks for them:
-${readOnlyProjects.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}`).join('\n')}
-` : '';
+    return `You are a planning agent conducting Stage 1: Feature Refinement.
 
-    // Build design-enabled projects section - projects with attachedDesign always include design context
-    const includedProjects = sessionProjectConfigs?.filter(c => c.included) || projects.map(p => ({ name: p, included: true }));
-    const projectsWithDesign = includedProjects.filter(p => this.projectConfig[p.name]?.attachedDesign);
-    const designSection = projectsWithDesign.length > 0 ? `
-## DESIGN SYSTEM INTEGRATION
-For these projects, read the \`ui_mockup\` folder for design guidance:
-${projectsWithDesign.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}/ui_mockup/ (Design: ${this.projectConfig[p.name]?.attachedDesign})`).join('\n')}
-
-IMPORTANT: These are design DEFINITIONS and MOCKUPS for REFERENCE ONLY.
-- theme.css: CSS variables for colors, typography, spacing
-- components.html: Component styling patterns
-- *.html: Page layout examples
-- AGENTS.md: Usage instructions
-
-DO NOT copy or reuse this code directly. Apply these design specifications
-to whatever UI framework the project uses. These mockups define the visual
-language - not the implementation.
-` : '';
-
-    return `You are an exploration and analysis agent for a multi-project orchestrator.
-
-## Feature to Implement
+## Initial Feature Request
 ${feature}
 
-## Projects (USE THESE ABSOLUTE PATHS)
+## Projects
 ${projectList}
 
-**CRITICAL: You MUST use the absolute paths above when exploring. NEVER use relative paths or search in the current working directory. The current directory is the orchestrator system itself, NOT your projects.**
-${readOnlySection}${designSection}
-## Your Task
+## Your Task: Socratic Dialogue
 
-### Part 1: Exploration
-For each project, discover:
-1. **Guidelines** - Read CLAUDE.md, .claude/development.md, .claude/skills/*.md
-2. **Technology Stack** - package.json, framework, language
-3. **Patterns** - API style, state management, component structure
-4. **Key Files** - Entry points, important modules
-5. **Related Features** - Similar existing implementations${projectsWithDesign.length > 0 ? '\n6. **Design System** - For design-enabled projects, read the ui_mockup folder for design guidance' : ''}
+Your goal is to fully understand what the user wants to build through thoughtful questions.
 
-### Part 2: Analysis
-Based on exploration:
-1. **Parse Requirements** - What exactly needs to be built
-2. **Define COMPLETE API Contracts** - For every API endpoint the feature needs:
-   - HTTP method and path (e.g. POST /api/auth/login)
-   - Full request body with field names, types, and validation rules (e.g. email: string, required, valid email format; password: string, required, min 8 chars)
-   - Full response body with field names and types for success AND error cases
-   - Status codes for each scenario (200, 201, 400, 401, 404, etc.)
-   - Authentication requirements (public, JWT, etc.)
-   - Which project provides the endpoint and which consumes it
-3. **Determine Execution Order** - Which projects first, dependencies
-4. **Pattern Recommendations** - What conventions to follow
-5. **Identify Considerations** - Risks, edge cases
+**DO NOT** explore the codebase yet - that comes in Stage 4.
+**DO NOT** start planning implementation - that comes later.
 
-## IMPORTANT: Asking Questions
+Instead:
+1. Ask 3-5 clarifying questions to understand:
+   - The core user problem being solved
+   - Key use cases and edge cases
+   - Success criteria
+   - Any constraints or preferences
 
-You have access to the \`mcp__orchestrator-planning__ask_planning_question\` tool. Use it when:
-- Requirements are ambiguous
-- Multiple valid approaches exist and user preference matters
-- You need domain-specific information not in the code
-- Credentials or external service details are needed
+2. Use the \`mcp__orchestrator-planning__ask_planning_question\` tool to ask questions.
+   - Batch related questions together
+   - Focus on requirements, not implementation details
 
-**BATCH YOUR QUESTIONS**: If you have multiple questions, include them ALL in a single tool call.
-The tool accepts a questions array - add all your questions to it at once.
-DO NOT ask more than 3-4 questions total - focus on the most important clarifications.
+3. After the Q&A dialogue, synthesize what you learned into:
+   - A refined feature description (1-2 paragraphs)
+   - A list of 3-7 key requirements
+
+4. Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
+   - refinedDescription: Your synthesized description
+   - keyRequirements: Array of requirement strings
+
+The tool will block until the user approves or requests changes.
+- If approved: Proceed to Stage 2 (sub-feature breakdown)
+- If refine requested: Revise based on feedback and resubmit
 
 ## Status Reporting
+[PLANNER_STATUS] {"phase": "exploring", "message": "Understanding requirements..."}
 
-Output status markers as you work:
-[PLANNER_STATUS] {"phase": "exploring", "message": "Exploring backend structure"}
-[PLANNER_STATUS] {"phase": "exploring", "message": "Reading auth module"}
-[PLANNER_STATUS] {"phase": "analyzing", "message": "Analyzing API endpoints"}
-
-## WHEN DONE: Signal Completion
-
-When you have explored enough and analyzed the requirements, call the \`mcp__orchestrator-planning__exploration_complete\` tool
-with a summary of your discoveries. This will trigger Phase 2 (plan generation).
-
-Your summary should include:
-- Technologies discovered in each project
-- Patterns to follow
-- **Complete API contracts** for every endpoint the feature requires:
-  - Method, path, request body (with field types and validations), response body (success + error), status codes, auth requirements
-- Execution order determined
-- Any considerations or edge cases${projectsWithDesign.length > 0 ? '\n- Design tokens and patterns to apply from the ui_mockup files' : ''}
-
-DO NOT output a plan JSON yet - that happens in Phase 2 after you call mcp__orchestrator-planning__exploration_complete.
-
-Start by exploring the projects NOW using their absolute paths listed above.
-For example: Read("${Object.values(projectPaths)[0] || '/path/to/project'}/package.json")
-
-NEVER explore or read files from the current working directory - it's the orchestrator system, not your projects.
-Ask clarifying questions if needed. Then call mcp__orchestrator-planning__exploration_complete when ready.`;
+Start by asking clarifying questions about the feature.`;
   }
 
   /**
-   * Generates Phase 2 prompt when exploration_complete MCP tool is called.
-   * Called synchronously by the HTTP endpoint handler.
+   * Generates the Stage 2 prompt for Sub-feature Breakdown.
+   * Called when submit_refined_feature is approved.
    */
-  generatePhase2Prompt(explorationSummary: string): string {
-    if (!this.pendingPlanContext) {
-      throw new Error('No pending plan context - exploration_complete called without active planning');
-    }
+  generateSubFeatureBreakdownPrompt(refinedDescription: string, requirements: string[]): string {
+    return `## Stage 2: Sub-feature Breakdown
 
-    const { feature, projects, sessionProjectConfigs, flowId } = this.pendingPlanContext;
+You have a refined understanding of the feature:
 
-    // Update UI status
-    this.currentPlanningPhase = 'generating';
-    const statusEvent: PlanningStatusEvent = { phase: 'generating', message: 'Generating plan...' };
-    this.emit('planningStatus', statusEvent);
+**Description:**
+${refinedDescription}
 
-    // Update flow step
-    this.emitFlowStep(flowId, 'generating', 'active', 'Generating plan');
-
-    // Identify projects with E2E testing disabled
-    const projectsWithoutE2E = projects.filter(p => {
-      const config = this.projectConfig[p];
-      return config && config.hasE2E === false;
-    });
-
-    const e2eExclusionNote = projectsWithoutE2E.length > 0
-      ? `\n\nE2E TESTING EXCLUSIONS:
-The following projects have E2E testing DISABLED:
-${projectsWithoutE2E.map(p => `- ${p}`).join('\n')}
-DO NOT include these projects in the "testPlan" section.`
-      : '';
-
-    // Identify read-only projects (should be explored but not have tasks)
-    const readOnlyProjects = sessionProjectConfigs?.filter(c => c.included && c.readOnly) || [];
-    const readOnlyNote = readOnlyProjects.length > 0
-      ? `\n\nREAD-ONLY PROJECTS:
-The following projects were explored for context only.
-DO NOT generate tasks for them - they are reference implementations:
-${readOnlyProjects.map(p => `- ${p.name}`).join('\n')}`
-      : '';
-
-    return `## PHASE 2: PLAN GENERATION
-
-You have completed exploration of the codebase. Your exploration summary:
-${explorationSummary}
-
-Now generate the implementation plan.
-
-**Feature:** ${feature}
-**Projects:** ${projects.join(', ')}${e2eExclusionNote}${readOnlyNote}
-
-You already have full context from your exploration - you read the files, understand the patterns,
-and have answers to any questions you asked.
+**Requirements:**
+${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 ## Your Task
 
-Generate a detailed Plan JSON based on your exploration. The plan should:
-1. Follow the execution order you determined
-2. Use consistent API contracts across projects - every API task MUST include the full contract
-3. Apply the patterns you discovered for each project
-4. Address all considerations and edge cases
-5. **For any feature that involves APIs, every task description MUST include the complete API contract** — endpoints, request/response schemas with field types, validation rules, error responses, and status codes. Both backend and frontend tasks must reference the same contracts so they stay in sync.
+Break this feature into 3-7 distinct sub-features. Each sub-feature should be:
+- Independent enough to be understood on its own
+- Small enough to be implemented in one focused session
+- Clear about what it includes and excludes
 
-## Plan JSON Format
+For each sub-feature, provide:
+- **name**: Short descriptive name (e.g., "User Authentication", "Comment System")
+- **description**: 1-2 sentences explaining what this sub-feature covers
 
-\`\`\`json
-{
-  "feature": "Feature name",
-  "description": "Brief description",
-  "overview": "High-level implementation approach",
-  "architecture": "Mermaid diagram (flowchart LR)",
-  "tasks": [
-    {
-      "project": "project-name",
-      "name": "Task name",
-      "task": "## Detailed task description in markdown\\n\\n**Files to create:**\\n- ...\\n\\n**Implementation:**\\n- ..."
-    }
-  ],
-  "testPlan": {
-    "project-name": ["E2E scenario 1", "E2E scenario 2"]
-  },
-  "e2eDependencies": {
-    "frontend": ["backend"]
+Call \`mcp__orchestrator-planning__submit_sub_features\` with your breakdown.
+
+The tool will block until the user approves.
+- If approved: Proceed to Stage 3 (refine each sub-feature)
+- If refine requested: Adjust the breakdown based on feedback
+
+## Status Reporting
+[PLANNER_STATUS] {"phase": "analyzing", "message": "Breaking down into sub-features..."}`;
   }
-}
-\`\`\`
 
-## Task Requirements
+  /**
+   * Generates the Stage 3 prompt for Sub-feature Refinement.
+   * Called for each sub-feature after breakdown is approved.
+   */
+  generateSubFeatureRefinementPrompt(
+    subFeatureId: string,
+    subFeatureName: string,
+    subFeatureDescription: string,
+    allSubFeatures: Array<{ name: string; description: string }>,
+    refinedFeature: { description: string; requirements: string[] }
+  ): string {
+    return `## Stage 3: Sub-feature Refinement
 
-Each task MUST include:
-1. **Files to create/modify** - exact paths matching project conventions
-2. **Implementation details** - functions, classes, components
-3. **For APIs — COMPLETE contract for EVERY endpoint in the task:**
-   - HTTP method and full path (e.g. \`POST /api/auth/register\`)
-   - Request body schema with field names, types, and validation rules (e.g. \`email: string, required, must be valid email; password: string, required, min 8 chars\`)
-   - Success response body schema with field names and types
-   - Error response body schema (e.g. \`{ message: string, errors?: Record<string, string[]> }\`)
-   - HTTP status codes for each scenario (200, 201, 400, 401, 404, 409, etc.)
-   - Authentication/authorization requirements
-   - Include a concrete example request/response pair
-4. **For UIs:** component props, state, behavior, and the exact API endpoints it calls (matching the backend contract)
-5. **Dependencies:** what to import or install
+You are refining sub-feature: **${subFeatureName}**
 
-## Secret/Credential Detection
+**Description:** ${subFeatureDescription}
 
-If the feature requires credentials (OAuth, API keys, etc.), the implementing agent should use the \`mcp__orchestrator-permission__request_user_input\` tool during implementation to request values from the user. Do NOT create special tasks for credentials - include instructions in the regular implementation task about which credentials are needed and the agent will request them at runtime.
+**Context - All sub-features:**
+${allSubFeatures.map((sf, i) => `${i + 1}. ${sf.name}: ${sf.description}`).join('\n')}
 
-## Rules
-- Tasks for DIFFERENT projects run IN PARALLEL
-- Tasks for SAME project run SEQUENTIALLY
-- NO unit tests - only implementation code
-- NO starting dev servers
-- testPlan = E2E scenarios only
-- Tests MUST be automatable: HTTP requests or browser interactions ONLY
-- DO NOT include WebSocket, Socket.IO, or real-time event tests
+**Original feature:** ${refinedFeature.description}
 
-## Architecture Diagram
+## Your Task
 
-The "architecture" field must be SIMPLE Mermaid syntax. Keep it minimal.
+Refine this specific sub-feature:
+1. Ask 1-2 clarifying questions if needed using \`mcp__orchestrator-planning__ask_planning_question\`
+2. Define clear acceptance criteria (3-5 items)
+3. Submit the refinement
 
-REQUIRED FORMAT:
-- Start with: flowchart LR
-- Use \\n for newlines in JSON
-- Max 6 nodes total
-- NO subgraphs
+Call \`mcp__orchestrator-planning__submit_sub_feature_refinement\` with:
+- subFeatureId: "${subFeatureId}"
+- refinedDescription: Detailed description of this sub-feature
+- acceptanceCriteria: Array of testable acceptance criteria
 
-NODE SYNTAX:
-- NodeID["Label"] - IDs must be lowercase letters only (no underscores, no numbers)
-- Database: db[("Database")]
+The tool blocks until user approves.
+- If approved: Move to next sub-feature (or Stage 4 if all done)
+- If refine: Update based on feedback and resubmit
 
-ARROW SYNTAX:
-- Simple arrows ONLY: A --> B
-- NO edge labels (they break in JSON)
+## Status Reporting
+[PLANNER_STATUS] {"phase": "analyzing", "message": "Refining ${subFeatureName}..."}`;
+  }
 
-DO NOT USE:
-- Edge labels like -->|"text"|
-- Subgraphs
-- Underscores or hyphens in node IDs
-- classDef, style, :::
-- More than 6 nodes
+  /**
+   * Generates the Stage 5 prompt for Technical Planning.
+   * Called after project exploration completes.
+   */
+  generateTechnicalPlanningPrompt(
+    explorationSummary: string,
+    refinedFeature: { description: string; requirements: string[] },
+    subFeatures: Array<{ name: string; description: string; acceptanceCriteria?: string[] }>
+  ): string {
+    return `## Stage 5: Technical Planning
 
-EXAMPLE:
-flowchart LR\\n    ui["Frontend"] --> api["Backend API"]\\n    api --> db[("Database")]
+Based on your exploration:
+${explorationSummary}
 
-## IMPORTANT: Plan Approval Flow
+**Feature:** ${refinedFeature.description}
 
-After generating the plan, you MUST call the \`mcp__orchestrator-planning__submit_plan_for_approval\` tool with the complete plan JSON.
+**Sub-features:**
+${subFeatures.map((sf, i) => `${i + 1}. ${sf.name}: ${sf.description}
+   Acceptance: ${sf.acceptanceCriteria?.join(', ') || 'None defined'}`).join('\n\n')}
 
-The tool will block until the user responds:
-- If response is \`{ "status": "approved" }\`: Output "[PLAN_APPROVED]" and stop - execution will start
-- If response is \`{ "status": "refine", "feedback": "..." }\`: Read the feedback, revise the plan accordingly, and call \`mcp__orchestrator-planning__submit_plan_for_approval\` again with the updated plan
+## Your Task
 
-Continue iterating until the user approves the plan.
+Define the technical contracts:
 
-Generate the Plan JSON now and then call \`mcp__orchestrator-planning__submit_plan_for_approval\`:`;
+1. **API Contracts** - For each endpoint needed:
+   - endpoint: The path (e.g., "/api/users")
+   - method: HTTP method
+   - request: Request body fields and types
+   - response: Response body fields and types
+   - providedBy: Which project implements this
+   - consumedBy: Which projects call this
+
+2. **Architecture Decisions** - Key technical choices
+
+3. **Execution Order** - Which projects to implement first and dependencies
+
+Call \`mcp__orchestrator-planning__submit_technical_spec\` with:
+- apiContracts: Array of contract objects
+- architectureDecisions: Array of decision strings
+- executionOrder: Array of { project, dependsOn: string[] }
+
+The tool blocks until user approves.
+- If approved: Proceed to Stage 6 (task generation)
+- If refine: Update based on feedback and resubmit
+
+## Status Reporting
+[PLANNER_STATUS] {"phase": "analyzing", "message": "Defining API contracts..."}`;
   }
 
   /**
