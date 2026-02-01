@@ -49,7 +49,6 @@ export interface SessionProjectConfig {
   name: string;
   included: boolean;          // Include in session
   readOnly?: boolean;         // Explore but don't plan work
-  designEnabled?: boolean;    // Include design context in planning
 }
 
 // Workspace configuration (stored in workspaces.json)

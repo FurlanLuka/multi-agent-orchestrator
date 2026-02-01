@@ -3,6 +3,7 @@ import {
   Container,
   Stack,
   Text,
+  Title,
   Button,
   SimpleGrid,
   Loader,
@@ -78,34 +79,35 @@ export function QuickStartView({
 
   return (
     <Container size="sm" pt={60} pb="xl">
-      <FormCard
-        onBack={onBack}
-        title={
-          <Stack gap={4}>
-            <Text fw={600} size="lg">
-              Quick Start
-            </Text>
-            <Text c="dimmed" size="sm">
-              Create a new app with projects, workspace, and start building
-            </Text>
-          </Stack>
-        }
-        footer={
-          <Group justify="flex-end">
-            <Button variant="subtle" onClick={onBack}>
-              Cancel
-            </Button>
-            <Button
-              leftSection={creatingProject ? <Loader size={18} color="white" /> : <IconRocket size={18} />}
-              disabled={!isValid || creatingProject}
-              onClick={handleStart}
-              loading={creatingProject}
-            >
-              {creatingProject ? 'Creating...' : 'Create & Start Building'}
-            </Button>
-          </Group>
-        }
-      >
+      <Stack gap="xl">
+        {/* Page Header */}
+        <Stack gap={4}>
+          <Title order={2} style={{ letterSpacing: '-.02em' }}>
+            Quick Start
+          </Title>
+          <Text c="dimmed" size="sm">
+            Create a new app with projects, workspace, and start building
+          </Text>
+        </Stack>
+
+        {/* Form Card */}
+        <FormCard
+          footer={
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={onBack}>
+                Cancel
+              </Button>
+              <Button
+                leftSection={creatingProject ? <Loader size={18} color="white" /> : <IconRocket size={18} />}
+                disabled={!isValid || creatingProject}
+                onClick={handleStart}
+                loading={creatingProject}
+              >
+                {creatingProject ? 'Creating...' : 'Create & Start Building'}
+              </Button>
+            </Group>
+          }
+        >
           <Stack gap="lg">
             <GlassTextInput
               label="App Name"
@@ -220,6 +222,7 @@ export function QuickStartView({
             />
           </Stack>
         </FormCard>
+      </Stack>
     </Container>
   );
 }

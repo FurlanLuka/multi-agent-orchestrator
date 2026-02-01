@@ -2349,6 +2349,98 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Check branch status for projects before starting a session
+    socket.on('checkBranchStatus', async ({ projects }: { projects: string[] }) => {
+      console.log(`[Orchestrator] Checking branch status for: ${projects.join(', ')}`);
+
+      const results: Array<{
+        project: string;
+        gitEnabled: boolean;
+        currentBranch: string | null;
+        mainBranch: string;
+        isOnMainBranch: boolean;
+      }> = [];
+
+      for (const projectName of projects) {
+        const projectConfig = config.projects[projectName];
+        if (!projectConfig) continue;
+
+        if (!projectConfig.gitEnabled) {
+          results.push({
+            project: projectName,
+            gitEnabled: false,
+            currentBranch: null,
+            mainBranch: 'main',
+            isOnMainBranch: true,
+          });
+          continue;
+        }
+
+        try {
+          let projectPath = projectConfig.path;
+          if (projectPath.startsWith('~')) {
+            projectPath = projectPath.replace('~', process.env.HOME || '');
+          }
+
+          const currentBranch = await gitManager.getCurrentBranch(projectPath);
+          const mainBranch = projectConfig.mainBranch || 'main';
+          const isOnMainBranch = currentBranch === mainBranch;
+
+          results.push({
+            project: projectName,
+            gitEnabled: true,
+            currentBranch,
+            mainBranch,
+            isOnMainBranch,
+          });
+        } catch (err) {
+          console.error(`[Orchestrator] Error checking branch for ${projectName}:`, err);
+          results.push({
+            project: projectName,
+            gitEnabled: true,
+            currentBranch: null,
+            mainBranch: projectConfig.mainBranch || 'main',
+            isOnMainBranch: false,
+          });
+        }
+      }
+
+      socket.emit('branchStatus', { results });
+    });
+
+    // Checkout main branch for projects
+    socket.on('checkoutMainBranch', async ({ projects }: { projects: string[] }) => {
+      console.log(`[Orchestrator] Checking out main branch for: ${projects.join(', ')}`);
+
+      const results: Array<{ project: string; success: boolean; error?: string }> = [];
+
+      for (const projectName of projects) {
+        const projectConfig = config.projects[projectName];
+        if (!projectConfig || !projectConfig.gitEnabled) continue;
+
+        try {
+          let projectPath = projectConfig.path;
+          if (projectPath.startsWith('~')) {
+            projectPath = projectPath.replace('~', process.env.HOME || '');
+          }
+
+          const mainBranch = projectConfig.mainBranch || 'main';
+          const result = await gitManager.createAndCheckoutBranch(projectPath, mainBranch);
+
+          results.push({
+            project: projectName,
+            success: result.success,
+            error: result.success ? undefined : result.message,
+          });
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          results.push({ project: projectName, success: false, error });
+        }
+      }
+
+      socket.emit('checkoutMainBranchResult', { results });
+    });
+
     // Handle GitHub info request (check if project is a GitHub project)
     socket.on('getGitHubInfo', async ({ project }: { project: string }) => {
       console.log(`[Orchestrator] GitHub info requested for ${project}`);

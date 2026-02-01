@@ -1,10 +1,29 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import './style.css'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { MantineProvider } from '@mantine/core';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+
+import '@mantine/core/styles.css';
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            staleTime: 1000 * 60 * 5,
+            retry: 1,
+        },
+    },
+});
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
+    <React.StrictMode>
+        <QueryClientProvider client={queryClient}>
+            <MantineProvider>
+                <BrowserRouter>
+                    <App />
+                </BrowserRouter>
+            </MantineProvider>
+        </QueryClientProvider>
+    </React.StrictMode>
+);

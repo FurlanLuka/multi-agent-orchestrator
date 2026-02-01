@@ -1,21 +1,14 @@
-import { useState } from 'react'
+import { Container, Title, Text } from '@mantine/core';
 
 function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <div className="app">
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-    </div>
-  )
+    return (
+        <Container size="sm" py="xl">
+            <Title order={1}>Welcome</Title>
+            <Text c="dimmed" mt="md">
+                Your app is ready. Start building!
+            </Text>
+        </Container>
+    );
 }
 
-export default App
+export default App;

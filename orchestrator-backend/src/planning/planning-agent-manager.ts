@@ -49,6 +49,7 @@ interface ProjectConfig {
   installEnabled?: boolean;
   installCommand?: string;
   hasE2E: boolean;
+  attachedDesign?: string;
 }
 
 
@@ -1088,12 +1089,13 @@ DO NOT generate tasks for them:
 ${readOnlyProjects.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}`).join('\n')}
 ` : '';
 
-    // Build design-enabled projects section
-    const designEnabledProjects = sessionProjectConfigs?.filter(c => c.included && c.designEnabled) || [];
-    const designSection = designEnabledProjects.length > 0 ? `
+    // Build design-enabled projects section - projects with attachedDesign always include design context
+    const includedProjects = sessionProjectConfigs?.filter(c => c.included) || projects.map(p => ({ name: p, included: true }));
+    const projectsWithDesign = includedProjects.filter(p => this.projectConfig[p.name]?.attachedDesign);
+    const designSection = projectsWithDesign.length > 0 ? `
 ## DESIGN SYSTEM INTEGRATION
 For these projects, read the \`ui_mockup\` folder for design guidance:
-${designEnabledProjects.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}/ui_mockup/`).join('\n')}
+${projectsWithDesign.map(p => `- ${p.name}: ${projectPaths[p.name] || 'unknown'}/ui_mockup/ (Design: ${this.projectConfig[p.name]?.attachedDesign})`).join('\n')}
 
 IMPORTANT: These are design DEFINITIONS and MOCKUPS for REFERENCE ONLY.
 - theme.css: CSS variables for colors, typography, spacing
@@ -1124,7 +1126,7 @@ For each project, discover:
 2. **Technology Stack** - package.json, framework, language
 3. **Patterns** - API style, state management, component structure
 4. **Key Files** - Entry points, important modules
-5. **Related Features** - Similar existing implementations${designEnabledProjects.length > 0 ? '\n6. **Design System** - For design-enabled projects, read the ui_mockup folder for design guidance' : ''}
+5. **Related Features** - Similar existing implementations${projectsWithDesign.length > 0 ? '\n6. **Design System** - For design-enabled projects, read the ui_mockup folder for design guidance' : ''}
 
 ### Part 2: Analysis
 Based on exploration:
@@ -1170,7 +1172,7 @@ Your summary should include:
 - **Complete API contracts** for every endpoint the feature requires:
   - Method, path, request body (with field types and validations), response body (success + error), status codes, auth requirements
 - Execution order determined
-- Any considerations or edge cases${designEnabledProjects.length > 0 ? '\n- Design tokens and patterns to apply from the ui_mockup files' : ''}
+- Any considerations or edge cases${projectsWithDesign.length > 0 ? '\n- Design tokens and patterns to apply from the ui_mockup files' : ''}
 
 DO NOT output a plan JSON yet - that happens in Phase 2 after you call mcp__orchestrator-planning__exploration_complete.
 

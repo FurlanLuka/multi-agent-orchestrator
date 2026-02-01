@@ -8,10 +8,9 @@ import { glass } from '../../theme';
 
 interface SettingsPageProps {
   initialTab?: SettingsTab;
-  onBack: () => void;
 }
 
-export function SettingsPage({ initialTab = 'projects', onBack }: SettingsPageProps) {
+export function SettingsPage({ initialTab = 'projects' }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const {
     projects,
@@ -45,7 +44,6 @@ export function SettingsPage({ initialTab = 'projects', onBack }: SettingsPagePr
           <SettingsSidebar
             activeTab={activeTab}
             onTabChange={setActiveTab}
-            onBack={onBack}
           />
         </Box>
       </Grid.Col>

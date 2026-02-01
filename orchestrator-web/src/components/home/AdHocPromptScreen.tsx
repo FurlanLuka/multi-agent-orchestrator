@@ -3,6 +3,7 @@ import {
   Container,
   Stack,
   Text,
+  Title,
   Button,
   Loader,
   Group,
@@ -54,62 +55,64 @@ export function AdHocPromptScreen({
 
   return (
     <Container size="sm" pt={60} pb="xl">
-      <FormCard
-        onBack={onBack}
-        title={
-          <Stack gap={4}>
-            <Text fw={600} size="lg">
-              Start Session
-            </Text>
-            <Text c="dimmed" size="sm">
-              Select projects and describe what to build
-            </Text>
-          </Stack>
-        }
-        footer={
-          <Group justify="flex-end">
-            <Button variant="subtle" onClick={onBack}>
-              Cancel
-            </Button>
-            <Button
-              leftSection={startingSession ? <Loader size={18} /> : <IconRocket size={18} />}
-              onClick={handleStart}
-              disabled={!hasContent || selectedProjects.length === 0 || startingSession}
-              loading={startingSession}
-            >
-              {startingSession ? 'Starting...' : 'Start Planning'}
-            </Button>
-          </Group>
-        }
-      >
-        <Stack gap="lg">
-          <GlassMultiSelect
-            label="Projects"
-            placeholder="Select projects to include"
-            data={projectOptions}
-            value={selectedProjects}
-            onChange={setSelectedProjects}
-            searchable
-          />
-
-          <GlassRichTextEditor
-            label="Feature Description"
-            placeholder="Describe what to build..."
-            editor={editor}
-          />
-
-          {hasGitEnabledProject && (
-            <GlassTextInput
-              label="Branch Name"
-              placeholder="e.g., feature/my-feature (auto-generated if empty)"
-              description="Feature branch will be created for git-enabled projects"
-              value={branchName}
-              onChange={(e) => setBranchName(e.target.value)}
-              leftSection={<IconGitBranch size={16} />}
-            />
-          )}
+      <Stack gap="xl">
+        {/* Page Header */}
+        <Stack gap={4}>
+          <Title order={2} style={{ letterSpacing: '-.02em' }}>
+            Start Session
+          </Title>
+          <Text c="dimmed" size="sm">
+            Select projects and describe what to build
+          </Text>
         </Stack>
-      </FormCard>
+
+        {/* Form Card */}
+        <FormCard
+          footer={
+            <Group justify="flex-end">
+              <Button variant="subtle" onClick={onBack}>
+                Cancel
+              </Button>
+              <Button
+                leftSection={startingSession ? <Loader size={18} /> : <IconRocket size={18} />}
+                onClick={handleStart}
+                disabled={!hasContent || selectedProjects.length === 0 || startingSession}
+                loading={startingSession}
+              >
+                {startingSession ? 'Starting...' : 'Start Planning'}
+              </Button>
+            </Group>
+          }
+        >
+          <Stack gap="lg">
+            <GlassMultiSelect
+              label="Projects"
+              placeholder="Select projects to include"
+              data={projectOptions}
+              value={selectedProjects}
+              onChange={setSelectedProjects}
+              searchable
+            />
+
+            <GlassRichTextEditor
+              label="Feature Description"
+              placeholder="Describe what to build..."
+              editor={editor}
+            />
+
+            {hasGitEnabledProject && (
+              <GlassTextInput
+                label="Branch Name"
+                placeholder="e.g., feature/my-feature (auto-generated if empty)"
+                description="Feature branch will be created for git-enabled projects"
+                value={branchName}
+                onChange={(e) => setBranchName(e.target.value)}
+                leftSection={<IconGitBranch size={16} />}
+              />
+            )}
+          </Stack>
+        </FormCard>
+      </Stack>
     </Container>
   );
 }

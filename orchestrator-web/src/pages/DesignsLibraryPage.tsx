@@ -11,18 +11,17 @@ import {
   Loader,
   Box,
 } from '@mantine/core';
-import { IconArrowLeft, IconPlus, IconTrash, IconFile } from '@tabler/icons-react';
+import { IconPlus, IconTrash, IconFile } from '@tabler/icons-react';
 import type { SavedDesignFolder, SavedDesignFolderContents } from '@orchy/types';
 import { GlassCard, GlassDashedCard } from '../theme';
 import { DesignDetailModal } from '../components/design/DesignDetailModal';
 import { useOrchestrator } from '../context/OrchestratorContext';
 
 interface DesignsLibraryPageProps {
-  onBack: () => void;
   onAddNew: () => void;
 }
 
-export function DesignsLibraryPage({ onBack, onAddNew }: DesignsLibraryPageProps) {
+export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
   const { port } = useOrchestrator();
 
   const [designs, setDesigns] = useState<SavedDesignFolder[]>([]);
@@ -112,21 +111,14 @@ export function DesignsLibraryPage({ onBack, onAddNew }: DesignsLibraryPageProps
       <Container size="md" py={60}>
         <Stack gap="xl">
           {/* Header */}
-          <Group justify="space-between" align="center">
-            <Group gap="md">
-              <ActionIcon variant="subtle" color="gray" size="lg" onClick={onBack}>
-                <IconArrowLeft size={20} />
-              </ActionIcon>
-              <Stack gap={0}>
-                <Title order={2} style={{ letterSpacing: '-.02em' }}>
-                  Designs Library
-                </Title>
-                <Text c="dimmed" size="sm">
-                  Your saved design systems
-                </Text>
-              </Stack>
-            </Group>
-          </Group>
+          <Stack gap={0}>
+            <Title order={2} style={{ letterSpacing: '-.02em' }}>
+              Designs Library
+            </Title>
+            <Text c="dimmed" size="sm">
+              Your saved design systems
+            </Text>
+          </Stack>
 
           {/* Loading State */}
           {loading && (

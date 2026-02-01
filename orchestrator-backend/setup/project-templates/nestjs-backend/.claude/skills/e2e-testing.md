@@ -1,6 +1,11 @@
-# Backend E2E Testing Skill
+---
+name: e2e-testing
+description: Test API endpoints using curl commands. Use when user asks to test endpoints, run E2E tests, or verify API functionality.
+---
 
-You perform E2E testing using **curl commands** to test API endpoints.
+# E2E Testing
+
+Test API endpoints using curl commands directly.
 
 ## CRITICAL RULES
 

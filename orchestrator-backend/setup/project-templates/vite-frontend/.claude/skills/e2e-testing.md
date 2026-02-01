@@ -1,6 +1,11 @@
-# Frontend E2E Testing Skill
+---
+name: e2e-testing
+description: Test the frontend using Playwright MCP tools. Use when user asks to test the UI, run E2E tests, or verify frontend functionality.
+---
 
-You perform E2E testing by **calling Playwright MCP tools directly** to interact with the browser.
+# E2E Testing
+
+Test the UI using Playwright MCP tools directly.
 
 ## CRITICAL RULES
 

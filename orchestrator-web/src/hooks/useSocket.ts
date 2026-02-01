@@ -142,6 +142,17 @@ export function useSocket() {
   const [availableBranches, setAvailableBranches] = useState<Record<string, string[]>>({});
   const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
 
+  // Branch check state (for checking if projects are on default branch before session start)
+  const [branchCheckResult, setBranchCheckResult] = useState<Array<{
+    project: string;
+    gitEnabled: boolean;
+    currentBranch: string | null;
+    mainBranch: string;
+    isOnMainBranch: boolean;
+  }> | null>(null);
+  const [checkingBranches, setCheckingBranches] = useState(false);
+  const [checkoutingBranches, setCheckoutingBranches] = useState(false);
+
   // Permission prompt queue (for live permission approval via MCP)
   // Uses a queue to handle multiple simultaneous permission requests
   const [permissionQueue, setPermissionQueue] = useState<PermissionPrompt[]>([]);
@@ -754,6 +765,34 @@ export function useSocket() {
       console.log(`Branches for ${project}:`, branches);
     });
 
+    // Branch check events (for checking current branch before session start)
+    socket.on('branchStatus', ({ results }: {
+      results: Array<{
+        project: string;
+        gitEnabled: boolean;
+        currentBranch: string | null;
+        mainBranch: string;
+        isOnMainBranch: boolean;
+      }>;
+    }) => {
+      console.log('[useSocket] Branch status:', results);
+      setBranchCheckResult(results);
+      setCheckingBranches(false);
+    });
+
+    socket.on('checkoutMainBranchResult', ({ results }: {
+      results: Array<{
+        project: string;
+        success: boolean;
+        message: string;
+      }>;
+    }) => {
+      console.log('[useSocket] Checkout main branch result:', results);
+      setCheckoutingBranches(false);
+      // After checkout, clear the branch check result
+      setBranchCheckResult(null);
+    });
+
     // Permission prompt events (for live permission approval via MCP)
     // Queue prompts to handle multiple simultaneous requests
     socket.on('permissionPrompt', (event: PermissionPrompt) => {
@@ -1202,6 +1241,28 @@ export function useSocket() {
     }
   }, []);
 
+  // Check branch status for projects (before session start)
+  const checkBranchStatus = useCallback((projects: string[]) => {
+    if (socketRef.current) {
+      setCheckingBranches(true);
+      setBranchCheckResult(null);
+      socketRef.current.emit('checkBranchStatus', { projects });
+    }
+  }, []);
+
+  // Checkout main branch for projects
+  const checkoutMainBranch = useCallback((projects: string[]) => {
+    if (socketRef.current) {
+      setCheckoutingBranches(true);
+      socketRef.current.emit('checkoutMainBranch', { projects });
+    }
+  }, []);
+
+  // Clear branch check result (dismiss the modal)
+  const clearBranchCheckResult = useCallback(() => {
+    setBranchCheckResult(null);
+  }, []);
+
   // Current permission prompt (first in queue) for backward compatibility
   const permissionPrompt = permissionQueue.length > 0 ? permissionQueue[0] : null;
 
@@ -1445,6 +1506,9 @@ export function useSocket() {
     gitHubInfo,
     availableBranches,
     loadingBranches,
+    branchCheckResult,
+    checkingBranches,
+    checkoutingBranches,
     permissionPrompt,
     userInputRequest: userInputQueue.length > 0 ? userInputQueue[0] : null,
     planningQuestion,
@@ -1472,6 +1536,9 @@ export function useSocket() {
     getGitHubInfo,
     createPR,
     getBranches,
+    checkBranchStatus,
+    checkoutMainBranch,
+    clearBranchCheckResult,
     recheckDependencies,
     respondToPermission,
     answerPlanningQuestion,
