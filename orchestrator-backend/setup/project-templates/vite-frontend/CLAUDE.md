@@ -37,33 +37,36 @@ npm run build    # Build for production
 npm run preview  # Preview production build
 ```
 
-## Styling Pattern
+## Design System
 
-**No separate CSS files** - use Mantine's built-in styling:
+**All styled base components (buttons, inputs, cards, links) go in `design-system/components/`**
 
-1. **Mantine props first** - `mt="md"`, `c="dimmed"`, `size="lg"`, etc.
-2. **`style` prop for overrides** - inline styles on wrapped components
-3. **Design system components** - wrap Mantine with preset styles in `design-system/`
+1. Check if component exists in `design-system/components/`
+2. If not, create a wrapper there with the project's theme styling
+3. Import and use in feature code - never apply theme styles inline
 
-```tsx
-// ✅ Good - Mantine props
-<Button size="lg" variant="light" c="blue">Click</Button>
+**Wrap these Mantine components in design-system:**
+- Button, ActionIcon → themed buttons
+- TextInput, Textarea, Select → themed inputs
+- Card, Paper → themed containers
+- Anchor → themed links
 
-// ✅ Good - style prop for custom overrides
-<Card style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+## Styling Rules
 
-// ✅ Good - design system wrapper
-<PrimaryButton>Click</PrimaryButton>  // Pre-styled in design-system/
+1. **Mantine props first** - `mt="md"`, `c="dimmed"`, `size="lg"`
+2. **Design system for theming** - colors, fonts, borders → wrap in `design-system/`
+3. **`style` prop for layout only** - flex, gap, positioning
 
-// ❌ Bad - separate CSS file
-import './Button.css';
-```
+**Never do:**
+- Inline `styles={{}}` or `style={{}}` for colors/fonts/borders - put in design-system
+- `<Text onClick>` or `<Group onClick>` as buttons - use Button component
+- CSS files
 
 ## Guidelines
 
-1. **Use Mantine** for all UI components unless user requests otherwise
-2. **Pages are composition only** - no business logic, just layout and component assembly
-3. **Components contain logic** - forms, modals, data fetching
-4. **React Query for server state** - no useState for API data
-5. **Design system first** - wrap Mantine components for consistency
-6. **No CSS files** - style via Mantine props or `style` prop on components
+1. **Use Mantine** for all UI components
+2. **Semantic HTML** - Button for buttons, Anchor for links
+3. **Design system first** - all themed components wrapped in `design-system/`
+4. **Pages are composition only** - no business logic
+5. **Components contain logic** - forms, data fetching
+6. **React Query for server state** - no useState for API data

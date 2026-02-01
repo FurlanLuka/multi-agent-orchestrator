@@ -23,21 +23,21 @@ function getFlowLabel(type: string, passed?: boolean): string {
 
 // Get color for flow type (some types use non-pass/fail colors)
 function getFlowColor(type: string, passed?: boolean): string {
-  if (type === 'info' || type === 'planning') {
-    return 'gray';  // Neutral color for info/planning flows
+  if (type === 'info') {
+    return 'gray';  // Neutral color for info flows
   }
-  if (type === 'success') {
-    return 'sage';  // Always green for success type
+  if (type === 'success' || type === 'planning') {
+    return 'sage';  // Always green for success and planning (approved) flows
   }
   return passed ? 'sage' : 'rose';
 }
 
 // Get background color for flow type
 function getFlowBgColor(type: string, passed?: boolean): string {
-  if (type === 'info' || type === 'planning') {
+  if (type === 'info') {
     return 'rgba(160, 130, 110, 0.06)';  // Warm gray tint
   }
-  if (type === 'success' || passed) {
+  if (type === 'success' || type === 'planning' || passed) {
     return 'rgba(74, 145, 73, 0.08)';  // Sage tint
   }
   return 'rgba(209, 67, 67, 0.08)';  // Rose tint
@@ -45,10 +45,10 @@ function getFlowBgColor(type: string, passed?: boolean): string {
 
 // Get border color for flow type
 function getFlowBorderColor(type: string, passed?: boolean): string {
-  if (type === 'info' || type === 'planning') {
+  if (type === 'info') {
     return 'rgba(160, 130, 110, 0.15)';  // Warm gray border
   }
-  if (type === 'success' || passed) {
+  if (type === 'success' || type === 'planning' || passed) {
     return 'rgba(74, 145, 73, 0.2)';
   }
   return 'rgba(209, 67, 67, 0.2)';
@@ -77,7 +77,7 @@ export function CompletedFlowCard({ flow }: CompletedFlowCardProps) {
   }
 
   // Use checkmark for passed/info, X for failed
-  const showIcon = flow.type !== 'planning';  // Hide icon for planning (PA response) flows
+  const showIcon = true;  // Show icon for all flow types including planning
   const Icon = passed ? IconCheck : IconX;
 
   return (

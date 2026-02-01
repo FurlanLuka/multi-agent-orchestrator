@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Config } from '@orchy/types';
-import { getCacheDir, ensureMcpServerExtracted, getProjectSessionDir } from '../config/paths';
+import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
 import { spawnWithShellEnv } from '../utils/shell-env';
 
 interface ManagedProcess {
@@ -38,18 +38,10 @@ export class ProcessManager extends EventEmitter {
   private currentAgentProcess: Map<string, ChildProcess> = new Map();
   private readonly LOG_BUFFER_SIZE = 200;
   private orchestratorPort: number = 3456;
-  private currentSessionId: string | null = null;
 
   constructor(config: Config) {
     super();
     this.config = config;
-  }
-
-  /**
-   * Sets the current session ID for ORCHY_SESSION_DIR environment variable
-   */
-  setCurrentSessionId(sessionId: string | null): void {
-    this.currentSessionId = sessionId;
   }
 
   /**
@@ -76,18 +68,33 @@ export class ProcessManager extends EventEmitter {
   private generateMcpConfig(): string {
     const configDir = getCacheDir();
     const configPath = path.join(configDir, 'generated-mcp-config.json');
+    const mcpServerPath = this.getPermissionServerPath();
 
     const config = {
       mcpServers: {
         'orchestrator-permission': {
           command: 'node',
-          args: [this.getPermissionServerPath()]
+          args: [mcpServerPath]
+        },
+        'orchestrator-planning': {
+          command: 'node',
+          args: [mcpServerPath]
         }
       }
     };
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     return configPath;
+  }
+
+  /**
+   * Returns the list of MCP tools that should be pre-approved for project agents
+   */
+  private getAllowedMcpTools(): string {
+    return [
+      'mcp__orchestrator-planning__task_complete',
+      'mcp__orchestrator-planning__request_user_input',
+    ].join(',');
   }
 
   /**
@@ -315,6 +322,7 @@ export class ProcessManager extends EventEmitter {
    */
   async sendToAgent(project: string, prompt: string): Promise<string> {
     const projectConfig = this.config.projects[project];
+    
     if (!projectConfig) {
       const availableProjects = Object.keys(this.config.projects).join(', ');
       throw new Error(`Unknown project: "${project}". Available projects: ${availableProjects}`);
@@ -350,6 +358,7 @@ export class ProcessManager extends EventEmitter {
       const mcpConfigPath = this.generateMcpConfig();
       args.push('--mcp-config', mcpConfigPath);
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
+      args.push('--allowedTools', this.getAllowedMcpTools());
     }
 
     // Build environment variables for agent
@@ -357,11 +366,6 @@ export class ProcessManager extends EventEmitter {
       ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
       ORCHESTRATOR_PROJECT: project,
     };
-
-    // Add ORCHY_SESSION_DIR for hooks to write centralized data
-    if (this.currentSessionId) {
-      extraEnv.ORCHY_SESSION_DIR = getProjectSessionDir(this.currentSessionId, project);
-    }
 
     // Spawn claude directly with args array (no shell parsing - avoids escaping issues with prompts)
     const proc = await spawnWithShellEnv('claude', {
@@ -559,6 +563,7 @@ export class ProcessManager extends EventEmitter {
       const mcpConfigPath = this.generateMcpConfig();
       args.push('--mcp-config', mcpConfigPath);
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
+      args.push('--allowedTools', this.getAllowedMcpTools());
     }
 
     // Build environment variables for agent
@@ -566,11 +571,6 @@ export class ProcessManager extends EventEmitter {
       ORCHESTRATOR_URL: `http://localhost:${this.orchestratorPort}`,
       ORCHESTRATOR_PROJECT: project,
     };
-
-    // Add ORCHY_SESSION_DIR for hooks to write centralized data
-    if (this.currentSessionId) {
-      extraEnv.ORCHY_SESSION_DIR = getProjectSessionDir(this.currentSessionId, project);
-    }
 
     const proc = await spawnWithShellEnv('claude', {
       cwd: projectPath,
@@ -1022,50 +1022,6 @@ export class ProcessManager extends EventEmitter {
     // Clear maps
     this.processes.clear();
     this.currentAgentProcess.clear();
-  }
-
-  /**
-   * Checks if a process is running
-   */
-  isRunning(project: string, type: 'devServer' | 'agent'): boolean {
-    if (type === 'agent') {
-      return this.currentAgentProcess.has(project);
-    }
-    return this.processes.has(this.getKey(project, type));
-  }
-
-  /**
-   * Gets process info
-   */
-  getProcessInfo(project: string, type: 'devServer' | 'agent'): ManagedProcess | undefined {
-    return this.processes.get(this.getKey(project, type));
-  }
-
-  /**
-   * Lists all running processes
-   */
-  listProcesses(): Array<{ project: string; type: string; pid: number; uptime: number }> {
-    const result: Array<{ project: string; type: string; pid: number; uptime: number }> = [];
-
-    for (const [, info] of this.processes) {
-      result.push({
-        project: info.project,
-        type: info.type,
-        pid: info.process.pid || 0,
-        uptime: Date.now() - info.startedAt
-      });
-    }
-
-    for (const [project, proc] of this.currentAgentProcess) {
-      result.push({
-        project,
-        type: 'agent',
-        pid: proc.pid || 0,
-        uptime: 0 // One-shot agents don't track uptime
-      });
-    }
-
-    return result;
   }
 
   /**

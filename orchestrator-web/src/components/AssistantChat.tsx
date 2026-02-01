@@ -20,6 +20,7 @@ import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { ActiveFlowCard } from './ActiveFlowCard';
 import { CompletedFlowCard } from './CompletedFlowCard';
 import { PlanApprovalCard } from './PlanApprovalCard';
+import { StageApprovalCard } from './planning/StageApprovalCard';
 import { glass } from '../theme';
 
 // Timeline item type for unified rendering
@@ -43,6 +44,8 @@ function ChatThread() {
     pendingPlanApproval,
     approvePlanViaChat,
     refinePlan,
+    pendingStageApproval,
+    respondToStageApproval,
   } = useOrchestrator();
 
   const sessionActive = !!session;
@@ -122,7 +125,7 @@ function ChatThread() {
         behavior: 'smooth',
       });
     }
-  }, [timeline, activeFlows, pendingPlanApproval]);
+  }, [timeline, activeFlows, pendingPlanApproval, pendingStageApproval]);
 
   // Handle send - routes to refinePlan or sendChat
   const handleSend = useCallback((message: string) => {
@@ -181,14 +184,6 @@ function ChatThread() {
                     return <CompletedFlowCard key={item.key} flow={item.data} />;
                   }
                 })}
-
-                {/* Interactive Plan Approval */}
-                {pendingPlanApproval && approvePlanViaChat && pendingPlanApproval.plan?.tasks && (
-                  <PlanApprovalCard
-                    plan={pendingPlanApproval.plan}
-                    onApprove={approvePlanViaChat}
-                  />
-                )}
               </Stack>
             </ScrollArea>
           </Box>
@@ -200,7 +195,8 @@ function ChatThread() {
               ? activeFlows.filter(f => f.type !== 'planning')
               : activeFlows;
 
-            if (visibleFlows.length === 0) return null;
+            const hasActiveItems = visibleFlows.length > 0 || pendingStageApproval || pendingPlanApproval;
+            if (!hasActiveItems) return null;
 
             return (
               <>
@@ -211,10 +207,26 @@ function ChatThread() {
                       ACTIVE
                     </Text>
                     <Badge size="xs" color="peach" variant="light">
-                      {visibleFlows.length}
+                      {visibleFlows.length + (pendingStageApproval ? 1 : 0) + (pendingPlanApproval ? 1 : 0)}
                     </Badge>
                   </Group>
                   <Stack gap="sm">
+                    {/* Plan approval card */}
+                    {pendingPlanApproval && approvePlanViaChat && pendingPlanApproval.plan?.tasks && (
+                      <PlanApprovalCard
+                        plan={pendingPlanApproval.plan}
+                        onApprove={approvePlanViaChat}
+                      />
+                    )}
+                    {/* Stage approval card */}
+                    {pendingStageApproval && (
+                      <StageApprovalCard
+                        approval={pendingStageApproval}
+                        onApprove={() => respondToStageApproval(pendingStageApproval.stageId, true)}
+                        onReject={(feedback) => respondToStageApproval(pendingStageApproval.stageId, false, feedback)}
+                      />
+                    )}
+                    {/* Active flow cards */}
                     {visibleFlows.map(flow => (
                       <ActiveFlowCard
                         key={flow.id}

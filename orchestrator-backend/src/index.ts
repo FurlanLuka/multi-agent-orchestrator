@@ -106,15 +106,13 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, HookEvent, LogEntry, OrchestratorEvent, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
+import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
 import { ProjectManager, AddProjectOptions, CreateFromTemplateOptions } from './core/project-manager';
 import { WorkspaceManager } from './core/workspace-manager';
-import { EventWatcher } from './core/event-watcher';
 import { StatusMonitor } from './core/status-monitor';
-import { ApprovalQueue } from './core/approval-queue';
 import { LogAggregator } from './core/log-aggregator';
 import { StateMachine } from './core/state-machine';
 import { ActionExecutor } from './core/action-executor';
@@ -126,7 +124,7 @@ import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
 import { TEMPLATE_PERMISSIONS } from '@orchy/types';
-import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted } from './config/paths';
+import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted, initializePlannerPermissionsIfNeeded } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
 
 // Get orchestrator directory using centralized path resolver
@@ -305,6 +303,9 @@ async function main() {
   // Initialize config file if needed (copies bundled or creates default)
   initializeConfigIfNeeded();
 
+  // Initialize planner permissions if needed (creates default planner-permissions.json)
+  initializePlannerPermissionsIfNeeded();
+
   // Extract setup files from binary to filesystem (production only)
   ensureSetupExtracted();
 
@@ -323,9 +324,7 @@ async function main() {
   const processManager = new ProcessManager(config);
   const projectManager = new ProjectManager(configPath, config);
   const workspaceManager = new WorkspaceManager(getWorkspacesConfigPath(), projectManager);
-  const eventWatcher = new EventWatcher();
   const statusMonitor = new StatusMonitor();
-  const approvalQueue = new ApprovalQueue(true); // UI mode
   const logAggregator = new LogAggregator();
   const gitManager = new GitManager();
 
@@ -357,7 +356,6 @@ async function main() {
   const ui = createUIServer(orchestratorPort, {
     sessionManager,
     statusMonitor,
-    approvalQueue,
     logAggregator,
     config
   });
@@ -374,6 +372,22 @@ async function main() {
   ui.setKillPlanningAgentHandler(() => {
     console.log(`[Orchestrator] Killing planning agent after plan approval`);
     planningAgent.stop();
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Set up next prompt handler for planning stages
+  // This generates the appropriate prompt when a stage is approved
+  // ═══════════════════════════════════════════════════════════════
+
+  ui.setGetNextPromptHandler((stage, data) => {
+    // Stage 2: Exploration & Planning (combined stage after feature refinement)
+    if (stage === 'stage2' && data.refinedDescription && data.requirements) {
+      return planningAgent.generateExplorationPlanningPrompt(
+        data.refinedDescription,
+        data.requirements
+      );
+    }
+    return undefined;
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -553,63 +567,6 @@ async function main() {
     chatHandler.systemMessage(`Agent for ${project} crashed unexpectedly. Please retry.`);
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // Wire up Event Watcher (outbox events from agents via hooks)
-  // WHITELIST: Only handle events we explicitly support
-  // ═══════════════════════════════════════════════════════════════
-
-  eventWatcher.on('event', (event: OrchestratorEvent) => {
-    const project = 'project' in event ? event.project : 'unknown';
-
-    // WHITELIST: Only handle events we explicitly support
-    switch (event.type) {
-      case 'cross_project_blocked': {
-        // Handle cross-project access attempts
-        const blocked = event as any;
-        console.warn(`[Orchestrator] BLOCKED: ${project} tried to access ${blocked.target_path}`);
-
-        // Emit a chat event so the user sees it
-        ui.io.emit('chatResponse', {
-          message: `Agent "${project}" tried to access file outside its project`,
-          status: 'warning',
-          details: `**Tool:** ${blocked.tool}\n**Target:** ${blocked.target_path}\n**Project root:** ${blocked.project_root}\n\nThe agent was instructed to report cross-project issues to the orchestrator instead.`
-        });
-        break;
-      }
-
-      case 'status':
-      case 'notification': {
-        // Handle status/notification events immediately
-        const hookEvent = event as HookEvent;
-        if ('status' in hookEvent) {
-          // Don't convert NEEDS_INPUT to IDLE - orchestrator controls IDLE status explicitly
-          // NEEDS_INPUT just means Claude is waiting for input, not that the project is complete
-          if (hookEvent.status === 'NEEDS_INPUT') {
-            break;
-          }
-
-          const status = hookEvent.status === 'ERROR' ? 'FATAL_DEBUGGING' :
-                         hookEvent.status;
-          const message = 'message' in hookEvent ? hookEvent.message : '';
-          statusMonitor.updateStatus(project, status as any, message);
-          (ui.io as any).emitStatus(project, status, message);
-
-          // Mark agent idle when status is IDLE
-          if (hookEvent.status === 'IDLE') {
-            stateMachine.markAgentIdle(project);
-          }
-        }
-        break;
-      }
-
-      default:
-        // Everything else (tool_start, tool_complete, unknown) - ignore silently
-        // Status updates come through processManager.on('workerStatus') instead
-        break;
-    }
-
-    // NO eventQueue.add() - everything handled immediately or ignored
-  });
 
 
   // ═══════════════════════════════════════════════════════════════
@@ -1420,14 +1377,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Wire up Approval Queue events
-  // ═══════════════════════════════════════════════════════════════
-
-  approvalQueue.on('responded', ({ request, approved }) => {
-    console.log(`[Orchestrator] Approval ${request.id}: ${approved ? 'APPROVED' : 'REJECTED'}`);
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // Wire up Project Manager events
   // ═══════════════════════════════════════════════════════════════
 
@@ -1462,10 +1411,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     console.error(`[Orchestrator] npm install failed for ${project}:`, error);
     (ui.io as any).emit('npmInstallError', { project, error });
     chatHandler.systemMessage(`npm install failed for "${project}": ${error}`);
-  });
-
-  projectManager.on('hooksConfigured', ({ project }) => {
-    console.log(`[Orchestrator] Hooks configured for ${project}`);
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -1887,8 +1832,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const sessionDir = sessionManager.getSessionDir(project);
           if (sessionDir) {
             logAggregator.registerProject(project, sessionDir);
-            eventWatcher.watchProject(project, sessionDir);
-          }
+                      }
         }
 
         (ui.io as any).emitSessionCreated(session);
@@ -2082,11 +2026,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       if (stateMachine.getState() === 'PAUSED') {
         stateMachine.transition('resume');
       }
-    });
-
-    // Handle approval responses from UI
-    socket.on('approve', ({ id, approved }: { id: string; approved: boolean }) => {
-      approvalQueue.respond(id, approved);
     });
 
     // Handle permission response from UI (for live permission approval via MCP)
@@ -2346,6 +2285,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         currentBranch: string | null;
         mainBranch: string;
         isOnMainBranch: boolean;
+        hasUncommittedChanges: boolean;
+        uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
       }> = [];
 
       for (const projectName of projects) {
@@ -2359,6 +2300,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             currentBranch: null,
             mainBranch: 'main',
             isOnMainBranch: true,
+            hasUncommittedChanges: false,
           });
           continue;
         }
@@ -2373,12 +2315,21 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const mainBranch = projectConfig.mainBranch || 'main';
           const isOnMainBranch = currentBranch === mainBranch;
 
+          // Check for uncommitted changes
+          const uncommittedStatus = await gitManager.hasUncommittedChanges(projectPath);
+
           results.push({
             project: projectName,
             gitEnabled: true,
             currentBranch,
             mainBranch,
             isOnMainBranch,
+            hasUncommittedChanges: uncommittedStatus.hasChanges,
+            uncommittedDetails: uncommittedStatus.hasChanges ? {
+              staged: uncommittedStatus.staged,
+              unstaged: uncommittedStatus.unstaged,
+              untracked: uncommittedStatus.untracked,
+            } : undefined,
           });
         } catch (err) {
           console.error(`[Orchestrator] Error checking branch for ${projectName}:`, err);
@@ -2388,6 +2339,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             currentBranch: null,
             mainBranch: projectConfig.mainBranch || 'main',
             isOnMainBranch: false,
+            hasUncommittedChanges: false,
           });
         }
       }
@@ -2396,10 +2348,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Checkout main branch for projects
-    socket.on('checkoutMainBranch', async ({ projects }: { projects: string[] }) => {
-      console.log(`[Orchestrator] Checking out main branch for: ${projects.join(', ')}`);
+    // If stashFirst is true, stash uncommitted changes before checkout
+    socket.on('checkoutMainBranch', async ({ projects, stashFirst }: { projects: string[]; stashFirst?: boolean }) => {
+      console.log(`[Orchestrator] Checking out main branch for: ${projects.join(', ')}${stashFirst ? ' (stashing first)' : ''}`);
 
-      const results: Array<{ project: string; success: boolean; error?: string }> = [];
+      const results: Array<{ project: string; success: boolean; error?: string; stashed?: boolean }> = [];
 
       for (const projectName of projects) {
         const projectConfig = config.projects[projectName];
@@ -2411,6 +2364,25 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             projectPath = projectPath.replace('~', process.env.HOME || '');
           }
 
+          let stashed = false;
+
+          // If stashFirst is requested, stash uncommitted changes
+          if (stashFirst) {
+            const uncommittedStatus = await gitManager.hasUncommittedChanges(projectPath);
+            if (uncommittedStatus.hasChanges) {
+              const stashResult = await gitManager.stashChanges(projectPath, `Auto-stash before switching to main`);
+              if (!stashResult.success) {
+                results.push({
+                  project: projectName,
+                  success: false,
+                  error: `Failed to stash changes: ${stashResult.message}`,
+                });
+                continue;
+              }
+              stashed = true;
+            }
+          }
+
           const mainBranch = projectConfig.mainBranch || 'main';
           const result = await gitManager.createAndCheckoutBranch(projectPath, mainBranch);
 
@@ -2418,6 +2390,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             project: projectName,
             success: result.success,
             error: result.success ? undefined : result.message,
+            stashed,
           });
         } catch (err) {
           const error = err instanceof Error ? err.message : String(err);
@@ -2656,17 +2629,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    // Setup hooks for an existing project
-    socket.on('setupProjectHooks', async ({ name }: { name: string }) => {
-      try {
-        await projectManager.setupProjectHooks(name);
-        socket.emit('setupProjectHooksSuccess', { name });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        socket.emit('setupProjectHooksError', { name, error });
-      }
-    });
-
     // Get available templates
     socket.on('getTemplates', () => {
       const templates = projectManager.getTemplates();
@@ -2879,8 +2841,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const sessionDir = sessionManager.getSessionDir(project);
           if (sessionDir) {
             logAggregator.registerProject(project, sessionDir);
-            eventWatcher.watchProject(project, sessionDir);
-          }
+                      }
         }
 
         (ui.io as any).emitSessionCreated(session);
@@ -3020,7 +2981,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         if (currentSession && currentSession.id !== sessionId) {
           sessionManager.markSessionInterrupted();
           processManager.stopAll();
-          eventWatcher.stopAll();
         }
 
         // Load the session
@@ -3043,8 +3003,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const sessionDir = sessionManager.getSessionDir(project);
           if (sessionDir) {
             logAggregator.registerProject(project, sessionDir);
-            eventWatcher.watchProject(project, sessionDir);
-          }
+                      }
         }
 
         // Create session logger
@@ -3113,9 +3072,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // Stop all processes (dev servers + agents)
         await processManager.stopAll();
 
-        // Stop file watchers
-        eventWatcher.stopAll();
-
         // Stop planning agent
         planningAgent.stop();
 
@@ -3159,9 +3115,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Stop all processes (dev servers, agents, etc.)
         processManager.stopAll();
-
-        // Stop file watchers
-        eventWatcher.stopAll();
 
         // Emit success
         socket.emit('sessionStopped', { sessionId });
@@ -3216,14 +3169,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Stop all processes
     processManager.stopAll();
 
-    // Stop file watchers
-    eventWatcher.stopAll();
-
     // Stop Planning Agent
     planningAgent.stop();
-
-    // Clear approval queue
-    approvalQueue.clearAll();
 
     // Stop UI server
     ui.stop();

@@ -6,16 +6,14 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { StatusMonitor } from '../core/status-monitor';
-import { ApprovalQueue } from '../core/approval-queue';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
-import { Session, Plan, LogEntry, ApprovalRequest, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, SubFeaturesData, SubFeatureRefinementData, TechnicalSpecData, SubFeature } from '@orchy/types';
+import { Session, Plan, LogEntry, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, TechnicalSpecData } from '@orchy/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@orchy/types';
-import { getWebDistPath } from '../config/paths';
+import { getWebDistPath, getPlannerPermissionsPath } from '../config/paths';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
-  approvalQueue: ApprovalQueue;
   logAggregator: LogAggregator;
   sessionManager: SessionManager;
   config?: {
@@ -34,6 +32,16 @@ export interface UIServerDependencies {
   onKillPlanningAgent?: () => void;
 }
 
+// Handler type for generating next-stage prompts
+// stage2 = Exploration & Planning (after feature refinement)
+type GetNextPromptHandler = (
+  stage: 'stage2',
+  data: {
+    refinedDescription?: string;
+    requirements?: string[];
+  }
+) => string | undefined;
+
 export interface UIServer {
   app: Express;
   server: HttpServer;
@@ -43,11 +51,15 @@ export interface UIServer {
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
   setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
   setKillPlanningAgentHandler: (handler: () => void) => void;
+  setGetNextPromptHandler: (handler: GetNextPromptHandler) => void;
 }
 
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
   // Use mutable deps object so handlers can be set later
   const deps: Partial<UIServerDependencies> = { ...initialDeps };
+
+  // Handler for generating next-stage prompts
+  let getNextPromptHandler: GetNextPromptHandler | null = null;
 
   const app = express();
   const server = createServer(app);
@@ -155,14 +167,8 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   });
 
   app.get('/api/approvals', (req: Request, res: Response) => {
-    if (deps?.approvalQueue) {
-      res.json({
-        current: deps.approvalQueue.getCurrentRequest(),
-        queue: deps.approvalQueue.getQueue()
-      });
-    } else {
-      res.json({ current: null, queue: [] });
-    }
+    // Legacy endpoint - approvals now handled via MCP permission prompts
+    res.json({ current: null, queue: [] });
   });
 
   // Permissions API - returns available permissions, groups, and templates
@@ -372,6 +378,13 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   // Planning session state (shared across stages)
   let planningSessionState: PlanningSessionState | null = null;
 
+  // Stage labels for flow cards
+  const STAGE_LABELS: Record<string, string> = {
+    feature_refinement: 'Feature Refinement',
+    exploration_planning: 'Exploration & Planning',
+    task_generation: 'Task Generation',
+  };
+
   // Store pending stage approvals (key -> resolver)
   const pendingStageApprovals = new Map<string, {
     resolve: (result: { status: 'approved' } | { status: 'refine'; feedback: string }) => void;
@@ -387,35 +400,27 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     }
   };
 
-  // Helper to initialize planning session
+  // Helper to initialize planning session (3-stage workflow)
   const initPlanningSession = () => {
     planningSessionState = {
       currentStage: 'feature_refinement',
       stages: [
         { stage: 'feature_refinement', status: 'active', startedAt: Date.now() },
-        { stage: 'sub_feature_breakdown', status: 'pending' },
-        { stage: 'sub_feature_refinement', status: 'pending' },
-        { stage: 'project_exploration', status: 'pending' },
-        { stage: 'technical_planning', status: 'pending' },
+        { stage: 'exploration_planning', status: 'pending' },
         { stage: 'task_generation', status: 'pending' },
       ],
-      subFeatures: [],
-      currentSubFeatureIndex: 0,
     };
     io.emit('planningSessionState', { sessionState: planningSessionState });
     persistPlanningState();
   };
 
-  // Helper to advance to next stage
+  // Helper to advance to next stage (3-stage workflow)
   const advanceStage = (currentStage: string) => {
     if (!planningSessionState) return;
 
     const stageOrder = [
       'feature_refinement',
-      'sub_feature_breakdown',
-      'sub_feature_refinement',
-      'project_exploration',
-      'technical_planning',
+      'exploration_planning',
       'task_generation',
     ];
 
@@ -478,134 +483,42 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     // Handle response
     if (response.status === 'approved') {
+      // Emit completed flow for the stage
+      io.emit('flowStart', {
+        id: stageId,
+        type: 'planning',
+        status: 'completed',
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        steps: [],
+        result: {
+          passed: true,
+          summary: `${STAGE_LABELS['feature_refinement']} approved`,
+          details: `**Description:** ${refinedDescription}\n\n**Requirements:**\n${keyRequirements.map((r: string) => `- ${r}`).join('\n')}`
+        }
+      });
       advanceStage('feature_refinement');
+
+      // Generate Exploration & Planning prompt
+      const nextPrompt = getNextPromptHandler?.('stage2', {
+        refinedDescription,
+        requirements: keyRequirements
+      });
+
+      res.json({ ...response, nextPrompt });
     } else if (planningSessionState) {
       // Mark stage as active again for refinement
       const stageObj = planningSessionState.stages.find(s => s.stage === 'feature_refinement');
       if (stageObj) stageObj.status = 'active';
       io.emit('planningSessionState', { sessionState: planningSessionState });
       persistPlanningState();
-    }
-
-    res.json(response);
-  });
-
-  // Stage 2: Submit Sub-features
-  app.post('/api/submit-sub-features', async (req: Request, res: Response) => {
-    const { subFeatures } = req.body;
-    const stageId = `stage_subfeatures_${Date.now()}`;
-
-    console.log(`[UIServer] Sub-features submitted: ${subFeatures.length} items`);
-
-    // Create sub-feature objects with IDs
-    const subFeatureObjs: SubFeature[] = subFeatures.map((sf: { name: string; description: string }, idx: number) => ({
-      id: `sf_${Date.now()}_${idx}`,
-      name: sf.name,
-      description: sf.description,
-      status: 'pending' as const,
-    }));
-
-    if (planningSessionState) {
-      planningSessionState.subFeatures = subFeatureObjs;
-      const stageObj = planningSessionState.stages.find(s => s.stage === 'sub_feature_breakdown');
-      if (stageObj) stageObj.status = 'awaiting_approval';
-      io.emit('planningSessionState', { sessionState: planningSessionState });
-      persistPlanningState();
-    }
-
-    // Emit stage approval request
-    const data: SubFeaturesData = { type: 'sub_features', subFeatures };
-    io.emit('stageApproval', { stageId, stage: 'sub_feature_breakdown', data } as StageApprovalRequest);
-
-    // Block until user responds
-    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
-      pendingStageApprovals.set(stageId, { resolve, data });
-    });
-
-    pendingStageApprovals.delete(stageId);
-
-    if (response.status === 'approved') {
-      advanceStage('sub_feature_breakdown');
-      // Return sub-feature IDs so agent knows what to refine
-      res.json({ ...response, subFeatureIds: subFeatureObjs.map(sf => sf.id) });
+      res.json(response);
     } else {
-      if (planningSessionState) {
-        const stageObj = planningSessionState.stages.find(s => s.stage === 'sub_feature_breakdown');
-        if (stageObj) stageObj.status = 'active';
-        io.emit('planningSessionState', { sessionState: planningSessionState });
-        persistPlanningState();
-      }
       res.json(response);
     }
   });
 
-  // Stage 3: Submit Sub-feature Refinement (per item)
-  app.post('/api/submit-sub-feature-refinement', async (req: Request, res: Response) => {
-    const { subFeatureId, refinedDescription, acceptanceCriteria } = req.body;
-    const stageId = `stage_sfrefine_${subFeatureId}_${Date.now()}`;
-
-    console.log(`[UIServer] Sub-feature refinement submitted: ${subFeatureId}`);
-
-    // Find sub-feature and update
-    let subFeatureName = 'Unknown';
-    if (planningSessionState) {
-      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
-      if (sf) {
-        sf.status = 'refining';
-        sf.acceptanceCriteria = acceptanceCriteria;
-        subFeatureName = sf.name;
-      }
-      io.emit('planningSessionState', { sessionState: planningSessionState });
-      persistPlanningState();
-    }
-
-    // Emit sub-feature approval request
-    const data: SubFeatureRefinementData = {
-      type: 'sub_feature_refinement',
-      subFeatureId,
-      subFeatureName,
-      refinedDescription,
-      acceptanceCriteria,
-    };
-    io.emit('subFeatureApproval', { stageId, data });
-
-    // Block until user responds
-    const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
-      pendingStageApprovals.set(stageId, { resolve, data });
-    });
-
-    pendingStageApprovals.delete(stageId);
-
-    if (response.status === 'approved' && planningSessionState) {
-      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
-      if (sf) {
-        sf.status = 'approved';
-        sf.description = refinedDescription;
-      }
-
-      // Check if all sub-features are approved
-      const allApproved = planningSessionState.subFeatures.every(s => s.status === 'approved');
-      if (allApproved) {
-        advanceStage('sub_feature_refinement');
-      }
-
-      io.emit('planningSessionState', { sessionState: planningSessionState });
-      persistPlanningState();
-    } else if (planningSessionState) {
-      const sf = planningSessionState.subFeatures.find(s => s.id === subFeatureId);
-      if (sf) {
-        // Add to refinement history
-        if (!sf.refinementHistory) sf.refinementHistory = [];
-        sf.refinementHistory.push({ feedback: response.status === 'refine' ? response.feedback : '', response: refinedDescription });
-      }
-      io.emit('planningSessionState', { sessionState: planningSessionState });
-      persistPlanningState();
-    }
-
-    res.json(response);
-  });
-
-  // Stage 5: Submit Technical Spec
+  // Stage 2: Submit Technical Spec (Exploration & Planning combined)
   app.post('/api/submit-technical-spec', async (req: Request, res: Response) => {
     const { apiContracts, architectureDecisions, executionOrder } = req.body;
     const stageId = `stage_techspec_${Date.now()}`;
@@ -614,7 +527,7 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     if (planningSessionState) {
       planningSessionState.technicalSpec = { apiContracts, architectureDecisions: architectureDecisions || [], executionOrder };
-      const stageObj = planningSessionState.stages.find(s => s.stage === 'technical_planning');
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'exploration_planning');
       if (stageObj) stageObj.status = 'awaiting_approval';
       io.emit('planningSessionState', { sessionState: planningSessionState });
       persistPlanningState();
@@ -622,7 +535,7 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     // Emit stage approval request
     const data: TechnicalSpecData = { type: 'technical_spec', apiContracts, architectureDecisions: architectureDecisions || [], executionOrder };
-    io.emit('stageApproval', { stageId, stage: 'technical_planning', data } as StageApprovalRequest);
+    io.emit('stageApproval', { stageId, stage: 'exploration_planning', data } as StageApprovalRequest);
 
     // Block until user responds
     const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
@@ -632,9 +545,135 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     pendingStageApprovals.delete(stageId);
 
     if (response.status === 'approved') {
-      advanceStage('technical_planning');
+      // Build details for technical spec
+      const apiDetails = apiContracts && apiContracts.length > 0
+        ? `**API Contracts (${apiContracts.length}):**\n${apiContracts.map((c: { method: string; endpoint: string }) => `- \`${c.method} ${c.endpoint}\``).join('\n')}`
+        : '';
+      const archDetails = architectureDecisions && architectureDecisions.length > 0
+        ? `\n\n**Architecture Decisions:**\n${architectureDecisions.map((d: string) => `- ${d}`).join('\n')}`
+        : '';
+      const execDetails = executionOrder && executionOrder.length > 0
+        ? `\n\n**Execution Order:**\n${executionOrder.map((e: { project: string }, i: number) => `${i + 1}. ${e.project}`).join('\n')}`
+        : '';
+
+      // Emit completed flow for the stage
+      io.emit('flowStart', {
+        id: stageId,
+        type: 'planning',
+        status: 'completed',
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+        steps: [],
+        result: {
+          passed: true,
+          summary: `${STAGE_LABELS['exploration_planning']} approved`,
+          details: `${apiDetails}${archDetails}${execDetails}`
+        }
+      });
+      advanceStage('exploration_planning');
+
+      // Return with Task Generation instructions
+      io.emit('planningSessionState', { sessionState: planningSessionState });
+      persistPlanningState();
+
+      const refinedFeature = planningSessionState?.refinedFeature || { description: '', requirements: [] };
+
+      res.json({
+        ...response,
+        nextStage: 'task_generation',
+        instructions: `Technical spec approved! Now proceed to Task Generation.
+
+## Your Task: Generate Implementation Plan
+
+Generate a detailed Plan JSON based on the approved technical spec.
+
+### Context
+
+**Feature:** ${refinedFeature.description}
+
+**Requirements:**
+${refinedFeature.requirements.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')}
+
+**Technical Spec:**
+${apiDetails}${archDetails}${execDetails}
+
+## Plan JSON Format
+
+\`\`\`json
+{
+  "feature": "Feature name",
+  "description": "Brief description",
+  "overview": "High-level implementation approach",
+  "architecture": "Mermaid diagram (flowchart LR)",
+  "tasks": [
+    {
+      "project": "project-name",
+      "name": "Task name",
+      "task": "## Detailed task description in markdown\\n\\n**Files to create:**\\n- ...\\n\\n**Implementation:**\\n- ..."
+    }
+  ],
+  "testPlan": {
+    "project-name": ["E2E scenario 1", "E2E scenario 2"]
+  },
+  "e2eDependencies": {
+    "frontend": ["backend"]
+  }
+}
+\`\`\`
+
+## Task Requirements
+
+Each task MUST include:
+1. **Files to create/modify** - exact paths matching project conventions
+2. **Implementation details** - functions, classes, components with code examples
+3. **For APIs — COMPLETE contract for EVERY endpoint:**
+   - HTTP method and full path (e.g. \`POST /api/posts/:id/reactions\`)
+   - Request body schema with field names, types, and validation rules
+   - Success response body schema with field names and types
+   - Error response body schema
+   - HTTP status codes for each scenario (200, 201, 400, 401, 404, 409, etc.)
+   - Authentication/authorization requirements
+   - Include a concrete example request/response pair
+4. **For UIs:** component props, state, behavior, and the exact API endpoints it calls
+5. **Dependencies:** what to import or install
+
+## Architecture Diagram
+
+The "architecture" field must be SIMPLE Mermaid syntax:
+
+REQUIRED FORMAT:
+- Start with: flowchart LR
+- Use \\n for newlines in JSON
+- Max 6 nodes total
+- NO subgraphs
+
+NODE SYNTAX:
+- NodeID["Label"] - IDs must be lowercase letters only
+- Database: db[("Database")]
+
+ARROW SYNTAX:
+- Simple arrows ONLY: A --> B
+- NO edge labels
+
+EXAMPLE:
+flowchart LR\\n    ui["Frontend"] --> api["Backend API"]\\n    api --> db[("Database")]
+
+## Rules
+- Tasks for DIFFERENT projects run IN PARALLEL
+- Tasks for SAME project run SEQUENTIALLY
+- NO unit tests - only implementation code
+- testPlan = E2E scenarios only (automatable via HTTP or browser)
+
+## Submit the Plan
+
+Call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the complete plan JSON.
+
+If response is \`{ "status": "approved" }\`: Stop - execution will start
+If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmit`
+      });
+      return;
     } else if (planningSessionState) {
-      const stageObj = planningSessionState.stages.find(s => s.stage === 'technical_planning');
+      const stageObj = planningSessionState.stages.find(s => s.stage === 'exploration_planning');
       if (stageObj) stageObj.status = 'active';
       io.emit('planningSessionState', { sessionState: planningSessionState });
       persistPlanningState();
@@ -723,8 +762,22 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     console.log(`[UIServer] Matching against: ${matchString.substring(0, 100)}...`);
 
-    if (projectConfig?.permissions?.allow) {
-      const allowList = projectConfig.permissions.allow as string[];
+    // Get permissions config - for 'planner' project, use planner-permissions.json
+    let permissionsConfig = projectConfig?.permissions;
+    if (project === 'planner') {
+      const plannerPermissionsPath = getPlannerPermissionsPath();
+      if (fs.existsSync(plannerPermissionsPath)) {
+        try {
+          permissionsConfig = JSON.parse(fs.readFileSync(plannerPermissionsPath, 'utf-8'));
+          console.log(`[UIServer] Loaded planner permissions from: ${plannerPermissionsPath}`);
+        } catch (err) {
+          console.error(`[UIServer] Failed to parse planner permissions:`, err);
+        }
+      }
+    }
+
+    if (permissionsConfig?.allow) {
+      const allowList = permissionsConfig.allow as string[];
       const isAllowed = allowList.some(pattern => {
         // Check exact match first
         if (pattern === matchString) return true;
@@ -810,12 +863,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
         socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
       }
 
-      if (deps?.approvalQueue) {
-        const current = deps.approvalQueue.getCurrentRequest();
-        if (current) {
-          socket.emit('approval', current);
-        }
-      }
     } else {
       // Production mode: single tab enforcement
       if (mainClientId === null) {
@@ -846,12 +893,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
           socket.emit('taskStates', deps.statusMonitor.getAllTaskStates());
         }
 
-        if (deps?.approvalQueue) {
-          const current = deps.approvalQueue.getCurrentRequest();
-          if (current) {
-            socket.emit('approval', current);
-          }
-        }
       } else {
         // Another client is already main - this is a secondary tab
         console.log(`[UIServer] Secondary client connected: ${socket.id} (main is ${mainClientId})`);
@@ -875,13 +916,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     socket.on('startExecution', () => {
       console.log(`[UIServer] Start execution requested`);
       io.emit('startExecutionRequest');
-    });
-
-    socket.on('approve', ({ id, approved }: { id: string; approved: boolean }) => {
-      console.log(`[UIServer] Approval response: ${id} = ${approved}`);
-      if (deps?.approvalQueue) {
-        deps.approvalQueue.respond(id, approved);
-      }
     });
 
     // Handle project retry request (forwarded to orchestrator)
@@ -927,6 +961,21 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       console.log(`[UIServer] Plan approved via chat: ${approvalId}`);
       const pending = (io as any).pendingPlanApprovals?.get(approvalId);
       if (pending?.resolve) {
+        // Emit completed flow for final plan approval
+        io.emit('flowStart', {
+          id: `plan_approved_${Date.now()}`,
+          type: 'planning',
+          status: 'completed',
+          startedAt: Date.now(),
+          completedAt: Date.now(),
+          steps: [],
+          result: {
+            passed: true,
+            summary: 'Plan approved - execution starting',
+            details: `**${pending.plan?.tasks?.length || 0} tasks** ready for execution`
+          }
+        });
+
         // Emit status BEFORE resolving
         io.emit('planningStatus', { phase: 'complete', message: 'Plan approved!' });
         pending.resolve({ status: 'approved' });
@@ -979,26 +1028,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Reject/request changes to a stage
     socket.on('rejectStage', ({ stageId, feedback }: { stageId: string; feedback: string }) => {
       console.log(`[UIServer] Stage rejected: ${stageId}, feedback: ${feedback}`);
-      const pending = (io as any).pendingStageApprovals?.get(stageId);
-      if (pending?.resolve) {
-        pending.resolve({ status: 'refine', feedback });
-        (io as any).pendingStageApprovals.delete(stageId);
-      }
-    });
-
-    // Approve a sub-feature (stage 3 per-item approval)
-    socket.on('approveSubFeature', ({ stageId }: { stageId: string }) => {
-      console.log(`[UIServer] Sub-feature approved: ${stageId}`);
-      const pending = (io as any).pendingStageApprovals?.get(stageId);
-      if (pending?.resolve) {
-        pending.resolve({ status: 'approved' });
-        (io as any).pendingStageApprovals.delete(stageId);
-      }
-    });
-
-    // Reject/refine a sub-feature
-    socket.on('rejectSubFeature', ({ stageId, feedback }: { stageId: string; feedback: string }) => {
-      console.log(`[UIServer] Sub-feature rejected: ${stageId}, feedback: ${feedback}`);
       const pending = (io as any).pendingStageApprovals?.get(stageId);
       if (pending?.resolve) {
         pending.resolve({ status: 'refine', feedback });
@@ -1257,10 +1286,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   const emitChat = (from: 'user' | 'planning', message: string) => {
     console.log(`[UIServer] Emitting chat from ${from}: ${message.substring(0, 80)}...`);
     io.emit('chat', { from, message, timestamp: Date.now() });
-  };
-
-  const emitApproval = (request: ApprovalRequest) => {
-    io.emit('approval', request);
   };
 
   const emitSession = (session: Session) => {
@@ -2364,7 +2389,6 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
   (io as any).emitLog = emitLog;
   (io as any).emitChat = emitChat;
   (io as any).emitChatStream = emitChatStream;
-  (io as any).emitApproval = emitApproval;
   (io as any).emitSession = emitSession;
   (io as any).emitSessionCreated = emitSessionCreated;
   (io as any).emitAllComplete = emitAllComplete;
@@ -2400,6 +2424,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     },
     setKillPlanningAgentHandler: (handler: () => void) => {
       deps.onKillPlanningAgent = handler;
+    },
+    setGetNextPromptHandler: (handler: GetNextPromptHandler) => {
+      getNextPromptHandler = handler;
     }
   };
 }

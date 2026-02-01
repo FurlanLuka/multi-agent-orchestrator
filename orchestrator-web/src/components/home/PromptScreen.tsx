@@ -23,6 +23,8 @@ interface BranchCheckResult {
   currentBranch: string | null;
   mainBranch: string;
   isOnMainBranch: boolean;
+  hasUncommittedChanges: boolean;
+  uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
 }
 
 interface PromptScreenProps {
@@ -41,7 +43,7 @@ interface PromptScreenProps {
   ) => void;
   onEditWorkspace: () => void;
   onCheckBranchStatus: (projects: string[]) => void;
-  onCheckoutMainBranch: (projects: string[]) => void;
+  onCheckoutMainBranch: (projects: string[], stashFirst?: boolean) => void;
   onClearBranchCheck: () => void;
   onSelectHistoricalSession?: (sessionId: string) => void;
 }
@@ -169,9 +171,9 @@ export function PromptScreen({
     }
   };
 
-  const handleBranchCheckCheckout = () => {
+  const handleBranchCheckCheckout = (stashFirst: boolean) => {
     const gitProjects = getIncludedGitProjects();
-    onCheckoutMainBranch(gitProjects);
+    onCheckoutMainBranch(gitProjects, stashFirst);
   };
 
   // When checkout completes, start the session

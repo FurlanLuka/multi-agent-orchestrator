@@ -202,16 +202,6 @@ export class PathResolver {
     return path.join(this._configDir, 'setup');
   }
 
-  /** Directory containing hooks scripts */
-  get hooksDir(): string {
-    return path.join(this.setupDir, 'hooks');
-  }
-
-  /** Directory containing hook templates for Claude */
-  get hookTemplatesDir(): string {
-    return path.join(this.setupDir, 'hook-templates');
-  }
-
   /** Directory containing project templates */
   get projectTemplatesDir(): string {
     return path.join(this.setupDir, 'project-templates');
@@ -504,14 +494,6 @@ export function getSetupDir(): string {
   return getPaths().setupDir;
 }
 
-export function getHooksDir(): string {
-  return getPaths().hooksDir;
-}
-
-export function getHookTemplatesDir(): string {
-  return getPaths().hookTemplatesDir;
-}
-
 export function getDesignTemplatesDir(): string {
   return getPaths().designTemplatesDir;
 }
@@ -636,6 +618,52 @@ export function getDesignArtifactPath(sessionId: string, artifactName: string): 
 
 export function initializeConfigIfNeeded(): void {
   return getPaths().initializeConfigIfNeeded();
+}
+
+/**
+ * Get path to planner permissions config file.
+ * Returns: ~/.orchy-config/planner-permissions.json
+ */
+export function getPlannerPermissionsPath(): string {
+  return path.join(getPaths().configDir, 'planner-permissions.json');
+}
+
+/**
+ * Initialize planner permissions file if it doesn't exist.
+ * Creates default permissions for read-only codebase exploration.
+ */
+export function initializePlannerPermissionsIfNeeded(): void {
+  const plannerPermissionsPath = getPlannerPermissionsPath();
+
+  if (fs.existsSync(plannerPermissionsPath)) {
+    return; // Already exists
+  }
+
+  const defaultPlannerPermissions = {
+    allow: [
+      // Read tools for codebase exploration
+      'Read',
+      'Glob',
+      'Grep',
+      // Bash commands for directory listing
+      'Bash(ls *)',
+      'Bash(find *)',
+      // Web browsing
+      'WebFetch',
+      'WebSearch',
+      // Orchestrator MCP tools
+      'mcp__orchestrator-planning__ask_planning_question',
+      'mcp__orchestrator-planning__submit_refined_feature',
+      'mcp__orchestrator-planning__submit_technical_spec',
+      'mcp__orchestrator-planning__submit_plan_for_approval',
+      'mcp__orchestrator-planning__exploration_complete',
+      'mcp__orchestrator-planning__request_user_input',
+      'mcp__orchestrator-planning__task_complete',
+    ]
+  };
+
+  fs.writeFileSync(plannerPermissionsPath, JSON.stringify(defaultPlannerPermissions, null, 2));
+  console.log(`[PathResolver] Created default planner permissions at: ${plannerPermissionsPath}`);
 }
 
 /**

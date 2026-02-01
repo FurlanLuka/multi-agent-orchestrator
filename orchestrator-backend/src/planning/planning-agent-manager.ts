@@ -307,7 +307,12 @@ User: ${newMessage}`;
    */
   private async executeOneShot(prompt: string, timeoutMs: number = PlanningAgentManager.TIMEOUTS.CHAT): Promise<string> {
     console.log(`[PlanningAgent] Executing one-shot (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
-    console.log('[PlanningAgent] CWD:', this.orchestratorDir);
+
+    // Generate MCP config with permission tool
+    const mcpConfigPath = this.generatePlanningMcpConfig();
+
+    // Planner permissions are now handled via ~/.orchy-config/planner-permissions.json
+    // The permission server checks this config when project === 'planner'
 
     // Spawn claude directly with args array (no shell escaping needed)
     const args = [
@@ -315,12 +320,29 @@ User: ${newMessage}`;
       '--output-format', 'stream-json',
       '--verbose',
       '--no-session-persistence',
-      '--dangerously-skip-permissions'
+      '--mcp-config', mcpConfigPath,
+      '--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission',
     ];
+
+    // Restrict agent to only access project directories for the CURRENT session
+    // Use pendingPlanContext.projectPaths (session-specific) not this.projectConfig (all projects)
+    const sessionProjectPaths = this.pendingPlanContext?.projectPaths
+      ? Object.values(this.pendingPlanContext.projectPaths).filter(Boolean)
+      : [];
+    if (sessionProjectPaths.length > 0) {
+      args.push('--add-dir', ...sessionProjectPaths);
+      console.log(`[PlanningAgent] Allowed directories: ${sessionProjectPaths.join(', ')}`);
+    }
+
+    const extraEnv = {
+      ORCHESTRATOR_URL: 'http://localhost:3456',
+      ORCHESTRATOR_PROJECT: 'planner',
+    };
 
     const proc = await spawnWithShellEnv('claude', {
       cwd: this.orchestratorDir,
       args: args,
+      extraEnv: extraEnv,
     });
 
     this.currentProcess = proc;
@@ -610,7 +632,9 @@ User: ${newMessage}`;
   }
 
   /**
-   * Generates MCP config file for planning agent with ask_planning_question tool.
+   * Generates MCP config file for planning agent with:
+   * - orchestrator-planning: ask_planning_question and stage submission tools
+   * - orchestrator-permission: permission prompt tool for live approval
    * Uses ensureMcpServerExtracted() to ensure the MCP server is always up-to-date.
    */
   private generatePlanningMcpConfig(): string {
@@ -625,242 +649,16 @@ User: ${newMessage}`;
         'orchestrator-planning': {
           command: 'node',
           args: [mcpServerPath]
+        },
+        'orchestrator-permission': {
+          command: 'node',
+          args: [mcpServerPath]
         }
       }
     };
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     return configPath;
-  }
-
-  /**
-   * Executes a one-shot Claude call WITH MCP server enabled for interactive Q&A.
-   * Used for Phase 1 (exploration + analysis) where Claude can ask the user questions.
-   *
-   * @param prompt The prompt to send
-   * @param timeoutMs Timeout in milliseconds
-   * @param projectPaths Map of project names to paths (for MCP env vars)
-   */
-  private async executeOneShotWithMCP(
-    prompt: string,
-    timeoutMs: number,
-    projectPaths?: Record<string, string>
-  ): Promise<string> {
-    console.log(`[PlanningAgent] Executing one-shot with MCP (prompt: ${prompt.length} chars, timeout: ${timeoutMs}ms)`);
-
-    const mcpConfigPath = this.generatePlanningMcpConfig();
-
-    // Spawn claude with MCP server enabled
-    const args = [
-      '-p', prompt,
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--no-session-persistence',
-      '--dangerously-skip-permissions',
-      '--mcp-config', mcpConfigPath  // Enable MCP server for ask_planning_question
-    ];
-
-    // Set env vars for MCP server
-    const extraEnv = {
-      ORCHESTRATOR_URL: 'http://localhost:3456',
-      ORCHESTRATOR_PROJECT: 'planning',
-    };
-
-    const proc = await spawnWithShellEnv('claude', {
-      cwd: this.orchestratorDir,
-      args: args,
-      extraEnv: extraEnv,
-    });
-
-    this.currentProcess = proc;
-    console.log('[PlanningAgent] Process spawned with MCP, PID:', proc.pid);
-
-    return new Promise((resolve, reject) => {
-      let responseBuffer = '';
-      let resultText = '';
-      let lineCount = 0;
-      let partialLine = '';
-      const contentBlocks: ContentBlock[] = [];
-      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const startEvent: ChatStreamEvent = {
-        type: 'message_start',
-        messageId,
-        isPlanningRequest: this.isPlanningRequest
-      };
-      this.emit('stream', startEvent);
-
-      proc.stdout?.on('data', (chunk: Buffer) => {
-        const text = partialLine + chunk.toString();
-        const lines = text.split('\n');
-        partialLine = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          lineCount++;
-
-          try {
-            const msg: StreamJsonMessage = JSON.parse(line);
-
-            switch (msg.type) {
-              case 'system':
-                if (msg.subtype === 'init') {
-                  console.log('[PlanningAgent] Process with MCP initialized');
-                }
-                break;
-
-              case 'assistant':
-                if (msg.message?.content) {
-                  for (const block of msg.message.content) {
-                    let contentBlock: ContentBlock | null = null;
-
-                    if (block.type === 'text' && block.text) {
-                      responseBuffer += block.text;
-                      contentBlock = { type: 'text', text: block.text };
-                      this.emit('output', block.text);
-
-                      // Parse status messages
-                      const statusMatches = block.text.matchAll(/\[PLANNER_STATUS\]\s*(\{[^}]+\})/g);
-                      for (const statusMatch of statusMatches) {
-                        try {
-                          const statusData = JSON.parse(statusMatch[1]);
-                          if (statusData.message) {
-                            // Use phase from JSON if provided, otherwise use current phase
-                            const phase = statusData.phase || this.currentPlanningPhase || 'exploring';
-                            this.currentPlanningPhase = phase; // Update current phase
-                            const statusEvent: PlanningStatusEvent = {
-                              phase,
-                              message: statusData.message
-                            };
-                            this.emit('planningStatus', statusEvent);
-                          }
-                        } catch { /* ignore */ }
-                      }
-                    } else if (block.type === 'tool_use' && block.id && block.name) {
-                      contentBlock = {
-                        type: 'tool_use',
-                        id: block.id,
-                        name: block.name,
-                        input: block.input || {}
-                      };
-
-                      // Update status based on tool being used
-                      if (['Read', 'Glob', 'Grep', 'Task'].includes(block.name)) {
-                        let statusMessage = 'Exploring codebase...';
-                        if (block.name === 'Read' && block.input?.file_path) {
-                          const fileName = String(block.input.file_path).split('/').pop() || '';
-                          statusMessage = `Reading ${fileName}`;
-                        } else if (block.name === 'Glob' && block.input?.pattern) {
-                          statusMessage = `Searching for ${block.input.pattern}`;
-                        } else if (block.name === 'Grep' && block.input?.pattern) {
-                          statusMessage = `Searching for "${block.input.pattern}"`;
-                        } else if (block.name === 'Task' && block.input?.description) {
-                          statusMessage = `${block.input.description}`;
-                        }
-                        const statusEvent: PlanningStatusEvent = { phase: 'exploring', message: statusMessage };
-                        this.emit('planningStatus', statusEvent);
-                      }
-                      // MCP tool for asking questions
-                      else if (block.name === 'mcp__orchestrator-planning__ask_planning_question') {
-                        const question = block.input?.question as string || 'Question';
-                        const statusEvent: PlanningStatusEvent = {
-                          phase: 'exploring',
-                          message: `Asking: ${question.substring(0, 50)}...`
-                        };
-                        this.emit('planningStatus', statusEvent);
-                      }
-                    } else if (block.type === 'tool_result' && block.tool_use_id) {
-                      contentBlock = {
-                        type: 'tool_result',
-                        tool_use_id: block.tool_use_id,
-                        content: block.content || '',
-                        is_error: block.is_error
-                      };
-                    } else if (block.type === 'thinking' && block.thinking) {
-                      contentBlock = { type: 'thinking', thinking: block.thinking };
-                    }
-
-                    if (contentBlock) {
-                      contentBlocks.push(contentBlock);
-                      const blockEvent: ChatStreamEvent = {
-                        type: 'content_block',
-                        messageId,
-                        block: contentBlock
-                      };
-                      this.emit('stream', blockEvent);
-                    }
-                  }
-                }
-                break;
-
-              case 'result':
-                resultText = msg.result || responseBuffer;
-                break;
-
-              case 'error':
-                console.error('[PlanningAgent] Error from Claude (MCP):', msg);
-                const errorEvent: ChatStreamEvent = { type: 'error', messageId, error: 'Claude error' };
-                this.emit('stream', errorEvent);
-                break;
-            }
-          } catch {
-            // Not JSON - skip
-          }
-        }
-      });
-
-      proc.stderr?.on('data', (data: Buffer) => {
-        const text = data.toString();
-        console.error('[PlanningAgent] STDERR (MCP):', text.substring(0, 200));
-      });
-
-      proc.on('error', (err) => {
-        console.error('[PlanningAgent] Process error (MCP):', err);
-        this.currentProcess = null;
-        this.emit('free');
-        reject(err);
-      });
-
-      proc.on('exit', (code, signal) => {
-        if (partialLine.trim()) {
-          try {
-            const msg: StreamJsonMessage = JSON.parse(partialLine);
-            if (msg.type === 'result') {
-              resultText = msg.result || responseBuffer;
-            }
-          } catch { /* ignore */ }
-        }
-
-        console.log(`[PlanningAgent] Process with MCP exited (code: ${code}, signal: ${signal})`);
-        this.currentProcess = null;
-        this.emit('free');
-
-        const finalResult = resultText || responseBuffer;
-        if (code === 0 || finalResult) {
-          const completeEvent: ChatStreamEvent = {
-            type: 'message_complete',
-            messageId,
-            content: contentBlocks
-          };
-          this.emit('stream', completeEvent);
-          resolve(finalResult);
-        } else {
-          reject(new Error(`Process exited with code ${code}`));
-        }
-      });
-
-      const timeout = setTimeout(() => {
-        if (this.currentProcess) {
-          console.error(`[PlanningAgent] Timeout after ${timeoutMs}ms (MCP) - killing process`);
-          this.currentProcess.kill('SIGKILL');
-          this.currentProcess = null;
-          this.emit('free');
-          reject(new Error(`Planning Agent timeout after ${timeoutMs}ms`));
-        }
-      }, timeoutMs);
-
-      proc.on('exit', () => clearTimeout(timeout));
-    });
   }
 
   /**
@@ -1009,10 +807,10 @@ ${prompt}`;
   /**
    * Starts the new 6-stage planning workflow with approval loops at each stage.
    * Stages:
-   * 1. Feature Refinement - Socratic Q&A to understand requirements
-   * 2. Sub-feature Breakdown - Split into 3-7 manageable chunks
+   * 1. Feature Refinement - Read CLAUDE.md/skills FIRST, then Socratic Q&A
+   * 2. Sub-feature Breakdown - Split into manageable product chunks
    * 3. Sub-feature Refinement - Refine each chunk with approval loop
-   * 4. Project Exploration - Read CLAUDE.md, skills, explore codebase
+   * 4. Project Exploration - Deep codebase exploration for technical planning
    * 5. Technical Planning - Define API contracts, architecture
    * 6. Task Generation - Create implementation tasks & E2E tests
    *
@@ -1051,10 +849,9 @@ ${prompt}`;
       // That tool blocks for user approval
       // If approved, returns { status: "approved" } and agent proceeds
       // If refine, returns { status: "refine", feedback: "..." } and agent revises
-      const result = await this.executeOneShotWithMCP(
+      const result = await this.executeOneShot(
         stage1Prompt,
-        PlanningAgentManager.TIMEOUTS.PLAN_CREATION,
-        projectPaths
+        PlanningAgentManager.TIMEOUTS.PLAN_CREATION
       );
 
       console.log(`[PlanningAgent] Planning workflow completed, result length: ${result.length}`);
@@ -1083,58 +880,126 @@ ${prompt}`;
     projects: string[],
     projectPaths: Record<string, string>
   ): string {
-    const projectList = projects.map(p => `- ${p}: ${projectPaths[p] || 'unknown'}`).join('\n');
+    // Build project list with design info
+    const projectList = projects.map(p => {
+      const config = this.projectConfig[p];
+      const designInfo = config?.attachedDesign
+        ? ` (has design: "${config.attachedDesign}" - see ui_mockup/ folder)`
+        : '';
+      return `- ${p}: ${projectPaths[p] || 'unknown'}${designInfo}`;
+    }).join('\n');
+
+    // Check if any project has a design attached
+    const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
+    const designSection = projectsWithDesign.length > 0 ? `
+## Design System Available
+
+The following projects have design mockups attached:
+${projectsWithDesign.map(p => `- **${p}**: Design "${this.projectConfig[p]?.attachedDesign}" is in \`${projectPaths[p]}/ui_mockup/\``).join('\n')}
+
+**IMPORTANT**: Before asking about visual style or UI preferences, READ the design files in ui_mockup/ folders.
+The design system already defines colors, typography, components, and layouts. Use what's there.
+` : '';
 
     return `You are a planning agent conducting Stage 1: Feature Refinement.
+
+This is **PRODUCT** refinement - focus on user needs, not technical implementation.
 
 ## Initial Feature Request
 ${feature}
 
 ## Projects
 ${projectList}
+${designSection}
+## Your Task: Understand the Product Need
 
-## Your Task: Socratic Dialogue
+### Step 1: FIRST, Analyze What Already Exists (REQUIRED)
 
-Your goal is to fully understand what the user wants to build through thoughtful questions.
+Before asking ANY questions, you MUST understand each project. For EACH project, read:
 
-**DO NOT** explore the codebase yet - that comes in Stage 4.
-**DO NOT** start planning implementation - that comes later.
+1. **CLAUDE.md** - Project overview, conventions, what already exists
+   - Path: \`{projectPath}/CLAUDE.md\`
 
-Instead:
-1. Ask 3-5 clarifying questions to understand:
-   - The core user problem being solved
-   - Key use cases and edge cases
-   - Success criteria
-   - Any constraints or preferences
+2. **Skills folder** - Available capabilities and patterns
+   - Path: \`{projectPath}/.claude/skills/\`
+   - Read any .md files in this folder
 
-2. Use the \`mcp__orchestrator-planning__ask_planning_question\` tool to ask questions.
-   - Batch related questions together
-   - Focus on requirements, not implementation details
+3. **Design mockups** (if attached)
+   - Path: \`{projectPath}/ui_mockup/\`
+   - Read design files to understand the visual direction
 
-3. After the Q&A dialogue, synthesize what you learned into:
-   - A refined feature description (1-2 paragraphs)
-   - A list of 3-7 key requirements
+This tells you:
+- What the project already does
+- What conventions to follow
+- What components/patterns already exist
+- What the design system looks like
 
-4. Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
-   - refinedDescription: Your synthesized description
-   - keyRequirements: Array of requirement strings
+#### PARALLEL ANALYSIS (Recommended for Multiple Projects)
 
-The tool will block until the user approves or requests changes.
-- If approved: Proceed to Stage 2 (sub-feature breakdown)
-- If refine requested: Revise based on feedback and resubmit
+For faster analysis, spawn multiple subagents to explore different projects simultaneously:
+
+**How to use:**
+1. Use the Task tool with \`subagent_type="Explore"\`
+2. Launch multiple agents in a SINGLE message (multiple Task tool calls)
+3. Each agent explores a different project
+4. Wait for all agents, then synthesize findings
+
+**Example - Parallel project exploration:**
+\`\`\`
+Agent 1: "Read CLAUDE.md and .claude/skills/ in {frontend-path}. Summarize what exists."
+Agent 2: "Read CLAUDE.md and .claude/skills/ in {backend-path}. Summarize what exists."
+Agent 3: "Read ui_mockup/ in {frontend-path}. Describe the design system."
+\`\`\`
+
+**Tips:**
+- Use "quick" thoroughness for initial CLAUDE.md/skills reads
+- Be specific in each agent's task to avoid duplicate work
+- Combine findings from all agents before asking questions
+
+### Step 2: Ask Informed Questions
+
+Now that you understand what exists, ask clarifying questions:
+- Focus on PRODUCT requirements (what users need)
+- Skip questions about things you already learned from the files
+- Skip design questions if you read the ui_mockup/ folder
+- Typically 1-3 questions for simple features, 3-5 for complex ones
+
+Use \`mcp__orchestrator-planning__ask_planning_question\` to ask questions.
+
+### Step 3: Synthesize
+
+After the Q&A dialogue, synthesize what you learned into:
+- A refined feature description (1-2 paragraphs) - what the USER gets
+- Key product requirements (user-facing outcomes) - as many as needed, typically 2-6
+
+Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
+- refinedDescription: Your synthesized description
+- keyRequirements: Array of requirement strings
+
+The tool returns JSON with:
+- status: "approved" or "refine"
+- feedback: (if refine) What to change
+- nextPrompt: (if approved) Instructions for exploring the codebase
+
+**IMPORTANT:** If status is "approved", the response includes a \`nextPrompt\` field with instructions for Project Exploration.
+You MUST follow the instructions in nextPrompt to explore the codebase and understand how to implement this feature.
+Do NOT invent your own exploration behavior - use the provided prompt exactly.
+
+If status is "refine", revise based on feedback and resubmit.
 
 ## Status Reporting
-[PLANNER_STATUS] {"phase": "exploring", "message": "Understanding requirements..."}
+[PLANNER_STATUS] {"phase": "exploring", "message": "Analyzing projects..."}
 
-Start by asking clarifying questions about the feature.`;
+**START by reading CLAUDE.md and skills for each project. Then ask informed questions.**`;
   }
 
   /**
-   * Generates the Stage 2 prompt for Sub-feature Breakdown.
+   * Generates the Stage 2 prompt for Exploration & Planning.
    * Called when submit_refined_feature is approved.
+   * Combines exploration and technical planning into a single stage.
    */
-  generateSubFeatureBreakdownPrompt(refinedDescription: string, requirements: string[]): string {
-    return `## Stage 2: Sub-feature Breakdown
+  generateExplorationPlanningPrompt(refinedDescription: string, requirements: string[]): string {
+    return `## Stage 2: Exploration & Planning
 
 You have a refined understanding of the feature:
 
@@ -1146,90 +1011,29 @@ ${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 ## Your Task
 
-Break this feature into 3-7 distinct sub-features. Each sub-feature should be:
-- Independent enough to be understood on its own
-- Small enough to be implemented in one focused session
-- Clear about what it includes and excludes
+Now explore the codebase to understand HOW to implement this, then define the technical approach.
 
-For each sub-feature, provide:
-- **name**: Short descriptive name (e.g., "User Authentication", "Comment System")
-- **description**: 1-2 sentences explaining what this sub-feature covers
+### Step 1: Explore the Codebase
 
-Call \`mcp__orchestrator-planning__submit_sub_features\` with your breakdown.
+Use the Task tool with subagent_type="Explore" to analyze the codebase:
 
-The tool will block until the user approves.
-- If approved: Proceed to Stage 3 (refine each sub-feature)
-- If refine requested: Adjust the breakdown based on feedback
+**Launch exploration agents in a SINGLE message:**
+1. "Explore for existing API patterns, database models, and authentication"
+2. "Explore for frontend components, state management, and routing patterns"
+3. "Search for similar features already implemented that we can learn from"
 
-## Status Reporting
-[PLANNER_STATUS] {"phase": "analyzing", "message": "Breaking down into sub-features..."}`;
-  }
+### What to Discover
 
-  /**
-   * Generates the Stage 3 prompt for Sub-feature Refinement.
-   * Called for each sub-feature after breakdown is approved.
-   */
-  generateSubFeatureRefinementPrompt(
-    subFeatureId: string,
-    subFeatureName: string,
-    subFeatureDescription: string,
-    allSubFeatures: Array<{ name: string; description: string }>,
-    refinedFeature: { description: string; requirements: string[] }
-  ): string {
-    return `## Stage 3: Sub-feature Refinement
+- Existing code patterns and conventions
+- Database schema and models
+- API endpoint patterns
+- Frontend component structure
+- Authentication/authorization patterns
+- Testing patterns
 
-You are refining sub-feature: **${subFeatureName}**
+### Step 2: Define Technical Approach
 
-**Description:** ${subFeatureDescription}
-
-**Context - All sub-features:**
-${allSubFeatures.map((sf, i) => `${i + 1}. ${sf.name}: ${sf.description}`).join('\n')}
-
-**Original feature:** ${refinedFeature.description}
-
-## Your Task
-
-Refine this specific sub-feature:
-1. Ask 1-2 clarifying questions if needed using \`mcp__orchestrator-planning__ask_planning_question\`
-2. Define clear acceptance criteria (3-5 items)
-3. Submit the refinement
-
-Call \`mcp__orchestrator-planning__submit_sub_feature_refinement\` with:
-- subFeatureId: "${subFeatureId}"
-- refinedDescription: Detailed description of this sub-feature
-- acceptanceCriteria: Array of testable acceptance criteria
-
-The tool blocks until user approves.
-- If approved: Move to next sub-feature (or Stage 4 if all done)
-- If refine: Update based on feedback and resubmit
-
-## Status Reporting
-[PLANNER_STATUS] {"phase": "analyzing", "message": "Refining ${subFeatureName}..."}`;
-  }
-
-  /**
-   * Generates the Stage 5 prompt for Technical Planning.
-   * Called after project exploration completes.
-   */
-  generateTechnicalPlanningPrompt(
-    explorationSummary: string,
-    refinedFeature: { description: string; requirements: string[] },
-    subFeatures: Array<{ name: string; description: string; acceptanceCriteria?: string[] }>
-  ): string {
-    return `## Stage 5: Technical Planning
-
-Based on your exploration:
-${explorationSummary}
-
-**Feature:** ${refinedFeature.description}
-
-**Sub-features:**
-${subFeatures.map((sf, i) => `${i + 1}. ${sf.name}: ${sf.description}
-   Acceptance: ${sf.acceptanceCriteria?.join(', ') || 'None defined'}`).join('\n\n')}
-
-## Your Task
-
-Define the technical contracts:
+Based on your exploration, define:
 
 1. **API Contracts** - For each endpoint needed:
    - endpoint: The path (e.g., "/api/users")
@@ -1239,21 +1043,28 @@ Define the technical contracts:
    - providedBy: Which project implements this
    - consumedBy: Which projects call this
 
-2. **Architecture Decisions** - Key technical choices
+2. **Architecture Decisions** - Key technical choices (keep it brief, 2-5 decisions)
 
 3. **Execution Order** - Which projects to implement first and dependencies
+
+### Submit for Approval
 
 Call \`mcp__orchestrator-planning__submit_technical_spec\` with:
 - apiContracts: Array of contract objects
 - architectureDecisions: Array of decision strings
 - executionOrder: Array of { project, dependsOn: string[] }
 
-The tool blocks until user approves.
-- If approved: Proceed to Stage 6 (task generation)
-- If refine: Update based on feedback and resubmit
+The tool returns JSON with:
+- status: "approved" or "refine"
+- feedback: (if refine) What to change
+- instructions: (if approved) Next steps for task generation
+
+**IMPORTANT:** If status is "approved", follow the \`instructions\` field for Task Generation.
+
+If status is "refine", update based on feedback and resubmit.
 
 ## Status Reporting
-[PLANNER_STATUS] {"phase": "analyzing", "message": "Defining API contracts..."}`;
+[PLANNER_STATUS] {"phase": "exploring", "message": "Exploring codebase..."}`;
   }
 
   /**

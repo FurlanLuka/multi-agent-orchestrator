@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { Config, Session, Plan, HookConfig, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '@orchy/types';
+import { Config, Session, Plan, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '@orchy/types';
 import { SessionStore } from './session-store';
-import { getHookTemplatesDir, ensureProjectSessionDir, getProjectSessionDir } from '../config/paths';
+import { ensureProjectSessionDir, getProjectSessionDir } from '../config/paths';
 
 export class SessionManager {
   private config: Config;
@@ -41,7 +41,7 @@ export class SessionManager {
     // Persist to SessionStore (with workspaceId for history filtering)
     this.sessionStore.createSession(id, feature, projects, workspaceId);
 
-    // Create centralized session directories and install hooks in each project
+    // Create centralized session directories for each project
     for (const projectName of projects) {
       const projectConfig = this.config.projects[projectName];
       if (!projectConfig) {
@@ -49,17 +49,9 @@ export class SessionManager {
         continue;
       }
 
-      const projectPath = this.expandPath(projectConfig.path);
-
       // Create centralized project session directory
       // Path: ~/.orchy-config/sessions/{sessionId}/projects/{projectName}/
       const sessionDir = ensureProjectSessionDir(id, projectName);
-
-      // Set up Claude Code hooks via .claude/settings.json (only thing we add to project)
-      this.ensureHooksConfigured(projectPath);
-
-      // Copy hook scripts to project's .claude/hooks/ directory
-      this.ensureHookScripts(projectPath);
 
       // Create initial status file in centralized location
       fs.writeFileSync(
@@ -102,89 +94,6 @@ export class SessionManager {
     console.log(`[SessionManager] Created session: ${id} for feature: ${feature}`);
 
     return session;
-  }
-
-  /**
-   * Ensures .claude/settings.json has hook configuration
-   * This tells Claude Code which hooks to call
-   */
-  private ensureHooksConfigured(projectPath: string): void {
-    const claudeDir = path.join(projectPath, '.claude');
-    const settingsPath = path.join(claudeDir, 'settings.json');
-
-    // Create .claude directory if it doesn't exist
-    fs.mkdirSync(claudeDir, { recursive: true });
-
-    // Define hook configuration (orchy- prefix identifies Orchy hooks)
-    const hookConfig: HookConfig = {
-      hooks: {
-        Stop: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-stop.sh' }] }
-        ],
-        Notification: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-notification.sh' }] }
-        ],
-        PostToolUse: [
-          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-postToolUse.sh' }] }
-        ],
-        PreToolUse: [
-          { matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-preToolUse.sh' }] }
-        ],
-        SubagentStop: [
-          { hooks: [{ type: 'command', command: '.claude/hooks/orchy-subagentStop.sh' }] }
-        ]
-      }
-    };
-
-    // Merge with existing settings if present
-    let existingSettings: Record<string, unknown> = {};
-    if (fs.existsSync(settingsPath)) {
-      try {
-        existingSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      } catch (err) {
-        console.warn(`[SessionManager] Failed to parse existing settings.json: ${err}`);
-      }
-    }
-
-    // Merge hooks (keep existing hooks, add our orchestrator hooks)
-    const mergedSettings = {
-      ...existingSettings,
-      hooks: {
-        ...(existingSettings.hooks as Record<string, unknown> || {}),
-        ...hookConfig.hooks
-      }
-    };
-
-    fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
-    console.log(`[SessionManager] Configured hooks in ${settingsPath}`);
-  }
-
-  /**
-   * Copies hook scripts from hook-templates/ to project's .claude/hooks/
-   */
-  private ensureHookScripts(projectPath: string): void {
-    const hooksDir = path.join(projectPath, '.claude', 'hooks');
-    const templatesDir = getHookTemplatesDir();
-
-    // Create hooks directory
-    fs.mkdirSync(hooksDir, { recursive: true });
-
-    // List of hooks to copy (orchy- prefix identifies Orchy hooks)
-    const hooks = ['orchy-stop.sh', 'orchy-notification.sh', 'orchy-postToolUse.sh', 'orchy-preToolUse.sh', 'orchy-subagentStop.sh'];
-
-    for (const hook of hooks) {
-      const src = path.join(templatesDir, hook);
-      const dest = path.join(hooksDir, hook);
-
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, dest);
-        fs.chmodSync(dest, '755');
-      } else {
-        console.warn(`[SessionManager] Hook template not found: ${src}`);
-      }
-    }
-
-    console.log(`[SessionManager] Deployed hook scripts to ${hooksDir}`);
   }
 
   /**
@@ -317,19 +226,13 @@ export class SessionManager {
     // Convert persisted session to Session type
     this.currentSession = this.sessionStore.toSession(fullData.session);
 
-    // Set up centralized project directories and hooks for resuming
+    // Set up centralized project directories for resuming
     for (const projectName of this.currentSession.projects) {
       const projectConfig = this.config.projects[projectName];
       if (!projectConfig) continue;
 
-      const projectPath = this.expandPath(projectConfig.path);
-
       // Ensure centralized session directory exists
       ensureProjectSessionDir(sessionId, projectName);
-
-      // Ensure hooks are configured in project directory
-      this.ensureHooksConfigured(projectPath);
-      this.ensureHookScripts(projectPath);
     }
 
     // Update global registry

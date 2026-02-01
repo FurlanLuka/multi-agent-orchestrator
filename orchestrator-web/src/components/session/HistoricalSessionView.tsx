@@ -23,7 +23,6 @@ import {
   IconX,
   IconAlertTriangle,
   IconMinus,
-  IconListCheck,
   IconApi,
   IconBulb,
 } from '@tabler/icons-react';
@@ -404,64 +403,7 @@ export function HistoricalSessionView() {
                     </GlassCard>
                   )}
 
-                  {/* Stage 2-3: Sub-features */}
-                  {session.planningState.subFeatures.length > 0 && (
-                    <GlassCard p="lg">
-                      <Stack gap="md">
-                        <Group gap="xs">
-                          <ThemeIcon size="sm" color="violet" variant="light">
-                            <IconListCheck size={14} />
-                          </ThemeIcon>
-                          <Text size="sm" fw={600} tt="uppercase" c="dimmed">
-                            Sub-features
-                          </Text>
-                          <Badge size="xs" color="green" variant="light">Stage 2-3</Badge>
-                        </Group>
-                        <Stack gap="md">
-                          {session.planningState.subFeatures.map((sf, idx) => (
-                            <Box
-                              key={sf.id}
-                              p="md"
-                              style={{
-                                backgroundColor: 'rgba(160, 130, 110, 0.04)',
-                                borderRadius: 8,
-                                border: '1px solid var(--border-subtle)',
-                              }}
-                            >
-                              <Group justify="space-between" mb="xs">
-                                <Text size="sm" fw={600}>{idx + 1}. {sf.name}</Text>
-                                <Badge
-                                  size="xs"
-                                  color={sf.status === 'approved' ? 'green' : sf.status === 'refining' ? 'yellow' : 'gray'}
-                                  variant="light"
-                                >
-                                  {sf.status}
-                                </Badge>
-                              </Group>
-                              <Text size="sm" c="dimmed" mb="sm">{sf.description}</Text>
-                              {sf.acceptanceCriteria && sf.acceptanceCriteria.length > 0 && (
-                                <Box>
-                                  <Text size="xs" fw={600} c="dimmed" mb="xs">Acceptance Criteria:</Text>
-                                  <Stack gap={4}>
-                                    {sf.acceptanceCriteria.map((ac, acIdx) => (
-                                      <Group key={acIdx} gap="xs" wrap="nowrap">
-                                        <ThemeIcon size="xs" color="blue" variant="light">
-                                          <IconCheck size={10} />
-                                        </ThemeIcon>
-                                        <Text size="xs">{ac}</Text>
-                                      </Group>
-                                    ))}
-                                  </Stack>
-                                </Box>
-                              )}
-                            </Box>
-                          ))}
-                        </Stack>
-                      </Stack>
-                    </GlassCard>
-                  )}
-
-                  {/* Stage 5: Technical Spec */}
+                  {/* Stage 2: Technical Spec (Exploration & Planning) */}
                   {session.planningState.technicalSpec && (
                     <GlassCard p="lg">
                       <Stack gap="md">
@@ -472,7 +414,7 @@ export function HistoricalSessionView() {
                           <Text size="sm" fw={600} tt="uppercase" c="dimmed">
                             Technical Specification
                           </Text>
-                          <Badge size="xs" color="green" variant="light">Stage 5</Badge>
+                          <Badge size="xs" color="green" variant="light">Stage 2</Badge>
                         </Group>
 
                         {/* API Contracts */}
@@ -546,7 +488,6 @@ export function HistoricalSessionView() {
 
                   {/* Empty state */}
                   {!session.planningState.refinedFeature &&
-                   session.planningState.subFeatures.length === 0 &&
                    !session.planningState.technicalSpec && (
                     <GlassCard p="lg">
                       <Text c="dimmed" ta="center">Planning workflow was started but no data was captured.</Text>

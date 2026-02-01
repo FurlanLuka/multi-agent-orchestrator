@@ -74,72 +74,6 @@ export type AgentStatus =
   | 'FAILED'        // Task failed, requires user intervention to continue
   | 'BLOCKED';
 
-// Outbox event types (agent → orchestrator)
-export interface StatusUpdate {
-  type: 'status_update';
-  project: string;
-  status: AgentStatus;
-  message: string;
-  timestamp: number;
-}
-
-export interface Message {
-  type: 'message';
-  from: string;
-  to: string;
-  message: string;
-  timestamp: number;
-}
-
-export interface ApprovalRequest {
-  type: 'approval_request';
-  id: string;
-  project: string;
-  prompt: string;
-  approval_type: string;
-  timestamp: number;
-}
-
-export interface ErrorReport {
-  type: 'error_report';
-  project: string;
-  error: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  timestamp: number;
-}
-
-export interface TaskComplete {
-  type: 'task_complete';
-  project: string;
-  summary: string;
-  timestamp: number;
-}
-
-export interface RestartRequest {
-  type: 'restart_request';
-  project: string;
-  reason: string;
-  timestamp: number;
-}
-
-export interface CrossProjectBlocked {
-  type: 'cross_project_blocked';
-  tool: string;
-  target_path: string;
-  project_root: string;
-  message: string;
-  timestamp: number;
-}
-
-export type OutboxEvent =
-  | StatusUpdate
-  | Message
-  | ApprovalRequest
-  | ErrorReport
-  | TaskComplete
-  | RestartRequest
-  | CrossProjectBlocked;
-
 // Session and plan
 export interface Session {
   id: string;
@@ -344,50 +278,6 @@ export interface E2EPromptRequest {
 // Orchestrator state machine
 export type OrchestratorState = 'IDLE' | 'RUNNING' | 'PAUSING' | 'PAUSED';
 
-// Extended agent status for new hooks
-export type ExtendedAgentStatus = AgentStatus | 'NEEDS_INPUT' | 'ERROR';
-
-// New hook-based events (from .claude/hooks/)
-export interface HookStatusEvent {
-  type: 'status';
-  status: ExtendedAgentStatus;
-  timestamp: number;
-}
-
-export interface HookNotificationEvent {
-  type: 'notification';
-  status: ExtendedAgentStatus;
-  message: string;
-  notification_type: string;
-  timestamp: number;
-}
-
-export interface HookToolCompleteEvent {
-  type: 'tool_complete';
-  tool: string;
-  success: boolean;
-  timestamp: number;
-}
-
-export interface HookToolStartEvent {
-  type: 'tool_start';
-  tool: string;
-  timestamp: number;
-}
-
-export interface HookSubagentStopEvent {
-  type: 'subagent_stop';
-  timestamp: number;
-}
-
-// Union of all hook events
-export type HookEvent =
-  | HookStatusEvent
-  | HookNotificationEvent
-  | HookToolCompleteEvent
-  | HookToolStartEvent
-  | HookSubagentStopEvent;
-
 // Event queue types
 export interface QueuedEvent {
   id: string;
@@ -431,12 +321,10 @@ export interface FailureAnalysisEvent {
 
 // Orchestrator event union (what gets queued)
 export type OrchestratorEvent =
-  | (HookEvent & { project: string })
   | UserChatEvent
   | E2ECompleteEvent
   | E2EPromptRequestEvent
-  | FailureAnalysisEvent
-  | OutboxEvent;
+  | FailureAnalysisEvent;
 
 // Planning Agent actions (what Planning Agent returns)
 export interface ChatResponseAction {
@@ -490,17 +378,6 @@ export type PlanningAction =
   | NoopAction
   | SkipE2EAction
   | RetryE2EAction;
-
-// Hook configuration for .claude/settings.json
-export interface HookConfig {
-  hooks: {
-    Stop?: Array<{ hooks: Array<{ type: string; command: string }> }>;
-    Notification?: Array<{ hooks: Array<{ type: string; command: string }> }>;
-    PostToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
-    PreToolUse?: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
-    SubagentStop?: Array<{ hooks: Array<{ type: string; command: string }> }>;
-  };
-}
 
 // Queue status for UI visibility
 export interface QueuedEventPreview {
@@ -890,37 +767,21 @@ export interface TaskCompleteResponse {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Multi-Stage Planning Types (6-stage workflow with approval loops)
+// Multi-Stage Planning Types (3-stage workflow)
 // ═══════════════════════════════════════════════════════════════
 
 /** Planning stages in order */
 export type PlanningStage =
   | 'feature_refinement'      // Stage 1: Socratic Q&A to understand requirements
-  | 'sub_feature_breakdown'   // Stage 2: Split into 3-7 manageable chunks
-  | 'sub_feature_refinement'  // Stage 3: Refine each chunk with approval loop
-  | 'project_exploration'     // Stage 4: Read CLAUDE.md, skills, explore codebase
-  | 'technical_planning'      // Stage 5: Define API contracts, architecture
-  | 'task_generation';        // Stage 6: Create implementation tasks & E2E tests
+  | 'exploration_planning'    // Stage 2: Explore codebase + define technical approach
+  | 'task_generation';        // Stage 3: Create implementation tasks & E2E tests
 
 /** Stage display names for UI */
 export const PLANNING_STAGE_NAMES: Record<PlanningStage, string> = {
   feature_refinement: 'Feature Refinement',
-  sub_feature_breakdown: 'Sub-feature Breakdown',
-  sub_feature_refinement: 'Sub-feature Refinement',
-  project_exploration: 'Project Exploration',
-  technical_planning: 'Technical Planning',
+  exploration_planning: 'Exploration & Planning',
   task_generation: 'Task Generation',
 };
-
-/** Sub-feature tracking for Stage 3 */
-export interface SubFeature {
-  id: string;
-  name: string;
-  description: string;
-  status: 'pending' | 'refining' | 'approved';
-  acceptanceCriteria?: string[];
-  refinementHistory?: Array<{ feedback: string; response: string }>;
-}
 
 /** Stage progress tracking */
 export interface StageProgress {
@@ -930,7 +791,7 @@ export interface StageProgress {
   completedAt?: number;
 }
 
-/** API contract structure for Stage 5 */
+/** API contract structure for Stage 2 (Exploration & Planning) */
 export interface ApiContract {
   endpoint: string;
   method: string;
@@ -940,7 +801,7 @@ export interface ApiContract {
   consumedBy: string[];
 }
 
-/** Technical spec from Stage 5 */
+/** Technical spec from Stage 2 (Exploration & Planning) */
 export interface TechnicalSpec {
   apiContracts: ApiContract[];
   architectureDecisions: string[];
@@ -955,8 +816,6 @@ export interface PlanningSessionState {
     description: string;
     requirements: string[];
   };
-  subFeatures: SubFeature[];
-  currentSubFeatureIndex: number;
   technicalSpec?: TechnicalSpec;
 }
 
@@ -964,7 +823,7 @@ export interface PlanningSessionState {
 export interface StageApprovalRequest {
   stageId: string;
   stage: PlanningStage;
-  data: RefinedFeatureData | SubFeaturesData | SubFeatureRefinementData | TechnicalSpecData;
+  data: RefinedFeatureData | TechnicalSpecData;
 }
 
 /** Data for Stage 1 approval */
@@ -974,22 +833,7 @@ export interface RefinedFeatureData {
   keyRequirements: string[];
 }
 
-/** Data for Stage 2 approval */
-export interface SubFeaturesData {
-  type: 'sub_features';
-  subFeatures: Array<{ name: string; description: string }>;
-}
-
-/** Data for Stage 3 per-item approval */
-export interface SubFeatureRefinementData {
-  type: 'sub_feature_refinement';
-  subFeatureId: string;
-  subFeatureName: string;
-  refinedDescription: string;
-  acceptanceCriteria: string[];
-}
-
-/** Data for Stage 5 approval */
+/** Data for Stage 2 approval (Exploration & Planning) */
 export interface TechnicalSpecData {
   type: 'technical_spec';
   apiContracts: ApiContract[];
@@ -1005,13 +849,6 @@ export interface PlanningSessionStateEvent {
 /** Socket event for stage approval response */
 export interface StageApprovalResponse {
   stageId: string;
-  approved: boolean;
-  feedback?: string;
-}
-
-/** Socket event for sub-feature approval response */
-export interface SubFeatureApprovalResponse {
-  subFeatureId: string;
   approved: boolean;
   feedback?: string;
 }

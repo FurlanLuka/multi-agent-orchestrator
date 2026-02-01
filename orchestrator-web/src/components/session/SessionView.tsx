@@ -22,7 +22,6 @@ import {
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { AssistantChat } from '../AssistantChat';
-import { ApprovalPanel } from '../ApprovalPanel';
 import { ProjectTabContent } from '../ProjectTabContent';
 import { MarkdownMessage } from '../MarkdownMessage';
 import { MermaidDiagram } from '../MermaidDiagram';
@@ -30,8 +29,6 @@ import { UserInputOverlay } from '../UserInputOverlay';
 import { CompletionPanel } from './CompletionPanel';
 import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
-import { PlanningSidebar } from '../planning/PlanningSidebar';
-import { StageApprovalCard } from '../planning/StageApprovalCard';
 import { glass, radii, TabbedCard } from '../../theme';
 
 interface SessionViewProps {
@@ -46,18 +43,13 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     streamingMessages,
     testStates,
     taskStates,
-    currentApproval,
     allComplete,
-    respondToApproval,
     submitUserInput,
     userInputRequest,
     permissionPrompt,
     respondToPermission,
     retryProject,
     startNewSession,
-    planningSessionState,
-    pendingStageApproval,
-    respondToStageApproval,
   } = useOrchestrator();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
@@ -69,8 +61,6 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
   const [activeTrackingTab, setActiveTrackingTab] = useState<string>(sessionProjects[0] || '');
 
   // Collapsible sections state
-  const [showPlanningSection, setShowPlanningSection] = useState(true);
-  const [showFeatureSection, setShowFeatureSection] = useState(true);
   const [showTasksSection, setShowTasksSection] = useState(true);
   const [showTrackingSection, setShowTrackingSection] = useState(true);
 
@@ -182,35 +172,16 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
 
           {session && (
             <Grid gutter="lg" style={{ flex: 1, minHeight: 0 }}>
-              {/* Planning Sidebar (shown during multi-stage planning before plan is created) */}
-              {planningSessionState && !session.plan && (
-                <Grid.Col span={{ base: 12, lg: 3 }} style={{ minWidth: 250 }}>
-                  <PlanningSidebar planningState={planningSessionState} />
-                </Grid.Col>
-              )}
-
               {/* LEFT PANEL: Planning Chat */}
               <Grid.Col
-                span={{ base: 12, lg: session.plan ? 5 : planningSessionState ? 9 : 12 }}
+                span={{ base: 12, lg: session.plan ? 5 : 12 }}
                 style={{ minWidth: 380 }}
               >
                 <Stack gap="lg" h="calc(100vh - 100px)">
-                  {/* Section Title - Collapsible */}
-                  <UnstyledButton onClick={() => setShowPlanningSection(!showPlanningSection)}>
-                    <Group gap={4}>
-                      <ThemeIcon size="xs" variant="transparent" color="gray">
-                        {showPlanningSection ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-                      </ThemeIcon>
-                      <Text size="sm" fw={600} c="dimmed" tt="uppercase">
-                        Chat
-                      </Text>
-                    </Group>
-                  </UnstyledButton>
-
-                  <Collapse in={showPlanningSection} style={{ flex: showPlanningSection ? 1 : undefined, minHeight: 0 }}>
                   <Box
                     style={{
-                      height: '100%',
+                      flex: 1,
+                      minHeight: 0,
                       overflow: 'hidden',
                       display: 'flex',
                       flexDirection: 'column',
@@ -243,23 +214,10 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                         {isStreaming ? 'Thinking...' : 'Ready'}
                       </Badge>
                     </Group>
-                    <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                      {/* Stage Approval Card (shown when a planning stage is awaiting approval) */}
-                      {pendingStageApproval && (
-                        <Box p="md" style={{ flexShrink: 0 }}>
-                          <StageApprovalCard
-                            approval={pendingStageApproval}
-                            onApprove={() => respondToStageApproval(pendingStageApproval.stageId, true)}
-                            onReject={(feedback) => respondToStageApproval(pendingStageApproval.stageId, false, feedback)}
-                          />
-                        </Box>
-                      )}
-                      <Box style={{ flex: 1, minHeight: 0 }}>
-                        <AssistantChat />
-                      </Box>
+                    <Box style={{ flex: 1, minHeight: 0 }}>
+                      <AssistantChat />
                     </Box>
                   </Box>
-                  </Collapse>
                 </Stack>
               </Grid.Col>
 
@@ -268,20 +226,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                 <Grid.Col span={{ base: 12, lg: 7 }}>
                   <ScrollArea h="calc(100vh - 100px)" type="auto" offsetScrollbars>
                     <Stack gap="lg">
-                      {/* Section Title - Collapsible */}
-                      <UnstyledButton onClick={() => setShowFeatureSection(!showFeatureSection)}>
-                        <Group gap={4}>
-                          <ThemeIcon size="xs" variant="transparent" color="gray">
-                            {showFeatureSection ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-                          </ThemeIcon>
-                          <Text size="sm" fw={600} c="dimmed" tt="uppercase">
-                            Current Feature
-                          </Text>
-                        </Group>
-                      </UnstyledButton>
-
                       {/* Feature Card - FormCard style */}
-                      <Collapse in={showFeatureSection}>
                       <Box
                         style={{
                           borderRadius: radii.surface,
@@ -391,7 +336,6 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                           </Stack>
                         </Box>
                       </Box>
-                      </Collapse>
 
                       {/* Section Title - Collapsible */}
                       <UnstyledButton onClick={() => setShowTasksSection(!showTasksSection)}>
@@ -537,12 +481,6 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
           </Group>
         </Stack>
       </Modal>
-
-      {/* Approval Modal */}
-      <ApprovalPanel
-        approval={currentApproval}
-        onRespond={respondToApproval}
-      />
 
       {/* User Input Overlay */}
       {userInputRequest && (

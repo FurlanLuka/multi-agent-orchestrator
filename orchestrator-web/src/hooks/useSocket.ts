@@ -6,7 +6,6 @@ import type {
   Plan,
   ProjectState,
   LogEntry,
-  ApprovalRequest,
   AgentStatus,
   ProjectTemplateConfig,
   ProjectConfig,
@@ -97,7 +96,6 @@ export function useSocket() {
   const [session, setSession] = useState<Session | null>(null);
   const [statuses, setStatuses] = useState<Record<string, ProjectState>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [currentApproval, setCurrentApproval] = useState<ApprovalRequest | null>(null);
   const [allComplete, setAllComplete] = useState(false);
   const [projects, setProjects] = useState<Record<string, ProjectConfig>>({});
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
@@ -153,6 +151,8 @@ export function useSocket() {
     currentBranch: string | null;
     mainBranch: string;
     isOnMainBranch: boolean;
+    hasUncommittedChanges: boolean;
+    uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
   }> | null>(null);
   const [checkingBranches, setCheckingBranches] = useState(false);
   const [checkoutingBranches, setCheckoutingBranches] = useState(false);
@@ -388,11 +388,6 @@ export function useSocket() {
     // Log events
     socket.on('log', (entry: LogEntry) => {
       setLogs(prev => [...prev.slice(-500), entry]); // Keep last 500 logs
-    });
-
-    // Approval events
-    socket.on('approval', (request: ApprovalRequest) => {
-      setCurrentApproval(request);
     });
 
     // All complete
@@ -788,6 +783,8 @@ export function useSocket() {
         currentBranch: string | null;
         mainBranch: string;
         isOnMainBranch: boolean;
+        hasUncommittedChanges: boolean;
+        uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
       }>;
     }) => {
       console.log('[useSocket] Branch status:', results);
@@ -845,15 +842,6 @@ export function useSocket() {
     socket.on('stageApproval', (event: StageApprovalRequest) => {
       console.log(`[Planning] Stage approval requested: ${event.stage} (${event.stageId})`);
       setPendingStageApproval(event);
-    });
-
-    socket.on('subFeatureApproval', (event: { stageId: string; data: StageApprovalRequest['data'] }) => {
-      console.log(`[Planning] Sub-feature approval requested: ${event.stageId}`);
-      setPendingStageApproval({
-        stageId: event.stageId,
-        stage: 'sub_feature_refinement',
-        data: event.data,
-      });
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -1042,13 +1030,6 @@ export function useSocket() {
   const startExecution = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.emit('startExecution');
-    }
-  }, []);
-
-  const respondToApproval = useCallback((id: string, approved: boolean) => {
-    if (socketRef.current) {
-      socketRef.current.emit('approve', { id, approved });
-      setCurrentApproval(null);
     }
   }, []);
 
@@ -1293,10 +1274,11 @@ export function useSocket() {
   }, []);
 
   // Checkout main branch for projects
-  const checkoutMainBranch = useCallback((projects: string[]) => {
+  // If stashFirst is true, stash uncommitted changes before checkout
+  const checkoutMainBranch = useCallback((projects: string[], stashFirst?: boolean) => {
     if (socketRef.current) {
       setCheckoutingBranches(true);
-      socketRef.current.emit('checkoutMainBranch', { projects });
+      socketRef.current.emit('checkoutMainBranch', { projects, stashFirst });
     }
   }, []);
 
@@ -1379,18 +1361,6 @@ export function useSocket() {
     }
   }, []);
 
-  // Respond to sub-feature approval (stage 3 per-item approval)
-  const respondToSubFeatureApproval = useCallback((stageId: string, approved: boolean, feedback?: string) => {
-    if (socketRef.current) {
-      console.log(`[Planning] Responding to sub-feature approval: ${stageId}, approved=${approved}`);
-      if (approved) {
-        socketRef.current.emit('approveSubFeature', { stageId });
-      } else {
-        socketRef.current.emit('rejectSubFeature', { stageId, feedback: feedback || '' });
-      }
-      setPendingStageApproval(null);
-    }
-  }, []);
 
   // Retry a failed project task (FATAL_DEBUGGING or FAILED status)
   const retryProject = useCallback((project: string) => {
@@ -1556,7 +1526,6 @@ export function useSocket() {
     flows,
     activeFlows,
     completedFlows,
-    currentApproval,
     allComplete,
     projects,
     templates,
@@ -1587,7 +1556,6 @@ export function useSocket() {
     sendChat,
     startSession,
     startExecution,
-    respondToApproval,
     clearLogs,
     clearStreamingMessages,
     clearFlows,
@@ -1619,7 +1587,6 @@ export function useSocket() {
     retryProject,
     retryPlan,
     respondToStageApproval,
-    respondToSubFeatureApproval,
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,

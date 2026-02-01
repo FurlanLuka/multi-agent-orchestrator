@@ -309,6 +309,63 @@ export class GitManager {
   }
 
   /**
+   * Checks if there are any uncommitted changes (staged or unstaged)
+   */
+  async hasUncommittedChanges(projectPath: string): Promise<{ hasChanges: boolean; staged: number; unstaged: number; untracked: number }> {
+    const result = await this.runGitCommand(projectPath, ['status', '--porcelain']);
+    if (result.exitCode !== 0) {
+      return { hasChanges: false, staged: 0, unstaged: 0, untracked: 0 };
+    }
+
+    const lines = result.stdout.trim().split('\n').filter(l => l.trim());
+    let staged = 0;
+    let unstaged = 0;
+    let untracked = 0;
+
+    for (const line of lines) {
+      const indexStatus = line[0];
+      const workTreeStatus = line[1];
+
+      if (indexStatus === '?') {
+        untracked++;
+      } else {
+        if (indexStatus !== ' ' && indexStatus !== '?') {
+          staged++;
+        }
+        if (workTreeStatus !== ' ' && workTreeStatus !== '?') {
+          unstaged++;
+        }
+      }
+    }
+
+    return {
+      hasChanges: lines.length > 0,
+      staged,
+      unstaged,
+      untracked
+    };
+  }
+
+  /**
+   * Stashes all uncommitted changes
+   */
+  async stashChanges(projectPath: string, message?: string): Promise<{ success: boolean; message: string }> {
+    const args = ['stash', 'push', '--include-untracked'];
+    if (message) {
+      args.push('-m', message);
+    }
+
+    const result = await this.runGitCommand(projectPath, args);
+    if (result.exitCode !== 0) {
+      return { success: false, message: result.stderr || 'Failed to stash changes' };
+    }
+
+    console.log(`[GitManager] Stashed changes at ${projectPath}`);
+    return { success: true, message: 'Changes stashed successfully' };
+  }
+
+
+  /**
    * Merges a branch into the target branch (typically main)
    * Checks out target, pulls latest, merges source, pushes
    */

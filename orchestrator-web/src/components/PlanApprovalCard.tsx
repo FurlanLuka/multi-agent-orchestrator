@@ -1,4 +1,4 @@
-import { Group, Badge, Text, Stack, Button } from '@mantine/core';
+import { Group, Badge, Text, Stack, Button, ScrollArea } from '@mantine/core';
 import { IconClipboardList, IconMessage } from '@tabler/icons-react';
 import type { Plan } from '@orchy/types';
 import { TabbedPlanView } from './TabbedPlanView';
@@ -41,8 +41,10 @@ export function PlanApprovalCard({ plan, onApprove }: PlanApprovalCardProps) {
           {plan.feature}
         </Text>
 
-        {/* Full plan view */}
-        <TabbedPlanView plan={plan} isApproval={true} />
+        {/* Full plan view - scrollable to prevent overflow */}
+        <ScrollArea.Autosize mah={400} offsetScrollbars>
+          <TabbedPlanView plan={plan} isApproval={true} />
+        </ScrollArea.Autosize>
 
         {/* Feedback hint */}
         <Group gap="xs" c="dimmed">

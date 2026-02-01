@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Config, ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@orchy/types';
 import { GitManager } from './git-manager';
-import { getHookTemplatesDir, getProjectTemplatesDir, getConfigDir } from '../config/paths';
+import { getProjectTemplatesDir, getConfigDir } from '../config/paths';
 import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
 
 export interface AddProjectOptions {
@@ -231,9 +231,6 @@ export class ProjectManager extends EventEmitter {
       await this.installDependencies(name);
     }
 
-    // Set up Claude hooks for the project
-    await this.setupProjectHooks(name);
-
     // Run setup command if configured (e.g., adding MCP servers)
     if (setupCommand) {
       await this.runSetupCommand(name);
@@ -450,78 +447,6 @@ ${fullCommand}
   }
 
   /**
-   * Sets up Claude hooks for a project
-   */
-  async setupProjectHooks(projectName: string): Promise<void> {
-    const projectConfig = this.config.projects[projectName];
-    if (!projectConfig) {
-      throw new Error(`Project "${projectName}" does not exist`);
-    }
-
-    const projectPath = this.expandPath(projectConfig.path);
-
-    // Add Orchy-related entries to .gitignore
-    this.ensureOrchyGitignoreEntries(projectPath);
-
-    // Ensure .claude directory exists
-    const claudeDir = path.join(projectPath, '.claude');
-    fs.mkdirSync(claudeDir, { recursive: true });
-
-    // Set up hooks directory
-    const hooksDir = path.join(claudeDir, 'hooks');
-    fs.mkdirSync(hooksDir, { recursive: true });
-
-    // Copy hook templates (orchy- prefix identifies Orchy hooks)
-    const templatesDir = getHookTemplatesDir();
-    const hooks = ['orchy-stop.sh', 'orchy-notification.sh', 'orchy-postToolUse.sh', 'orchy-preToolUse.sh', 'orchy-subagentStop.sh'];
-
-    for (const hook of hooks) {
-      const src = path.join(templatesDir, hook);
-      const dest = path.join(hooksDir, hook);
-
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, dest);
-        fs.chmodSync(dest, '755');
-      }
-    }
-
-    // Configure .claude/settings.json
-    const settingsPath = path.join(claudeDir, 'settings.json');
-    const hookConfig = {
-      hooks: {
-        Stop: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-stop.sh' }] }],
-        Notification: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-notification.sh' }] }],
-        PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-postToolUse.sh' }] }],
-        PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: '.claude/hooks/orchy-preToolUse.sh' }] }],
-        SubagentStop: [{ hooks: [{ type: 'command', command: '.claude/hooks/orchy-subagentStop.sh' }] }]
-      }
-    };
-
-    // Merge with existing settings if present
-    let existingSettings: Record<string, unknown> = {};
-    if (fs.existsSync(settingsPath)) {
-      try {
-        existingSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      } catch {
-        console.warn(`[ProjectManager] Failed to parse existing settings.json for ${projectName}`);
-      }
-    }
-
-    const mergedSettings = {
-      ...existingSettings,
-      hooks: {
-        ...(existingSettings.hooks as Record<string, unknown> || {}),
-        ...hookConfig.hooks
-      }
-    };
-
-    fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
-
-    console.log(`[ProjectManager] Set up hooks for ${projectName}`);
-    this.emit('hooksConfigured', { project: projectName });
-  }
-
-  /**
    * Gets available project templates
    */
   getTemplates(): ProjectTemplateConfig[] {
@@ -591,9 +516,6 @@ ${fullCommand}
     if (projectConfig.installEnabled) {
       await this.installDependencies(name);
     }
-
-    // Set up Claude hooks for the project
-    await this.setupProjectHooks(name);
 
     // Run setup command if configured (e.g., adding MCP servers)
     if (projectConfig.setupCommand) {
