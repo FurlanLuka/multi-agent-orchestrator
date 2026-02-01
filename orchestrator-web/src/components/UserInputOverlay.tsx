@@ -10,7 +10,7 @@ import {
   Paper,
   ThemeIcon,
 } from '@mantine/core';
-import { IconKey, IconCheck, IconX } from '@tabler/icons-react';
+import { IconKey, IconCheck, IconX, IconAlertCircle } from '@tabler/icons-react';
 import type { UserInputRequest } from '@orchy/types';
 
 interface UserInputOverlayProps {
@@ -20,11 +20,20 @@ interface UserInputOverlayProps {
 }
 
 export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverlayProps) {
+  // Check if this is a confirmation dialog
+  const isConfirmation = request.inputs.length > 0 && request.inputs[0].type === 'confirmation';
+  const confirmationInput = isConfirmation ? request.inputs[0] : null;
+
   const [values, setValues] = useState<Record<string, string>>(() => {
-    // Initialize with empty strings
+    if (isConfirmation) {
+      return {}; // No values needed for confirmation
+    }
+    // Initialize with empty strings for regular inputs
     const initial: Record<string, string> = {};
     for (const input of request.inputs) {
-      initial[input.name] = '';
+      if (input.name) {
+        initial[input.name] = '';
+      }
     }
     return initial;
   });
@@ -54,8 +63,109 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
     setValues(prev => ({ ...prev, [name]: value }));
   }, []);
 
-  const canProceed = !currentInput?.required || values[currentInput?.name]?.trim();
+  const handleConfirm = useCallback(() => {
+    onSubmit(request.requestId, { confirmed: 'true' });
+  }, [onSubmit, request.requestId]);
 
+  const handleDeny = useCallback(() => {
+    onSubmit(request.requestId, { confirmed: 'false' });
+  }, [onSubmit, request.requestId]);
+
+  // For regular inputs, check if we can proceed
+  const canProceed = !currentInput?.required || (currentInput?.name && values[currentInput.name]?.trim());
+
+  // Render confirmation dialog
+  if (isConfirmation && confirmationInput) {
+    return (
+      <Box
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.92)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          borderRadius: 'inherit',
+          padding: '16px',
+        }}
+      >
+        <Paper
+          p="lg"
+          radius="md"
+          style={{
+            backgroundColor: 'var(--mantine-color-dark-7)',
+            border: '1px solid var(--mantine-color-dark-4)',
+            maxWidth: 500,
+            width: '100%',
+          }}
+        >
+          <Stack gap="md">
+            {/* Header */}
+            <Group gap="sm">
+              <ThemeIcon size="lg" radius="md" color="yellow" variant="light">
+                <IconAlertCircle size={20} />
+              </ThemeIcon>
+              <div>
+                <Text fw={600} c="white" size="md">
+                  {confirmationInput.label}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {request.project}
+                </Text>
+              </div>
+            </Group>
+
+            {/* Description with markdown-like formatting */}
+            {confirmationInput.description && (
+              <Box
+                style={{
+                  backgroundColor: 'var(--mantine-color-dark-6)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  border: '1px solid var(--mantine-color-dark-4)',
+                }}
+              >
+                <Text
+                  size="sm"
+                  c="gray.3"
+                  style={{ whiteSpace: 'pre-wrap' }}
+                >
+                  {confirmationInput.description}
+                </Text>
+              </Box>
+            )}
+
+            {/* Confirm / Cancel buttons */}
+            <Group justify="flex-end" mt="sm">
+              <Button
+                variant="subtle"
+                color="gray"
+                size="sm"
+                leftSection={<IconX size={14} />}
+                onClick={handleDeny}
+              >
+                Cancel
+              </Button>
+              <Button
+                color="blue"
+                size="sm"
+                leftSection={<IconCheck size={14} />}
+                onClick={handleConfirm}
+              >
+                Confirm
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
+
+  // Render regular input dialog
   return (
     <Box
       style={{
@@ -100,7 +210,7 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
           </Group>
 
           {/* Current input field */}
-          {currentInput && (
+          {currentInput && currentInput.name && (
             <Stack gap="xs">
               <Text size="sm" fw={500} c="white">
                 {currentInput.label}
@@ -114,7 +224,7 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
               {currentInput.sensitive ? (
                 <PasswordInput
                   value={values[currentInput.name] || ''}
-                  onChange={(e) => handleValueChange(currentInput.name, e.target.value)}
+                  onChange={(e) => handleValueChange(currentInput.name!, e.target.value)}
                   placeholder={`Enter ${currentInput.label.toLowerCase()}`}
                   autoFocus
                   styles={{
@@ -128,7 +238,7 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
               ) : (
                 <TextInput
                   value={values[currentInput.name] || ''}
-                  onChange={(e) => handleValueChange(currentInput.name, e.target.value)}
+                  onChange={(e) => handleValueChange(currentInput.name!, e.target.value)}
                   placeholder={`Enter ${currentInput.label.toLowerCase()}`}
                   autoFocus
                   styles={{

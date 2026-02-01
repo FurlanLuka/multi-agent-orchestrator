@@ -784,20 +784,36 @@ ${task.task}
 
 ## Requesting User Input
 
-If you need credentials, API keys, environment variables, or any values that only the user can provide, use:
-\`mcp__orchestrator-planning__request_user_input\`
+Use \`mcp__orchestrator-planning__request_user_input\` for:
 
-Example:
+### 1. Collecting credentials/config (type: "input")
+When you need actual values from the user:
 \`\`\`json
 {
   "inputs": [
-    {"name": "GOOGLE_CLIENT_ID", "label": "Google OAuth Client ID", "description": "From Google Cloud Console", "required": true},
-    {"name": "GOOGLE_CLIENT_SECRET", "label": "Google OAuth Secret", "description": "From Google Cloud Console", "required": true, "sensitive": true}
+    {"type": "input", "name": "GOOGLE_CLIENT_ID", "label": "Google OAuth Client ID", "description": "From Google Cloud Console", "required": true},
+    {"type": "input", "name": "GOOGLE_CLIENT_SECRET", "label": "Google OAuth Secret", "description": "From Google Cloud Console", "required": true, "sensitive": true}
   ]
 }
 \`\`\`
+Returns: \`{"GOOGLE_CLIENT_ID": "...", "GOOGLE_CLIENT_SECRET": "..."}\`
 
-The tool blocks until the user provides values, then returns them as JSON.
+### 2. Confirmation dialogs (type: "confirmation")
+When you need user acknowledgment for manual steps (e.g., CI/CD secrets that must be added manually to GitHub):
+\`\`\`json
+{
+  "inputs": [
+    {
+      "type": "confirmation",
+      "label": "GitHub Secrets Required",
+      "description": "Please add these secrets to your GitHub repo Settings > Secrets:\\n\\n- **HETZNER_HOST**: Your server IP\\n- **HETZNER_USERNAME**: SSH username\\n- **HETZNER_SSH_KEY**: Private SSH key\\n\\nClick Confirm when done."
+    }
+  ]
+}
+\`\`\`
+Returns: \`{"confirmed": true}\` or \`{"confirmed": false}\`
+
+Use confirmation for CI/CD secrets because these must be added via GitHub UI - you cannot add them programmatically.
 
 ## Critical Rules
 

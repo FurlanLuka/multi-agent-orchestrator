@@ -92,11 +92,12 @@ export interface Session {
 
 // User input request (MCP tool: request_user_input)
 export interface UserInputField {
-  name: string;           // Variable name (e.g., GOOGLE_CLIENT_ID)
-  label: string;          // Display label
-  description?: string;   // Help text
-  sensitive?: boolean;    // If true, mask input
-  required?: boolean;     // If true, must provide value
+  type?: 'input' | 'confirmation';  // Type: "input" (default) for text fields, "confirmation" for yes/no dialogs
+  name?: string;          // Variable name (e.g., GOOGLE_CLIENT_ID) - required for type: "input"
+  label: string;          // Display label (input field label OR confirmation dialog title)
+  description?: string;   // Help text (input) OR detailed message (confirmation, supports markdown)
+  sensitive?: boolean;    // If true, mask input (only for type: "input")
+  required?: boolean;     // If true, must provide value (only for type: "input")
 }
 
 export interface UserInputRequest {

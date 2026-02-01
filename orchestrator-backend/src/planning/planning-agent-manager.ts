@@ -1021,6 +1021,10 @@ Each task MUST include:
    - Request/response body schemas
    - Status codes and error handling
 4. **For UIs:** component props, state, behavior, API endpoints called
+5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
+   - List ALL required secrets with their names and purposes
+   - Specify WHERE they need to be configured (e.g., .env file, GitHub Secrets, CI/CD)
+   - Example: \\"**Required Secrets (GitHub Actions):** HETZNER_HOST, HETZNER_USERNAME, HETZNER_SSH_KEY\\"
 
 ## RULES:
 

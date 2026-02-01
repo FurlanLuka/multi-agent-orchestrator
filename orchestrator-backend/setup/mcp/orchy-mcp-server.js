@@ -127,23 +127,28 @@ async function handleMessage(msg) {
         },
         {
           name: 'request_user_input',
-          description: 'Request input from user (credentials, env vars, config values). Blocks until user provides values. Use this when you need API keys, secrets, or configuration that only the user can provide.',
+          description: 'Request input from user OR show a confirmation dialog. Use for: (1) collecting credentials, API keys, env vars (type: "input"), or (2) informing user about manual steps needed and getting confirmation (type: "confirmation").',
           inputSchema: {
             type: 'object',
             properties: {
               inputs: {
                 type: 'array',
-                description: 'Array of inputs to request from the user',
+                description: 'Array of inputs to request OR a single confirmation dialog',
                 items: {
                   type: 'object',
                   properties: {
-                    name: { type: 'string', description: 'Variable name (e.g., GOOGLE_CLIENT_ID)' },
-                    label: { type: 'string', description: 'Display label for the input field' },
-                    description: { type: 'string', description: 'Help text explaining what this value is for' },
-                    sensitive: { type: 'boolean', description: 'If true, mask input (for passwords/secrets)' },
-                    required: { type: 'boolean', description: 'If true, user must provide a value' }
+                    type: {
+                      type: 'string',
+                      enum: ['input', 'confirmation'],
+                      description: 'Type of input: "input" for text fields (default), "confirmation" for yes/no dialog'
+                    },
+                    name: { type: 'string', description: 'Variable name for input type (e.g., GOOGLE_CLIENT_ID)' },
+                    label: { type: 'string', description: 'Display label for input field OR title for confirmation dialog' },
+                    description: { type: 'string', description: 'Help text for input OR detailed message for confirmation (supports markdown)' },
+                    sensitive: { type: 'boolean', description: 'If true, mask input (for passwords/secrets). Only for type: "input"' },
+                    required: { type: 'boolean', description: 'If true, user must provide a value. Only for type: "input"' }
                   },
-                  required: ['name', 'label']
+                  required: ['label']
                 }
               }
             },

@@ -342,7 +342,10 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Generate unique request ID
     const requestId = `input_${Date.now()}`;
 
-    console.log(`[UIServer] User input requested for ${project}: ${inputs.length} field(s)`);
+    // Check if this is a confirmation dialog (first input has type: "confirmation")
+    const isConfirmation = inputs.length > 0 && inputs[0].type === 'confirmation';
+
+    console.log(`[UIServer] User input requested for ${project}: ${isConfirmation ? 'confirmation dialog' : `${inputs.length} field(s)`}`);
 
     // Build the request object
     const request: UserInputRequest = {
@@ -362,10 +365,18 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Clean up
     pendingUserInputs.delete(requestId);
 
-    console.log(`[UIServer] User input response: ${Object.keys(response.values).length} value(s)`);
-
-    // Return values to MCP server (which returns to agent)
-    res.json(response.values);
+    // Return appropriate response format
+    if (isConfirmation) {
+      // For confirmation dialogs, return { confirmed: true/false }
+      // Frontend sends 'true' or 'false' as string in values['confirmed']
+      const confirmed = response.values['confirmed'] === 'true';
+      console.log(`[UIServer] Confirmation response: ${confirmed}`);
+      res.json({ confirmed });
+    } else {
+      // For regular inputs, return values object
+      console.log(`[UIServer] User input response: ${Object.keys(response.values).length} value(s)`);
+      res.json(response.values);
+    }
   });
 
   // Expose pendingUserInputs for socket handler
