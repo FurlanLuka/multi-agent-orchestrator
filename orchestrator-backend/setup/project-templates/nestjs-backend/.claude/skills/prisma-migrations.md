@@ -13,15 +13,22 @@ Config location: `prisma.config.ts`
 Database URL is configured in `prisma.config.ts`:
 
 ```typescript
+import 'dotenv/config';
 import { defineConfig } from 'prisma/config';
 
 export default defineConfig({
     schema: 'prisma/schema.prisma',
+    migrations: {
+        path: 'prisma/migrations',
+        seed: 'ts-node prisma/seed.ts',
+    },
     datasource: {
-        url: process.env.DATABASE_URL || 'file:./dev.db',
+        url: process.env.DATABASE_URL || 'file:./prisma/dev.db',
     },
 });
 ```
+
+**Note**: Prisma 7 uses driver adapters. The client is generated to `src/generated/prisma/` and accessed via `@database` alias.
 
 ## Add a New Model
 
@@ -127,9 +134,13 @@ model Profile {
 Edit `prisma/seed.ts`:
 
 ```typescript
-import { PrismaClient } from '@prisma/client';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaClient } from '../src/generated/prisma/client';
 
-const prisma = new PrismaClient();
+const adapter = new PrismaBetterSqlite3({
+    url: process.env.DATABASE_URL || 'file:./prisma/dev.db',
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
     const user = await prisma.user.upsert({
@@ -150,6 +161,8 @@ main()
     })
     .finally(() => prisma.$disconnect());
 ```
+
+**Note**: Seed script uses relative import since it runs with ts-node outside the NestJS build.
 
 Run seed:
 ```bash

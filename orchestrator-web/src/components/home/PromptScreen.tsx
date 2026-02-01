@@ -15,6 +15,7 @@ import type { WorkspaceConfig, ProjectConfig, SessionProjectConfig } from '@orch
 import { FormCard, GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
 import { ProjectSelectionPanel } from './ProjectSelectionPanel';
 import { BranchCheckModal } from './BranchCheckModal';
+import { SessionHistoryList } from './SessionHistoryList';
 
 interface BranchCheckResult {
   project: string;
@@ -42,6 +43,7 @@ interface PromptScreenProps {
   onCheckBranchStatus: (projects: string[]) => void;
   onCheckoutMainBranch: (projects: string[]) => void;
   onClearBranchCheck: () => void;
+  onSelectHistoricalSession?: (sessionId: string) => void;
 }
 
 export function PromptScreen({
@@ -57,6 +59,7 @@ export function PromptScreen({
   onCheckBranchStatus,
   onCheckoutMainBranch,
   onClearBranchCheck,
+  onSelectHistoricalSession,
 }: PromptScreenProps) {
   const [branchName, setBranchName] = useState('');
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
@@ -261,6 +264,14 @@ export function PromptScreen({
             />
           </Grid.Col>
         </Grid>
+
+        {/* Session history */}
+        {onSelectHistoricalSession && (
+          <SessionHistoryList
+            workspaceId={workspace.id}
+            onSelectSession={onSelectHistoricalSession}
+          />
+        )}
       </Stack>
 
       {/* Branch check modal */}

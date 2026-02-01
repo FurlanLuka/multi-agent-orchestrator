@@ -37,6 +37,7 @@ coverage/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+src/generated/
 
 # AIO Orchestrator
 .aio/

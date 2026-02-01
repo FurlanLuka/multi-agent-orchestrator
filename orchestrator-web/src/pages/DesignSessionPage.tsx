@@ -11,7 +11,6 @@ import {
   SimpleGrid,
   Alert,
   Loader,
-  Badge,
   Button,
 } from '@mantine/core';
 import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile } from '@tabler/icons-react';

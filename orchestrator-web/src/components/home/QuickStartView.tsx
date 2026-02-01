@@ -10,6 +10,7 @@ import {
   Group,
   ThemeIcon,
   Select,
+  Alert,
 } from '@mantine/core';
 import {
   IconRocket,
@@ -17,6 +18,7 @@ import {
   IconServer,
   IconStack2,
   IconPalette,
+  IconAlertCircle,
 } from '@tabler/icons-react';
 import type { SavedDesignFolder } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
@@ -26,6 +28,8 @@ type AppType = 'frontend' | 'backend' | 'fullstack';
 interface QuickStartViewProps {
   creatingProject: boolean;
   port?: number | null;
+  error?: string | null;
+  onClearError?: () => void;
   onBack: () => void;
   onStart: (appName: string, feature: string, selectedTemplates: string[], designName?: string) => void;
   onGoToDesigner?: () => void;
@@ -34,6 +38,8 @@ interface QuickStartViewProps {
 export function QuickStartView({
   creatingProject,
   port,
+  error,
+  onClearError,
   onBack,
   onStart,
   onGoToDesigner,
@@ -82,6 +88,28 @@ export function QuickStartView({
   const hasContent = editor ? editor.getText().trim().length > 0 : false;
   const isValid = appName.trim() && hasContent;
 
+  // Parse error message for user-friendly display
+  const getErrorMessage = (err: string) => {
+    if (err.includes('already exists')) {
+      return {
+        title: 'App name already taken',
+        message: `A project with this name already exists. Please choose a different name.`,
+      };
+    }
+    if (err.includes('npm install failed') || err.includes('ENOENT')) {
+      return {
+        title: 'Installation failed',
+        message: 'Failed to install dependencies. Please check your network connection and try again.',
+      };
+    }
+    return {
+      title: 'Failed to create app',
+      message: err,
+    };
+  };
+
+  const errorInfo = error ? getErrorMessage(error) : null;
+
   return (
     <Container size="sm" pt={60} pb="xl">
       <Stack gap="xl">
@@ -94,6 +122,19 @@ export function QuickStartView({
             Create a new app with projects, workspace, and start building
           </Text>
         </Stack>
+
+        {/* Error Alert */}
+        {errorInfo && (
+          <Alert
+            icon={<IconAlertCircle size={16} />}
+            title={errorInfo.title}
+            color="red"
+            withCloseButton
+            onClose={onClearError}
+          >
+            {errorInfo.message}
+          </Alert>
+        )}
 
         {/* Form Card */}
         <FormCard

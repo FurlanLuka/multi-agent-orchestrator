@@ -720,6 +720,7 @@ export interface PersistedSession {
   testStates: Record<string, PersistedTestState>;
   taskStates?: TaskState[];  // Task execution states
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
+  workspaceId?: string;  // Workspace that started this session
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   updatedAt: number;
   completedAt?: number;
@@ -742,6 +743,29 @@ export interface SessionSummary {
   updatedAt: number;
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   completedAt?: number;
+  workspaceId?: string;  // For filtering sessions by workspace
+}
+
+// Completion reason for session history display
+export type SessionCompletionReason =
+  | 'all_completed'   // All tasks and tests passed
+  | 'task_errors'     // Ended with failed tasks
+  | 'test_errors'     // Ended with failed E2E tests
+  | 'interrupted';    // User stopped or crashed
+
+// Extended summary for session history list
+export interface SessionHistoryEntry extends SessionSummary {
+  completionReason?: SessionCompletionReason;
+  taskSummary?: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
+  testSummary?: {
+    total: number;
+    passed: number;
+    failed: number;
+  };
 }
 
 export interface FullSessionData {

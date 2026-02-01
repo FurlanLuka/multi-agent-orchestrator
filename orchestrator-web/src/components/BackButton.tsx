@@ -3,7 +3,7 @@ import { IconArrowLeft } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 
 interface BackButtonProps {
-  to?: string;
+  to?: string | number;  // string path or -1 to go back
   onClick?: () => void;
 }
 
@@ -13,8 +13,12 @@ export function BackButton({ to, onClick }: BackButtonProps) {
   const handleClick = () => {
     if (onClick) {
       onClick();
-    } else if (to) {
-      navigate(to);
+    } else if (to !== undefined) {
+      if (typeof to === 'number') {
+        navigate(to);
+      } else {
+        navigate(to);
+      }
     } else {
       navigate(-1);
     }

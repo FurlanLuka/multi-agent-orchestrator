@@ -777,20 +777,21 @@ ${task.task}
 2. Call the \`mcp__orchestrator-permission__task_complete\` tool with:
    - \`summary\`: Brief description of what you implemented (files changed, key functions, etc.)
 3. Based on the response:
-   - \`next_task\`: Proceed to the next task provided
+   - \`next_task\`: Proceed to the next task provided in the response
    - \`fix_required\`: Fix the issues described in \`fixPrompt\`, then call \`mcp__orchestrator-permission__task_complete\` again
-   - \`all_complete\`: Session is done, all tasks verified successfully
-   - \`escalate\`: Stop working, user intervention is needed
+   - \`all_complete\`: Session is done - **STOP IMMEDIATELY**, do not do any more work
+   - \`escalate\`: **STOP IMMEDIATELY** - do not continue, do not try other tasks, user intervention is required
 
 ## Critical Rules
 
 1. **DO NOT skip calling mcp__orchestrator-permission__task_complete** - the orchestrator needs it to verify your work
 2. **DO NOT start the next task** until you receive a \`next_task\` response
-3. **DO NOT write tests** - testing is handled separately
-4. **DO NOT start dev servers** - the orchestrator manages dev servers
-5. **DO NOT use browser automation tools** to test your work
-6. Focus ONLY on implementing the feature code
-7. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
+3. **STOP IMMEDIATELY on \`all_complete\` or \`escalate\`** - do not continue working, do not attempt other tasks
+4. **DO NOT write tests** - testing is handled separately
+5. **DO NOT start dev servers** - the orchestrator manages dev servers
+6. **DO NOT use browser automation tools** to test your work
+7. Focus ONLY on implementing the feature code
+8. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
 
 ## Status Reporting
 

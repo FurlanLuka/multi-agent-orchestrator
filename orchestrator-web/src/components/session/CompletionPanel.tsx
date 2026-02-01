@@ -75,7 +75,10 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                 variant="light"
                 color="gray"
                 leftSection={<IconRefresh size={16} />}
-                onClick={onBackToHome}
+                onClick={() => {
+                  startNewSession();  // Clear session before navigating
+                  onBackToHome();
+                }}
               >
                 Back to Home
               </Button>

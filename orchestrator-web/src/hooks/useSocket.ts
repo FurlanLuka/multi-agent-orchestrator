@@ -101,6 +101,7 @@ export function useSocket() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [addingProject, setAddingProject] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
+  const [quickStartError, setQuickStartError] = useState<string | null>(null);
 
   // Workspaces
   const [workspaces, setWorkspaces] = useState<Record<string, WorkspaceConfig>>({});
@@ -623,6 +624,13 @@ export function useSocket() {
       console.error('Failed to create project:', error);
     });
 
+    socket.on('quickStartError', ({ error }: { error: string }) => {
+      setCreatingProject(false);
+      setStartingSession(false);
+      setQuickStartError(error);
+      console.error('Quick start failed:', error);
+    });
+
     socket.on('addProjectSuccess', () => {
       setAddingProject(false);
       // Auto-refresh projects list
@@ -1048,8 +1056,13 @@ export function useSocket() {
     if (socketRef.current) {
       setCreatingProject(true);
       setStartingSession(true);
+      setQuickStartError(null); // Clear any previous error
       socketRef.current.emit('quickStartSession', { appName, feature, templateNames, designName });
     }
+  }, []);
+
+  const clearQuickStartError = useCallback(() => {
+    setQuickStartError(null);
   }, []);
 
   const refreshProjects = useCallback(() => {
@@ -1496,6 +1509,7 @@ export function useSocket() {
     creatingProject,
     addingProject,
     startingSession,
+    quickStartError,
     activeSessionId,
     pushingBranch,
     pushResults,
@@ -1522,6 +1536,7 @@ export function useSocket() {
     clearFlows,
     createProjectFromTemplate,
     quickStartSession,
+    clearQuickStartError,
     addProject,
     removeProject,
     updateProject,

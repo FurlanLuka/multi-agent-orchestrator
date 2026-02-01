@@ -202,8 +202,21 @@ async function handleMessage(msg) {
     // Orchestrator determines the current task from its own state
     const result = await signalTaskComplete(summary);
 
+    // Parse result and add clear stop instructions for escalate/all_complete
+    let responseText = result;
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed.status === 'escalate') {
+        responseText = `STOP: ${JSON.stringify(parsed)}\n\n**You must stop working immediately.** The orchestrator has escalated this task. Do not continue to other tasks. Wait for user intervention.`;
+      } else if (parsed.status === 'all_complete') {
+        responseText = `COMPLETE: ${JSON.stringify(parsed)}\n\n**All tasks are done.** Stop working. Do not do any more work.`;
+      }
+    } catch {
+      // Not JSON, use as-is
+    }
+
     respond(id, {
-      content: [{ type: 'text', text: result }]
+      content: [{ type: 'text', text: responseText }]
     });
   }
   else if (method === 'tools/call' && params?.name === 'exploration_complete') {

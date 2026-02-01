@@ -5,10 +5,30 @@ description: Database CRUD operations, filtering, relations, and transactions. U
 
 # Prisma Queries
 
+## Setup
+
 Inject `PrismaService` in any service:
 
 ```typescript
+import { PrismaService } from '../shared/prisma/prisma.service';
+
 constructor(private prisma: PrismaService) {}
+```
+
+## Importing Types
+
+Use the `@database` alias for Prisma types:
+
+```typescript
+import { User, Post, Prisma } from '@database';
+
+// Type for create input
+type CreateUserInput = Prisma.UserCreateInput;
+
+// Type for query result
+async findUser(id: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id } });
+}
 ```
 
 ## Create

@@ -5,6 +5,10 @@ description: Create a new page with route and components. Use when user asks to 
 
 # Add Page
 
+## CRITICAL: No CSS Files
+
+Style using Mantine props and `style` prop only. Never create .css files unless absolutely necessary.
+
 ## Steps
 
 1. Create the page component in `src/pages/`

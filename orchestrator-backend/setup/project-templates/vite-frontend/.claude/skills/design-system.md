@@ -7,6 +7,22 @@ description: Create theme configuration and wrapped base components. Use when us
 
 Wrap Mantine components for consistency across the app.
 
+## CRITICAL: No CSS Files
+
+**Never create separate CSS files unless absolutely necessary.** All styling is done through:
+
+1. **Mantine props** - `mt="md"`, `c="dimmed"`, `size="lg"`, etc.
+2. **`style` prop** - Inline styles for custom overrides
+3. **Design system wrappers** - Pre-styled components in this folder
+
+```tsx
+// ✅ Good - Mantine props + style prop
+<Card p="lg" style={{ borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+
+// ❌ Bad - CSS file
+import './Card.css';  // NEVER DO THIS
+```
+
 ## Theme Configuration
 
 ```typescript
@@ -63,14 +79,21 @@ export function Button({ children, ...props }: Props) {
 ```tsx
 // src/design-system/components/Card.tsx
 import { Paper, PaperProps } from '@mantine/core';
+import { CSSProperties } from 'react';
 
 interface Props extends PaperProps {
   children: React.ReactNode;
+  elevated?: boolean;
 }
 
-export function Card({ children, ...props }: Props) {
+export function Card({ children, elevated, style, ...props }: Props) {
+  const cardStyle: CSSProperties = {
+    ...style,
+    ...(elevated && { boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }),
+  };
+
   return (
-    <Paper p="md" radius="md" withBorder {...props}>
+    <Paper p="md" radius="md" withBorder style={cardStyle} {...props}>
       {children}
     </Paper>
   );

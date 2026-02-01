@@ -10,6 +10,7 @@ import { AdHocPromptScreen } from './components/home/AdHocPromptScreen';
 import { QuickStartView } from './components/home/QuickStartView';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { SessionView } from './components/session/SessionView';
+import { HistoricalSessionView } from './components/session/HistoricalSessionView';
 import { ModeSelectionPage } from './pages/ModeSelectionPage';
 import { DesignSessionPage } from './pages/DesignSessionPage';
 import { DesignsLibraryPage } from './pages/DesignsLibraryPage';
@@ -28,9 +29,11 @@ function AppRoutes() {
     workspaces,
     creatingProject,
     startingSession,
+    quickStartError,
     startSession,
     createWorkspace,
     quickStartSession,
+    clearQuickStartError,
     recheckDependencies,
     branchCheckResult,
     checkingBranches,
@@ -171,6 +174,8 @@ function AppRoutes() {
             <BackButton to="/home" />
             <QuickStartView
               creatingProject={creatingProject || startingSession}
+              error={quickStartError}
+              onClearError={clearQuickStartError}
               onBack={() => navigate('/home')}
               onStart={(appName, feature, selectedTemplates, designName) => {
                 quickStartSession(appName, feature, selectedTemplates, designName);
@@ -205,6 +210,10 @@ function AppRoutes() {
       <Route
         path="/session"
         element={<SessionView onBackToHome={() => navigate('/home')} />}
+      />
+      <Route
+        path="/session/:sessionId/history"
+        element={<HistoricalSessionView />}
       />
     </Routes>
   );
@@ -268,6 +277,7 @@ function PromptScreenWrapper({
         onCheckBranchStatus={onCheckBranchStatus}
         onCheckoutMainBranch={onCheckoutMainBranch}
         onClearBranchCheck={onClearBranchCheck}
+        onSelectHistoricalSession={(sessionId) => navigate(`/session/${sessionId}/history`)}
       />
     </>
   );

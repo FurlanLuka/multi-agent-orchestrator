@@ -131,6 +131,32 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     }
   });
 
+  // Get session history for a workspace
+  app.get('/api/workspaces/:workspaceId/sessions', (req: Request, res: Response) => {
+    const { workspaceId } = req.params;
+    if (deps?.sessionManager) {
+      const sessions = deps.sessionManager.getSessionStore().listSessionsByWorkspace(workspaceId);
+      res.json(sessions);
+    } else {
+      res.json([]);
+    }
+  });
+
+  // Get full session data by ID (for historical session view)
+  app.get('/api/sessions/:sessionId', (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    if (deps?.sessionManager) {
+      const fullData = deps.sessionManager.getSessionStore().getFullSessionData(sessionId);
+      if (fullData) {
+        res.json(fullData);
+      } else {
+        res.status(404).json({ error: 'Session not found' });
+      }
+    } else {
+      res.status(500).json({ error: 'Session manager not available' });
+    }
+  });
+
   app.get('/api/approvals', (req: Request, res: Response) => {
     if (deps?.approvalQueue) {
       res.json({

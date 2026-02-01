@@ -12,6 +12,8 @@ import {
   PersistedSession,
   PersistedTestState,
   SessionSummary,
+  SessionHistoryEntry,
+  SessionCompletionReason,
   FullSessionData,
   TaskState,
   TaskDefinition,
@@ -88,7 +90,7 @@ export class SessionStore extends EventEmitter {
   /**
    * Creates a new session
    */
-  createSession(id: string, feature: string, projects: string[]): PersistedSession {
+  createSession(id: string, feature: string, projects: string[], workspaceId?: string): PersistedSession {
     const sessionPath = this.getSessionPath(id);
     const logsDir = this.getLogsDir(id);
 
@@ -105,6 +107,7 @@ export class SessionStore extends EventEmitter {
       statuses: {},
       testStates: {},
       taskStates: [],
+      workspaceId,
       status: 'planning',
       updatedAt: Date.now(),
     };
@@ -210,6 +213,7 @@ export class SessionStore extends EventEmitter {
           updatedAt: session.updatedAt,
           status: session.status,
           completedAt: session.completedAt,
+          workspaceId: session.workspaceId,
         });
       } catch (err) {
         console.warn(`[SessionStore] Failed to read session ${entry.name}:`, err);
@@ -616,6 +620,46 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
+   * Deletes all sessions associated with a workspace
+   */
+  deleteSessionsByWorkspace(workspaceId: string): { deleted: number; failed: number } {
+    const result = { deleted: 0, failed: 0 };
+
+    if (!fs.existsSync(this.sessionsDir)) {
+      return result;
+    }
+
+    const dirs = fs.readdirSync(this.sessionsDir, { withFileTypes: true });
+
+    for (const entry of dirs) {
+      if (!entry.isDirectory()) continue;
+
+      const sessionPath = this.getSessionJsonPath(entry.name);
+      if (!fs.existsSync(sessionPath)) continue;
+
+      try {
+        const data = fs.readFileSync(sessionPath, 'utf-8');
+        const session = JSON.parse(data) as PersistedSession;
+
+        // Only delete sessions belonging to this workspace
+        if (session.workspaceId !== workspaceId) continue;
+
+        if (this.deleteSession(entry.name)) {
+          result.deleted++;
+        } else {
+          result.failed++;
+        }
+      } catch (err) {
+        console.warn(`[SessionStore] Failed to check session ${entry.name}:`, err);
+        result.failed++;
+      }
+    }
+
+    console.log(`[SessionStore] Deleted ${result.deleted} sessions for workspace ${workspaceId}`);
+    return result;
+  }
+
+  /**
    * Checks if a session exists
    */
   sessionExists(sessionId: string): boolean {
@@ -633,6 +677,98 @@ export class SessionStore extends EventEmitter {
       projects: persisted.projects,
       plan: persisted.plan,
       gitBranches: persisted.gitBranches,
+      workspaceId: persisted.workspaceId,
     };
+  }
+
+  /**
+   * Gets the completion reason for a session
+   */
+  getCompletionReason(session: PersistedSession): SessionCompletionReason {
+    if (session.status === 'interrupted') return 'interrupted';
+
+    // Check for failed tasks
+    const failedTasks = session.taskStates?.filter(t => t.status === 'failed') || [];
+    if (failedTasks.length > 0) return 'task_errors';
+
+    // Check for failed E2E tests
+    const hasTestErrors = Object.values(session.testStates || {}).some(
+      ts => ts.scenarios.some(s => s.status === 'failed')
+    );
+    if (hasTestErrors) return 'test_errors';
+
+    return 'all_completed';
+  }
+
+  /**
+   * Lists sessions filtered by workspace with extended history data
+   */
+  listSessionsByWorkspace(workspaceId: string): SessionHistoryEntry[] {
+    const entries: SessionHistoryEntry[] = [];
+
+    if (!fs.existsSync(this.sessionsDir)) {
+      return entries;
+    }
+
+    const dirs = fs.readdirSync(this.sessionsDir, { withFileTypes: true });
+
+    for (const entry of dirs) {
+      if (!entry.isDirectory()) continue;
+
+      const sessionPath = this.getSessionJsonPath(entry.name);
+      if (!fs.existsSync(sessionPath)) continue;
+
+      try {
+        const data = fs.readFileSync(sessionPath, 'utf-8');
+        const session = JSON.parse(data) as PersistedSession;
+
+        // Filter by workspace
+        if (session.workspaceId !== workspaceId) continue;
+
+        // Calculate task summary
+        const taskStates = session.taskStates || [];
+        const taskSummary = {
+          total: taskStates.length,
+          completed: taskStates.filter(t => t.status === 'completed').length,
+          failed: taskStates.filter(t => t.status === 'failed').length,
+        };
+
+        // Calculate test summary
+        let testTotal = 0;
+        let testPassed = 0;
+        let testFailed = 0;
+        for (const ts of Object.values(session.testStates || {})) {
+          for (const scenario of ts.scenarios) {
+            testTotal++;
+            if (scenario.status === 'passed') testPassed++;
+            if (scenario.status === 'failed') testFailed++;
+          }
+        }
+        const testSummary = { total: testTotal, passed: testPassed, failed: testFailed };
+
+        entries.push({
+          id: session.id,
+          feature: session.feature,
+          projects: session.projects,
+          startedAt: session.startedAt,
+          updatedAt: session.updatedAt,
+          status: session.status,
+          completedAt: session.completedAt,
+          workspaceId: session.workspaceId,
+          completionReason: session.status === 'completed' || session.status === 'interrupted'
+            ? this.getCompletionReason(session)
+            : undefined,
+          taskSummary: taskSummary.total > 0 ? taskSummary : undefined,
+          testSummary: testSummary.total > 0 ? testSummary : undefined,
+        });
+      } catch (err) {
+        console.warn(`[SessionStore] Failed to read session ${entry.name}:`, err);
+      }
+    }
+
+    // Sort by most recent first
+    entries.sort((a, b) => b.updatedAt - a.updatedAt);
+
+    return entries;
   }
 }

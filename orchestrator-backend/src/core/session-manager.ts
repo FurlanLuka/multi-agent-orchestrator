@@ -28,17 +28,18 @@ export class SessionManager {
   /**
    * Creates a new orchestration session
    */
-  createSession(feature: string, projects: string[]): Session {
+  createSession(feature: string, projects: string[], workspaceId?: string): Session {
     const id = randomUUID().slice(0, 8);
     const session: Session = {
       id,
       startedAt: Date.now(),
       feature,
-      projects
+      projects,
+      workspaceId,
     };
 
-    // Persist to SessionStore
-    this.sessionStore.createSession(id, feature, projects);
+    // Persist to SessionStore (with workspaceId for history filtering)
+    this.sessionStore.createSession(id, feature, projects, workspaceId);
 
     // Create centralized session directories and install hooks in each project
     for (const projectName of projects) {
@@ -390,6 +391,13 @@ export class SessionManager {
    */
   deleteSession(sessionId: string): boolean {
     return this.sessionStore.deleteSession(sessionId);
+  }
+
+  /**
+   * Deletes all sessions associated with a workspace
+   */
+  deleteSessionsByWorkspace(workspaceId: string): { deleted: number; failed: number } {
+    return this.sessionStore.deleteSessionsByWorkspace(workspaceId);
   }
 
   /**

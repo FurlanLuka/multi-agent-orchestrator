@@ -1839,13 +1839,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Create session
-        const session = sessionManager.createSession(resolvedFeature, resolvedProjects);
-
-        // Store workspaceId on session
-        if (workspaceId) {
-          session.workspaceId = workspaceId;
-        }
+        // Create session (pass workspaceId for persistence)
+        const session = sessionManager.createSession(resolvedFeature, resolvedProjects, workspaceId);
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
@@ -2744,14 +2739,56 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     // Quick start with session: create projects, workspace, and start session in one go
     socket.on('quickStartSession', async ({ appName, feature, templateNames, designName }: { appName: string; feature: string; templateNames: string[]; designName?: string }) => {
-      try {
-        const targetPath = `~/orchy/${appName}`;
-        const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
-        const createdProjectNames: string[] = [];
+      const targetPath = `~/orchy/${appName}`;
+      const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+      const createdProjectNames: string[] = [];
+      let createdParentDir = false;
+      let createdWorkspaceId: string | null = null;
 
+      // Cleanup function to revert on failure
+      const cleanup = () => {
+        console.log('[Orchestrator] Quick start failed, cleaning up...');
+
+        // Remove created projects from project manager
+        for (const projectName of createdProjectNames) {
+          try {
+            projectManager.removeProject(projectName);
+            console.log(`[Orchestrator] Cleanup: removed project ${projectName}`);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        // Remove created workspace
+        if (createdWorkspaceId) {
+          try {
+            workspaceManager.deleteWorkspace(createdWorkspaceId);
+            console.log(`[Orchestrator] Cleanup: removed workspace ${createdWorkspaceId}`);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        // Remove the parent directory if we created it
+        if (createdParentDir && fs.existsSync(expandedTargetPath)) {
+          try {
+            fs.rmSync(expandedTargetPath, { recursive: true, force: true });
+            console.log(`[Orchestrator] Cleanup: removed directory ${expandedTargetPath}`);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        // Emit updated projects and workspaces after cleanup
+        socket.emit('projects', projectManager.getProjects());
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      };
+
+      try {
         // Create parent directory if it doesn't exist
         if (!fs.existsSync(expandedTargetPath)) {
           fs.mkdirSync(expandedTargetPath, { recursive: true });
+          createdParentDir = true;
         }
 
         // Create projects from selected templates
@@ -2795,14 +2832,14 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           name: appName,
           projects: createdProjectNames,
         });
+        createdWorkspaceId = workspace.id;
 
         // Emit updated projects and workspaces
         socket.emit('projects', projectManager.getProjects());
         socket.emit('workspaces', workspaceManager.getWorkspaces());
 
         // Now start the session with this workspace
-        const session = sessionManager.createSession(feature, createdProjectNames);
-        session.workspaceId = workspace.id;
+        const session = sessionManager.createSession(feature, createdProjectNames, workspace.id);
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
@@ -2875,6 +2912,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Quick start session failed:', error);
+        cleanup();
         socket.emit('quickStartError', { error });
       }
     });
@@ -2911,6 +2949,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     socket.on('deleteWorkspace', ({ id }: { id: string }) => {
       try {
+        // Delete all sessions associated with this workspace first
+        const sessionResult = sessionManager.deleteSessionsByWorkspace(id);
+        console.log(`[Orchestrator] Deleted ${sessionResult.deleted} sessions for workspace ${id}`);
+
         workspaceManager.deleteWorkspace(id);
         socket.emit('workspaces', workspaceManager.getWorkspaces());
       } catch (err) {
