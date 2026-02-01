@@ -1,14 +1,12 @@
 import { Container, Stack, Title, Text, SimpleGrid, Group, Badge } from '@mantine/core';
 import { IconSparkles, IconPalette, IconHammer } from '@tabler/icons-react';
 import { FormCard, GlassBar } from '../theme';
-import { FloatingSettingsButton } from '../components/home/FloatingSettingsButton';
 
 interface ModeSelectionPageProps {
   hasActiveSession: boolean;
   onSelectDesign: () => void;
   onSelectBuild: () => void;
   onResumeSession: () => void;
-  onSettings: () => void;
 }
 
 export function ModeSelectionPage({
@@ -16,7 +14,6 @@ export function ModeSelectionPage({
   onSelectDesign,
   onSelectBuild,
   onResumeSession,
-  onSettings,
 }: ModeSelectionPageProps) {
   return (
     <>
@@ -100,8 +97,6 @@ export function ModeSelectionPage({
           </SimpleGrid>
         </Stack>
       </Container>
-
-      <FloatingSettingsButton onClick={onSettings} />
     </>
   );
 }

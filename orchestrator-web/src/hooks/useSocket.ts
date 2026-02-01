@@ -29,6 +29,7 @@ import type {
   PermissionPrompt,
   PlanningQuestion,
   WorkspaceConfig,
+  WorkspaceProjectConfig,
   // Multi-stage planning types
   PlanningSessionState,
   StageApprovalRequest,
@@ -97,12 +98,13 @@ export function useSocket() {
   const [statuses, setStatuses] = useState<Record<string, ProjectState>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [allComplete, setAllComplete] = useState(false);
-  const [projects, setProjects] = useState<Record<string, ProjectConfig>>({});
   const [templates, setTemplates] = useState<ProjectTemplateConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
   const [addingProject, setAddingProject] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
   const [quickStartError, setQuickStartError] = useState<string | null>(null);
+  const [createProjectError, setCreateProjectError] = useState<string | null>(null);
+  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null);
 
   // Workspaces
   const [workspaces, setWorkspaces] = useState<Record<string, WorkspaceConfig>>({});
@@ -604,25 +606,22 @@ export function useSocket() {
     // Workspace events
     socket.on('workspaces', (w: Record<string, WorkspaceConfig>) => {
       setWorkspaces(w);
+      setAddingProject(false); // Reset loading state when workspaces are updated
     });
 
-    // Project management events
-    socket.on('projects', (p: Record<string, ProjectConfig>) => {
-      setProjects(p);
-    });
-
+    // Template events
     socket.on('templates', (t: ProjectTemplateConfig[]) => {
       setTemplates(t);
     });
 
     socket.on('createFromTemplateSuccess', () => {
       setCreatingProject(false);
-      // Auto-refresh projects list
-      socket.emit('getProjects');
+      setCreateProjectError(null);
     });
 
     socket.on('createFromTemplateError', ({ error }: { error: string }) => {
       setCreatingProject(false);
+      setCreateProjectError(error);
       console.error('Failed to create project:', error);
     });
 
@@ -633,33 +632,9 @@ export function useSocket() {
       console.error('Quick start failed:', error);
     });
 
-    socket.on('addProjectSuccess', () => {
-      setAddingProject(false);
-      // Auto-refresh projects list
-      socket.emit('getProjects');
-    });
-
-    socket.on('addProjectError', ({ error }: { error: string }) => {
-      setAddingProject(false);
-      console.error('Failed to add project:', error);
-    });
-
-    socket.on('removeProjectSuccess', () => {
-      // Auto-refresh projects list
-      socket.emit('getProjects');
-    });
-
-    socket.on('removeProjectError', ({ error }: { error: string }) => {
-      console.error('Failed to remove project:', error);
-    });
-
-    socket.on('updateProjectSuccess', () => {
-      // Auto-refresh projects list
-      socket.emit('getProjects');
-    });
-
-    socket.on('updateProjectError', ({ error }: { error: string }) => {
-      console.error('Failed to update project:', error);
+    socket.on('workspaceFromTemplateCreated', ({ workspaceId }: { workspaceId: string }) => {
+      setCreatingProject(false);
+      setCreatedWorkspaceId(workspaceId);
     });
 
     // Session auto-reconnect: restore active session when browser reconnects
@@ -960,7 +935,6 @@ export function useSocket() {
     });
 
     // Request initial data
-    socket.emit('getProjects');
     socket.emit('getTemplates');
     socket.emit('getWorkspaces');
 
@@ -1059,6 +1033,32 @@ export function useSocket() {
     }
   }, []);
 
+  // Create project from template and add to existing workspace
+  const createProjectFromTemplateForWorkspace = useCallback((
+    workspaceId: string,
+    options: CreateProjectOptions
+  ) => {
+    console.log('[useSocket] createProjectFromTemplateForWorkspace called:', { workspaceId, options });
+    if (socketRef.current) {
+      setCreatingProject(true);
+      setCreateProjectError(null); // Clear any previous error
+      console.log('[useSocket] Emitting createProjectFromTemplateForWorkspace');
+      socketRef.current.emit('createProjectFromTemplateForWorkspace', {
+        workspaceId,
+        name: options.name,
+        targetPath: options.targetPath,
+        template: options.template,
+        permissions: options.permissions,
+      });
+    } else {
+      console.error('[useSocket] Socket not connected!');
+    }
+  }, []);
+
+  const clearCreateProjectError = useCallback(() => {
+    setCreateProjectError(null);
+  }, []);
+
   // Quick start with session: create projects from templates, workspace, and start session
   const quickStartSession = useCallback((appName: string, feature: string, templateNames: string[], designName?: string) => {
     if (socketRef.current) {
@@ -1073,19 +1073,28 @@ export function useSocket() {
     setQuickStartError(null);
   }, []);
 
-  const refreshProjects = useCallback(() => {
+  // Create workspace from templates (without starting a session)
+  const createWorkspaceFromTemplate = useCallback((appName: string, templateNames: string[], context?: string, designName?: string) => {
     if (socketRef.current) {
-      socketRef.current.emit('getProjects');
+      setCreatingProject(true);
+      setQuickStartError(null);
+      setCreatedWorkspaceId(null);
+      socketRef.current.emit('createWorkspaceFromTemplate', { appName, templateNames, context, designName });
     }
   }, []);
 
-  const createWorkspace = useCallback((name: string, projects: string[], context?: string) => {
+  // Clear created workspace ID (for navigation handling)
+  const clearCreatedWorkspaceId = useCallback(() => {
+    setCreatedWorkspaceId(null);
+  }, []);
+
+  const createWorkspace = useCallback((name: string, projects: WorkspaceProjectConfig[], context?: string) => {
     if (socketRef.current) {
       socketRef.current.emit('createWorkspace', { name, projects, context });
     }
   }, []);
 
-  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: string[]; context?: string }) => {
+  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string }) => {
     if (socketRef.current) {
       socketRef.current.emit('updateWorkspace', { id, updates });
     }
@@ -1097,47 +1106,23 @@ export function useSocket() {
     }
   }, []);
 
-  interface AddProjectOptions {
-    name: string;
-    path: string;
-    devServerEnabled?: boolean;
-    devServer?: {
-      command: string;
-      readyPattern: string;
-      env?: Record<string, string>;
-      port?: number;
-      url?: string;
-    };
-    buildEnabled?: boolean;
-    buildCommand?: string;
-    installEnabled?: boolean;
-    installCommand?: string;
-    hasE2E?: boolean;
-    e2eInstructions?: string;
-    gitEnabled?: boolean;
-    mainBranch?: string;
-    permissions?: {
-      dangerouslyAllowAll?: boolean;
-      allow: string[];
-    };
-  }
-
-  const addProject = useCallback((options: AddProjectOptions) => {
+  // Workspace project CRUD operations
+  const addProjectToWorkspace = useCallback((workspaceId: string, project: WorkspaceProjectConfig) => {
     if (socketRef.current) {
       setAddingProject(true);
-      socketRef.current.emit('addProject', options);
+      socketRef.current.emit('addProjectToWorkspace', { workspaceId, project });
     }
   }, []);
 
-  const removeProject = useCallback((name: string) => {
+  const updateWorkspaceProject = useCallback((workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => {
     if (socketRef.current) {
-      socketRef.current.emit('removeProject', { name });
+      socketRef.current.emit('updateWorkspaceProject', { workspaceId, projectName, updates });
     }
   }, []);
 
-  const updateProject = useCallback((name: string, updates: Partial<ProjectConfig>) => {
+  const removeProjectFromWorkspace = useCallback((workspaceId: string, projectName: string) => {
     if (socketRef.current) {
-      socketRef.current.emit('updateProject', { name, updates });
+      socketRef.current.emit('removeProjectFromWorkspace', { workspaceId, projectName });
     }
   }, []);
 
@@ -1527,7 +1512,6 @@ export function useSocket() {
     activeFlows,
     completedFlows,
     allComplete,
-    projects,
     templates,
     workspaces,
     creatingProject,
@@ -1560,12 +1544,14 @@ export function useSocket() {
     clearStreamingMessages,
     clearFlows,
     createProjectFromTemplate,
+    createProjectFromTemplateForWorkspace,
     quickStartSession,
+    createWorkspaceFromTemplate,
+    createdWorkspaceId,
+    clearCreatedWorkspaceId,
     clearQuickStartError,
-    addProject,
-    removeProject,
-    updateProject,
-    refreshProjects,
+    createProjectError,
+    clearCreateProjectError,
     clearSession,
     stopSession,
     startNewSession,
@@ -1590,6 +1576,9 @@ export function useSocket() {
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,
+    addProjectToWorkspace,
+    updateWorkspaceProject,
+    removeProjectFromWorkspace,
     // Design session state
     designSessionId,
     designPhase,

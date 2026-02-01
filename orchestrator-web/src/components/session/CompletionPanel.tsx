@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Stack,
   Group,
@@ -19,6 +19,7 @@ import {
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { GlassCard, GlassSelect } from '../../theme';
+import type { ProjectConfig } from '@orchy/types';
 
 interface CompletionPanelProps {
   onBackToHome?: () => void;
@@ -27,7 +28,7 @@ interface CompletionPanelProps {
 export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   const {
     session,
-    projects,
+    workspaces,
     dependencyCheck,
     startNewSession,
     stopSession,
@@ -45,6 +46,19 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
     loadingBranches,
     getBranches,
   } = useOrchestrator();
+
+  // Derive project configs from workspace
+  const projectConfigs = useMemo(() => {
+    const configs: Record<string, ProjectConfig> = {};
+    if (session?.workspaceId && workspaces[session.workspaceId]) {
+      const workspace = workspaces[session.workspaceId];
+      for (const proj of workspace.projects) {
+        const { name, ...config } = proj;
+        configs[name] = config;
+      }
+    }
+    return configs;
+  }, [session?.workspaceId, workspaces]);
 
   // Selected base branch for PR creation per project
   const [prBaseBranch, setPrBaseBranch] = useState<Record<string, string>>({});
@@ -111,7 +125,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               const pushResult = pushResults[projectName];
               const isMerging = mergingBranch[projectName];
               const mergeResult = mergeResults[projectName];
-              const mainBranch = projects[projectName]?.mainBranch || 'main';
+              const mainBranch = projectConfigs[projectName]?.mainBranch || 'main';
               const ghInfo = gitHubInfo[projectName];
               const isGitHubProject = ghInfo?.isGitHub && dependencyCheck?.gh?.available;
               const isCreating = creatingPR[projectName];
@@ -244,7 +258,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
       )}
 
       {/* Card 3: Dev Servers */}
-      {session?.projects.some(p => projects[p]?.devServer?.url) && (
+      {session?.projects.some(p => projectConfigs[p]?.devServer?.url) && (
         <GlassCard p="md">
           <Stack gap="md">
             <Group gap="xs">
@@ -256,7 +270,7 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
 
             <Group gap="sm" align="center" wrap="wrap">
               {session?.projects.map(projectName => {
-                const config = projects[projectName];
+                const config = projectConfigs[projectName];
                 if (!config?.devServer?.url) return null;
                 return (
                   <Button

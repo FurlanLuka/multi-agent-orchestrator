@@ -4,7 +4,7 @@ import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
 import { LogAggregator } from './log-aggregator';
-import { ProjectManager } from './project-manager';
+import { TemplateManager } from './template-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 import { GitManager } from './git-manager';
 import { SessionLogger } from './session-logger';
@@ -17,7 +17,7 @@ export interface TaskExecutorConfig {
   statusMonitor: StatusMonitor;
   stateMachine: StateMachine;
   logAggregator: LogAggregator;
-  projectManager: ProjectManager;
+  templateManager: TemplateManager;
   planningAgent: PlanningAgentManager;
   config: Config;
   getSessionDir: (project: string) => string | null;
@@ -39,7 +39,7 @@ export class TaskExecutor extends EventEmitter {
   private statusMonitor: StatusMonitor;
   private stateMachine: StateMachine;
   private logAggregator: LogAggregator;
-  private projectManager: ProjectManager;
+  private templateManager: TemplateManager;
   private planningAgent: PlanningAgentManager;
   private config: Config;
   private getSessionDir: (project: string) => string | null;
@@ -91,7 +91,7 @@ export class TaskExecutor extends EventEmitter {
     this.statusMonitor = deps.statusMonitor;
     this.stateMachine = deps.stateMachine;
     this.logAggregator = deps.logAggregator;
-    this.projectManager = deps.projectManager;
+    this.templateManager = deps.templateManager;
     this.planningAgent = deps.planningAgent;
     this.config = deps.config;
     this.getSessionDir = deps.getSessionDir;

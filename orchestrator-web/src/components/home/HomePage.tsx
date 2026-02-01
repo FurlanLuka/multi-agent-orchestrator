@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Container,
   Stack,
@@ -6,23 +7,23 @@ import {
   Text,
   Button,
   Badge,
+  Group,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
-import { IconSparkles } from '@tabler/icons-react';
+import { IconSparkles, IconEdit, IconCheck } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@orchy/types';
 import { GlassBar } from '../../theme';
 import { WorkspaceCard } from './WorkspaceCard';
 import { AddWorkspaceCard } from './AddWorkspaceCard';
-import { FloatingSettingsButton } from './FloatingSettingsButton';
 
 interface HomePageProps {
   workspaces: Record<string, WorkspaceConfig>;
   hasActiveSession: boolean;
   onSelectWorkspace: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
-  onSettings: () => void;
   onResumeSession: () => void;
-  onStartWithoutWorkspace: () => void;
-  onQuickStart: () => void;
+  onDeleteWorkspace: (workspaceId: string) => void;
 }
 
 export function HomePage({
@@ -30,11 +31,10 @@ export function HomePage({
   hasActiveSession,
   onSelectWorkspace,
   onCreateWorkspace,
-  onSettings,
   onResumeSession,
-  onStartWithoutWorkspace,
-  onQuickStart,
+  onDeleteWorkspace,
 }: HomePageProps) {
+  const [isEditMode, setIsEditMode] = useState(false);
   const workspaceList = Object.values(workspaces);
 
   return (
@@ -58,11 +58,25 @@ export function HomePage({
       <Container size="sm" py={hasActiveSession ? 80 : 60}>
         <Stack align="center" gap="xl">
           <Stack align="center" gap={4}>
-            <Title order={1} ta="center" style={{ letterSpacing: '-.02em' }}>
-              Orchy
-            </Title>
+            <Group gap="xs" align="center">
+              <Title order={1} ta="center" style={{ letterSpacing: '-.02em' }}>
+                Workspaces
+              </Title>
+              {workspaceList.length > 0 && (
+                <Tooltip label={isEditMode ? 'Done editing' : 'Edit workspaces'}>
+                  <ActionIcon
+                    variant={isEditMode ? 'filled' : 'subtle'}
+                    color={isEditMode ? 'peach' : 'gray'}
+                    size="md"
+                    onClick={() => setIsEditMode(!isEditMode)}
+                  >
+                    {isEditMode ? <IconCheck size={18} /> : <IconEdit size={18} />}
+                  </ActionIcon>
+                </Tooltip>
+              )}
+            </Group>
             <Text c="dimmed" size="sm" ta="center">
-              Select a workspace to start building
+              {isEditMode ? 'Click the trash icon to delete a workspace' : 'Select a workspace to start building'}
             </Text>
           </Stack>
 
@@ -75,37 +89,15 @@ export function HomePage({
               <WorkspaceCard
                 key={ws.id}
                 workspace={ws}
+                isEditMode={isEditMode}
                 onClick={() => onSelectWorkspace(ws.id)}
+                onDelete={() => onDeleteWorkspace(ws.id)}
               />
             ))}
-            <AddWorkspaceCard onClick={onCreateWorkspace} />
+            {!isEditMode && <AddWorkspaceCard onClick={onCreateWorkspace} />}
           </SimpleGrid>
-
-          <Text c="dimmed" size="sm" ta="center">
-            <Text
-              span
-              c="peach.6"
-              fw={500}
-              style={{ cursor: 'pointer' }}
-              onClick={onQuickStart}
-            >
-              Quick start a new app
-            </Text>
-            {' or '}
-            <Text
-              span
-              c="peach.6"
-              fw={500}
-              style={{ cursor: 'pointer' }}
-              onClick={onStartWithoutWorkspace}
-            >
-              start without workspace
-            </Text>
-          </Text>
         </Stack>
       </Container>
-
-      <FloatingSettingsButton onClick={onSettings} />
     </>
   );
 }

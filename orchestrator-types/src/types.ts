@@ -51,11 +51,16 @@ export interface SessionProjectConfig {
   readOnly?: boolean;         // Explore but don't plan work
 }
 
+// Project config with name for inline storage in workspaces
+export interface WorkspaceProjectConfig extends ProjectConfig {
+  name: string;
+}
+
 // Workspace configuration (stored in workspaces.json)
 export interface WorkspaceConfig {
   id: string;              // slug, e.g. "blog"
   name: string;            // "Blog"
-  projects: string[];      // project name references
+  projects: WorkspaceProjectConfig[];  // inline project configs
   context?: string;        // planning context/rules (markdown)
   createdAt: number;
   updatedAt: number;

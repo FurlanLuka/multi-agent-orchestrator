@@ -118,6 +118,8 @@ interface AddProjectModalProps {
   gitAvailable: boolean;
   port: number;
   permissionsConfig: PermissionsConfig | null;
+  createProjectError?: string | null;
+  onClearCreateProjectError?: () => void;
   onCreateProject: (options: CreateProjectOptions) => void;
   onAddProject: (options: AddProjectOptions) => void;
 }
@@ -132,6 +134,8 @@ export function AddProjectModal({
   gitAvailable,
   port,
   permissionsConfig,
+  createProjectError,
+  onClearCreateProjectError,
   onCreateProject,
   onAddProject,
 }: AddProjectModalProps) {
@@ -190,10 +194,10 @@ export function AddProjectModal({
     },
   });
 
-  // Track when creation completes
+  // Track when creation completes - only close modal on success (no error)
   const prevIsLoadingRef = useRef(isLoading);
   useEffect(() => {
-    if (prevIsLoadingRef.current && !isLoading && creatingName) {
+    if (prevIsLoadingRef.current && !isLoading && creatingName && !createProjectError) {
       setCreatingName(null);
       addForm.reset();
       templateForm.reset();
@@ -201,13 +205,21 @@ export function AddProjectModal({
     }
     prevIsLoadingRef.current = isLoading;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, creatingName]);
+  }, [isLoading, creatingName, createProjectError]);
+
+  // Clear error when modal is closed
+  const handleClose = () => {
+    onClearCreateProjectError?.();
+    setCreatingName(null);
+    onClose();
+  };
 
   const handleCreateFromTemplate = () => {
     const validation = templateForm.validate();
     if (!validation.hasErrors) {
       const values = templateForm.values;
       setCreatingName(values.name.trim());
+      onClearCreateProjectError?.();
 
       onCreateProject({
         name: values.name.trim(),
@@ -226,6 +238,7 @@ export function AddProjectModal({
     if (!validation.hasErrors) {
       const values = addForm.values;
       setCreatingName(values.name.trim());
+      onClearCreateProjectError?.();
       onAddProject({
         name: values.name.trim(),
         path: values.path.trim(),
@@ -261,7 +274,7 @@ export function AddProjectModal({
 
   const footerContent = formMode === 'existing' ? (
     <Group justify="flex-end">
-      <Button variant="subtle" onClick={onClose}>
+      <Button variant="subtle" onClick={handleClose}>
         Cancel
       </Button>
       <Button
@@ -275,7 +288,7 @@ export function AddProjectModal({
     </Group>
   ) : (
     <Group justify="flex-end">
-      <Button variant="subtle" onClick={onClose}>
+      <Button variant="subtle" onClick={handleClose}>
         Cancel
       </Button>
       <Button
@@ -290,8 +303,15 @@ export function AddProjectModal({
   );
 
   return (
-    <StyledModal opened={opened} onClose={onClose} title="Add Project" size="lg" footer={footerContent}>
+    <StyledModal opened={opened} onClose={handleClose} title="Add Project" size="lg" footer={footerContent}>
       <Stack gap="md">
+        {/* Error alert */}
+        {createProjectError && (
+          <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light" radius="md">
+            {createProjectError}
+          </Alert>
+        )}
+
         {/* Loading indicator */}
         {isLoading && creatingName && (
           <Card padding="sm" withBorder bg="blue.0">

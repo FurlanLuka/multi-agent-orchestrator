@@ -9,13 +9,41 @@ import {
   Group,
   Loader,
   Grid,
+  Badge,
+  Tooltip,
 } from '@mantine/core';
-import { IconRocket, IconGitBranch, IconSettings } from '@tabler/icons-react';
-import type { WorkspaceConfig, ProjectConfig, SessionProjectConfig } from '@orchy/types';
-import { FormCard, GlassTextInput, GlassRichTextEditor, useGlassEditor } from '../../theme';
+import { useDisclosure } from '@mantine/hooks';
+import {
+  IconRocket,
+  IconGitBranch,
+  IconPlus,
+  IconEdit,
+  IconTrash,
+  IconCheck,
+} from '@tabler/icons-react';
+import type {
+  WorkspaceConfig,
+  ProjectConfig,
+  SessionProjectConfig,
+  WorkspaceProjectConfig,
+  ProjectTemplateConfig,
+  ProjectTemplate,
+} from '@orchy/types';
+import {
+  FormCard,
+  GlassTextInput,
+  GlassRichTextEditor,
+  GlassTextarea,
+  useGlassEditor,
+  GlassCard,
+} from '../../theme';
 import { ProjectSelectionPanel } from './ProjectSelectionPanel';
 import { BranchCheckModal } from './BranchCheckModal';
 import { SessionHistoryList } from './SessionHistoryList';
+import { AddProjectModal } from '../AddProjectModal';
+import type { AddProjectOptions, CreateProjectOptions } from '../AddProjectModal';
+import { EditProjectModal } from '../EditProjectModal';
+import type { PermissionsConfig } from '../CollapsiblePermissions';
 
 interface BranchCheckResult {
   project: string;
@@ -29,11 +57,17 @@ interface BranchCheckResult {
 
 interface PromptScreenProps {
   workspace: WorkspaceConfig;
-  projectConfigs: Record<string, ProjectConfig>;
+  projectConfigs: Record<string, ProjectConfig>;  // Global projects (for templates)
+  templates: ProjectTemplateConfig[];
   startingSession: boolean;
   branchCheckResult: BranchCheckResult[] | null;
   checkingBranches: boolean;
   checkoutingBranches: boolean;
+  addingProject: boolean;
+  creatingProject: boolean;
+  gitAvailable: boolean;
+  port: number | null;
+  forceEditMode?: boolean;  // Force edit mode (e.g., for empty workspaces)
   onBack: () => void;
   onStart: (
     feature: string,
@@ -41,30 +75,68 @@ interface PromptScreenProps {
     branchName?: string,
     sessionProjectConfigs?: SessionProjectConfig[]
   ) => void;
-  onEditWorkspace: () => void;
   onCheckBranchStatus: (projects: string[]) => void;
   onCheckoutMainBranch: (projects: string[], stashFirst?: boolean) => void;
   onClearBranchCheck: () => void;
   onSelectHistoricalSession?: (sessionId: string) => void;
+  // Workspace project CRUD
+  onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
+  onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
+  onRemoveProjectFromWorkspace: (workspaceId: string, projectName: string) => void;
+  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string }) => void;
+  onCreateProjectFromTemplate: (options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
+  createProjectError?: string | null;
+  onClearCreateProjectError?: () => void;
 }
 
 export function PromptScreen({
   workspace,
-  projectConfigs,
+  projectConfigs: _globalProjectConfigs,
+  templates,
   startingSession,
   branchCheckResult,
   checkingBranches,
   checkoutingBranches,
+  addingProject,
+  creatingProject,
+  gitAvailable,
+  port,
+  forceEditMode = false,
   onBack,
   onStart,
-  onEditWorkspace,
   onCheckBranchStatus,
   onCheckoutMainBranch,
   onClearBranchCheck,
   onSelectHistoricalSession,
+  onAddProjectToWorkspace,
+  onUpdateWorkspaceProject,
+  onRemoveProjectFromWorkspace,
+  onUpdateWorkspace,
+  onCreateProjectFromTemplate,
+  createProjectError,
+  onClearCreateProjectError,
 }: PromptScreenProps) {
   const [branchName, setBranchName] = useState('');
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
+  // Check if workspace has projects (used to prevent exiting edit mode when empty)
+  const hasProjects = workspace.projects.length > 0;
+
+  // Start in edit mode if forceEditMode is true (empty workspace)
+  const [isEditMode, setIsEditMode] = useState(forceEditMode || !hasProjects);
+
+  // Force edit mode if workspace becomes empty (all projects removed)
+  useEffect(() => {
+    if (!hasProjects && !isEditMode) {
+      setIsEditMode(true);
+    }
+  }, [hasProjects, isEditMode]);
+  const [editingProject, setEditingProject] = useState<string | null>(null);
+  const [contextValue, setContextValue] = useState(workspace.context || '');
+  const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
+
+  // Modal states
+  const [addModalOpened, { open: openAddModal, close: closeAddModal }] = useDisclosure(false);
+  const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
 
   // Store pending start params while showing branch check modal
   const [pendingStartParams, setPendingStartParams] = useState<{
@@ -78,18 +150,42 @@ export function PromptScreen({
     placeholder: 'Describe what to build...',
   });
 
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+
+  // Fetch permissions config
+  useEffect(() => {
+    if (effectivePort === null) return;
+
+    fetch(`http://localhost:${effectivePort}/api/permissions`)
+      .then(res => res.json())
+      .then(data => setPermissionsConfig(data))
+      .catch(err => console.error('Failed to fetch permissions config:', err));
+  }, [effectivePort]);
+
+  // Build project configs from workspace inline projects
+  const workspaceProjectConfigs: Record<string, ProjectConfig> = {};
+  for (const project of workspace.projects) {
+    const { name, ...config } = project;
+    workspaceProjectConfigs[name] = config;
+  }
+
   // Initialize session project configs when workspace changes
   useEffect(() => {
-    const configs = workspace.projects.map(name => ({
-      name,
+    const configs = workspace.projects.map(p => ({
+      name: p.name,
       included: true,
       readOnly: false,
     }));
     setSessionProjectConfigs(configs);
-  }, [workspace.projects, projectConfigs]);
+  }, [workspace.projects]);
+
+  // Sync context when workspace changes
+  useEffect(() => {
+    setContextValue(workspace.context || '');
+  }, [workspace.context]);
 
   const hasGitEnabledProject = workspace.projects.some(
-    p => projectConfigs[p]?.gitEnabled
+    p => p.gitEnabled
   );
 
   const hasContent = editor ? editor.getText().trim().length > 0 : false;
@@ -97,9 +193,9 @@ export function PromptScreen({
   // Get list of included git-enabled projects
   const getIncludedGitProjects = useCallback(() => {
     return sessionProjectConfigs
-      .filter(c => c.included && projectConfigs[c.name]?.gitEnabled)
+      .filter(c => c.included && workspaceProjectConfigs[c.name]?.gitEnabled)
       .map(c => c.name);
-  }, [sessionProjectConfigs, projectConfigs]);
+  }, [sessionProjectConfigs, workspaceProjectConfigs]);
 
   const handleStart = () => {
     const text = editor?.getText().trim();
@@ -194,6 +290,229 @@ export function PromptScreen({
   const showBranchModal = branchCheckResult !== null && pendingStartParams !== null &&
     branchCheckResult.some(r => r.gitEnabled && !r.isOnMainBranch && r.currentBranch);
 
+  // Edit mode handlers
+  const handleToggleEditMode = () => {
+    if (isEditMode) {
+      // Can't exit edit mode if workspace has no projects
+      if (!hasProjects) {
+        return;
+      }
+      // Exiting edit mode - save context if changed
+      if (contextValue !== workspace.context) {
+        onUpdateWorkspace(workspace.id, { context: contextValue });
+      }
+    }
+    setIsEditMode(!isEditMode);
+  };
+
+  const handleEditProject = (projectName: string) => {
+    setEditingProject(projectName);
+    openEditModal();
+  };
+
+  const handleCloseEditModal = () => {
+    closeEditModal();
+    setEditingProject(null);
+  };
+
+  const handleSaveProject = (projectName: string, updates: Partial<ProjectConfig>) => {
+    onUpdateWorkspaceProject(workspace.id, projectName, updates);
+    handleCloseEditModal();
+  };
+
+  const handleDeleteProject = (projectName: string) => {
+    onRemoveProjectFromWorkspace(workspace.id, projectName);
+  };
+
+  const handleAddProject = (options: AddProjectOptions) => {
+    const project: WorkspaceProjectConfig = {
+      name: options.name,
+      path: options.path,
+      devServerEnabled: options.devServerEnabled,
+      devServer: options.devServer ? {
+        command: options.devServer.command,
+        readyPattern: options.devServer.readyPattern,
+        env: options.devServer.env || {},
+        url: options.devServer.url,
+      } : undefined,
+      buildEnabled: options.buildEnabled,
+      buildCommand: options.buildCommand,
+      installEnabled: options.installEnabled,
+      installCommand: options.installCommand,
+      setupCommand: options.setupCommand,
+      hasE2E: options.hasE2E || false,
+      e2eInstructions: options.e2eInstructions,
+      dependsOn: options.dependsOn,
+      gitEnabled: options.gitEnabled,
+      mainBranch: options.mainBranch,
+      permissions: options.permissions,
+    };
+    onAddProjectToWorkspace(workspace.id, project);
+    closeAddModal();
+  };
+
+  // Create project from template and add to workspace
+  const handleCreateProject = (options: CreateProjectOptions) => {
+    onCreateProjectFromTemplate({
+      name: options.name,
+      targetPath: options.targetPath,
+      template: options.template,
+      permissions: options.permissions,
+    });
+  };
+
+  // Edit mode view
+  if (isEditMode) {
+    return (
+      <Container size="xl" pt={60} pb="xl">
+        <Stack gap="xl">
+          {/* Header */}
+          <Stack gap={4}>
+            <Group justify="space-between" align="center">
+              <Title order={2} style={{ letterSpacing: '-.02em' }}>
+                {workspace.name}
+              </Title>
+              <Button
+                leftSection={<IconCheck size={16} />}
+                onClick={handleToggleEditMode}
+                disabled={!hasProjects}
+              >
+                Done Editing
+              </Button>
+            </Group>
+            <Text c="dimmed" size="sm">
+              {hasProjects
+                ? 'Manage projects and settings for this workspace'
+                : 'Add at least one project to continue'}
+            </Text>
+          </Stack>
+
+          {/* Projects section */}
+          <Stack gap="md">
+            <Group justify="space-between" align="center">
+              <Title order={4}>Projects</Title>
+              <Button
+                size="sm"
+                leftSection={<IconPlus size={14} />}
+                onClick={openAddModal}
+              >
+                Add Project
+              </Button>
+            </Group>
+
+            {workspace.projects.length > 0 ? (
+              <Stack gap="xs">
+                {workspace.projects.map((project) => (
+                  <GlassCard key={project.name} p="sm">
+                    <Group justify="space-between" wrap="nowrap">
+                      <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+                        <Text fw={500} truncate>{project.name}</Text>
+                        <Text size="xs" c="dimmed" truncate>{project.path}</Text>
+                      </Stack>
+                      <Group gap="xs" wrap="nowrap">
+                        {/* Feature badges */}
+                        <Group gap={4} wrap="nowrap">
+                          {project.devServerEnabled !== false && project.devServer && (
+                            <Badge size="xs" variant="light" color="sage">Dev</Badge>
+                          )}
+                          {project.buildEnabled !== false && project.buildCommand && (
+                            <Badge size="xs" variant="light" color="honey">Build</Badge>
+                          )}
+                          {project.hasE2E && (
+                            <Badge size="xs" variant="light" color="peach">E2E</Badge>
+                          )}
+                          {project.gitEnabled && (
+                            <Badge size="xs" variant="light" color="lavender">Git</Badge>
+                          )}
+                        </Group>
+
+                        {/* Action buttons */}
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconEdit size={12} />}
+                          onClick={() => handleEditProject(project.name)}
+                        >
+                          Edit
+                        </Button>
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          color="rose"
+                          onClick={() => handleDeleteProject(project.name)}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Group>
+                    </Group>
+                  </GlassCard>
+                ))}
+              </Stack>
+            ) : (
+              <GlassCard p="xl">
+                <Stack align="center" gap="sm">
+                  <Text c="dimmed" size="sm">No projects in this workspace</Text>
+                  <Button
+                    size="sm"
+                    leftSection={<IconPlus size={14} />}
+                    onClick={openAddModal}
+                  >
+                    Add Project
+                  </Button>
+                </Stack>
+              </GlassCard>
+            )}
+          </Stack>
+
+          {/* Context section */}
+          <Stack gap="sm">
+            <Title order={4}>Context</Title>
+            <GlassTextarea
+              placeholder="Add workspace context/rules for the planning agent (markdown supported)..."
+              value={contextValue}
+              onChange={(e) => setContextValue(e.target.value)}
+              minRows={4}
+              autosize
+            />
+            <Text size="xs" c="dimmed">
+              This context will be prepended to every feature request in this workspace.
+            </Text>
+          </Stack>
+        </Stack>
+
+        {/* Add Project Modal */}
+        <AddProjectModal
+          opened={addModalOpened}
+          onClose={closeAddModal}
+          templates={templates}
+          projects={workspaceProjectConfigs}
+          creatingProject={creatingProject}
+          addingProject={addingProject}
+          gitAvailable={gitAvailable}
+          port={effectivePort}
+          permissionsConfig={permissionsConfig}
+          createProjectError={createProjectError}
+          onClearCreateProjectError={onClearCreateProjectError}
+          onCreateProject={handleCreateProject}
+          onAddProject={handleAddProject}
+        />
+
+        {/* Edit Project Modal */}
+        <EditProjectModal
+          opened={editModalOpened}
+          onClose={handleCloseEditModal}
+          projectName={editingProject}
+          projectConfig={editingProject ? workspaceProjectConfigs[editingProject] : null}
+          projects={workspaceProjectConfigs}
+          gitAvailable={gitAvailable}
+          permissionsConfig={permissionsConfig}
+          onSave={handleSaveProject}
+        />
+      </Container>
+    );
+  }
+
+  // Normal prompt view
   return (
     <Container size="xl" pt={60} pb="xl">
       <Stack gap="xl">
@@ -203,9 +522,11 @@ export function PromptScreen({
             <Title order={2} style={{ letterSpacing: '-.02em' }}>
               {workspace.name}
             </Title>
-            <ActionIcon variant="subtle" color="gray" size="sm" onClick={onEditWorkspace}>
-              <IconSettings size={16} />
-            </ActionIcon>
+            <Tooltip label="Edit workspace">
+              <ActionIcon variant="subtle" color="gray" size="sm" onClick={handleToggleEditMode}>
+                <IconEdit size={16} />
+              </ActionIcon>
+            </Tooltip>
           </Group>
           <Text c="dimmed" size="sm">
             Describe your feature and configure project settings
@@ -259,8 +580,8 @@ export function PromptScreen({
           {/* Right card: Project selection */}
           <Grid.Col span={{ base: 12, md: 5 }}>
             <ProjectSelectionPanel
-              projects={workspace.projects}
-              projectConfigs={projectConfigs}
+              projects={workspace.projects.map(p => p.name)}
+              projectConfigs={workspaceProjectConfigs}
               sessionProjectConfigs={sessionProjectConfigs}
               onConfigChange={setSessionProjectConfigs}
             />

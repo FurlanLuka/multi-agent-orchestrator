@@ -1,26 +1,19 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import type { WorkspaceConfig } from '@orchy/types';
-import type { ProjectManager } from './project-manager';
+import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig } from '@orchy/types';
 
 /**
  * Manages workspace configuration (stored in workspaces.json)
+ * Projects are stored inline within each workspace.
  */
 export class WorkspaceManager extends EventEmitter {
   private configPath: string;
   private workspaces: Record<string, WorkspaceConfig>;
-  private projectManager: ProjectManager;
 
-  constructor(configPath: string, projectManager: ProjectManager) {
+  constructor(configPath: string) {
     super();
     this.configPath = configPath;
-    this.projectManager = projectManager;
     this.workspaces = this.loadConfig();
-
-    // Auto-remove deleted projects from workspaces
-    this.projectManager.on('projectRemoved', ({ name }: { name: string }) => {
-      this.removeProjectFromAll(name);
-    });
   }
 
   private loadConfig(): Record<string, WorkspaceConfig> {
@@ -62,12 +55,8 @@ export class WorkspaceManager extends EventEmitter {
     return this.workspaces[id];
   }
 
-  createWorkspace(opts: { name: string; projects: string[]; context?: string }): WorkspaceConfig {
+  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string }): WorkspaceConfig {
     const id = this.generateId(opts.name);
-    const invalid = this.validateProjectReferences(opts.projects);
-    if (invalid.length > 0) {
-      throw new Error(`Unknown projects: ${invalid.join(', ')}`);
-    }
 
     const now = Date.now();
     const workspace: WorkspaceConfig = {
@@ -86,17 +75,10 @@ export class WorkspaceManager extends EventEmitter {
     return workspace;
   }
 
-  updateWorkspace(id: string, updates: { name?: string; projects?: string[]; context?: string }): WorkspaceConfig {
+  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string }): WorkspaceConfig {
     const workspace = this.workspaces[id];
     if (!workspace) {
       throw new Error(`Workspace "${id}" does not exist`);
-    }
-
-    if (updates.projects) {
-      const invalid = this.validateProjectReferences(updates.projects);
-      if (invalid.length > 0) {
-        throw new Error(`Unknown projects: ${invalid.join(', ')}`);
-      }
     }
 
     if (updates.name !== undefined) workspace.name = updates.name;
@@ -121,29 +103,102 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   /**
-   * Returns project names that don't exist in ProjectManager
+   * Add a project to a workspace
    */
-  validateProjectReferences(names: string[]): string[] {
-    const existing = this.projectManager.getProjects();
-    return names.filter(n => !existing[n]);
+  addProjectToWorkspace(workspaceId: string, project: WorkspaceProjectConfig): WorkspaceConfig {
+    const workspace = this.workspaces[workspaceId];
+    if (!workspace) {
+      throw new Error(`Workspace "${workspaceId}" does not exist`);
+    }
+
+    // Check if project name already exists
+    if (workspace.projects.some(p => p.name === project.name)) {
+      throw new Error(`Project "${project.name}" already exists in workspace`);
+    }
+
+    workspace.projects.push(project);
+    workspace.updatedAt = Date.now();
+    this.saveConfig();
+    console.log(`[WorkspaceManager] Added project "${project.name}" to workspace: ${workspaceId}`);
+    this.emit('workspaceUpdated', workspace);
+    return workspace;
   }
 
   /**
-   * Remove a project reference from all workspaces (called when project is deleted)
+   * Update a project within a workspace
    */
-  private removeProjectFromAll(projectName: string): void {
-    let changed = false;
-    for (const ws of Object.values(this.workspaces)) {
-      const idx = ws.projects.indexOf(projectName);
-      if (idx !== -1) {
-        ws.projects.splice(idx, 1);
-        ws.updatedAt = Date.now();
-        changed = true;
-      }
+  updateWorkspaceProject(workspaceId: string, projectName: string, updates: Partial<ProjectConfig>): WorkspaceConfig {
+    const workspace = this.workspaces[workspaceId];
+    if (!workspace) {
+      throw new Error(`Workspace "${workspaceId}" does not exist`);
     }
-    if (changed) {
-      this.saveConfig();
-      console.log(`[WorkspaceManager] Removed project "${projectName}" from workspaces`);
+
+    const projectIndex = workspace.projects.findIndex(p => p.name === projectName);
+    if (projectIndex === -1) {
+      throw new Error(`Project "${projectName}" not found in workspace`);
     }
+
+    // Apply updates (excluding name which is immutable)
+    workspace.projects[projectIndex] = {
+      ...workspace.projects[projectIndex],
+      ...updates,
+      name: projectName, // Preserve original name
+    };
+    workspace.updatedAt = Date.now();
+    this.saveConfig();
+    console.log(`[WorkspaceManager] Updated project "${projectName}" in workspace: ${workspaceId}`);
+    this.emit('workspaceUpdated', workspace);
+    return workspace;
+  }
+
+  /**
+   * Remove a project from a workspace
+   */
+  removeProjectFromWorkspace(workspaceId: string, projectName: string): WorkspaceConfig {
+    const workspace = this.workspaces[workspaceId];
+    if (!workspace) {
+      throw new Error(`Workspace "${workspaceId}" does not exist`);
+    }
+
+    const projectIndex = workspace.projects.findIndex(p => p.name === projectName);
+    if (projectIndex === -1) {
+      throw new Error(`Project "${projectName}" not found in workspace`);
+    }
+
+    workspace.projects.splice(projectIndex, 1);
+    workspace.updatedAt = Date.now();
+    this.saveConfig();
+    console.log(`[WorkspaceManager] Removed project "${projectName}" from workspace: ${workspaceId}`);
+    this.emit('workspaceUpdated', workspace);
+    return workspace;
+  }
+
+  /**
+   * Get project configs from a workspace as a Record<name, config>
+   * (for compatibility with existing code that expects this format)
+   */
+  getWorkspaceProjectConfigs(workspaceId: string): Record<string, ProjectConfig> {
+    const workspace = this.workspaces[workspaceId];
+    if (!workspace) {
+      return {};
+    }
+
+    const configs: Record<string, ProjectConfig> = {};
+    for (const project of workspace.projects) {
+      const { name, ...config } = project;
+      configs[name] = config;
+    }
+    return configs;
+  }
+
+  /**
+   * Get project names for a workspace (for backwards compatibility)
+   */
+  getWorkspaceProjectNames(workspaceId: string): string[] {
+    const workspace = this.workspaces[workspaceId];
+    if (!workspace) {
+      return [];
+    }
+    return workspace.projects.map(p => p.name);
   }
 }

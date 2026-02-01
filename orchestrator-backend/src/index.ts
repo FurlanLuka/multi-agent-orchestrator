@@ -106,11 +106,11 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
+import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
-import { ProjectManager, AddProjectOptions, CreateFromTemplateOptions } from './core/project-manager';
+import { TemplateManager, CreateFromTemplateOptions } from './core/template-manager';
 import { WorkspaceManager } from './core/workspace-manager';
 import { StatusMonitor } from './core/status-monitor';
 import { LogAggregator } from './core/log-aggregator';
@@ -309,24 +309,30 @@ async function main() {
   // Extract setup files from binary to filesystem (production only)
   ensureSetupExtracted();
 
-  // Load configuration using centralized path resolver
-  const configPath = getProjectsConfigPath();
-  console.log(`  Config:    ${configPath}`);
-
-  const config: Config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  console.log(`  Projects: ${Object.keys(config.projects).join(', ')}`);
-  console.log('');
-
   // Initialize core components
   // SessionStore uses the sessions directory from path resolver
   const sessionStore = new SessionStore(paths.sessionsDir);
+
+  // Empty config - projects are now stored in workspaces
+  const config: Config = {
+    projects: {},
+    defaults: {
+      approvalTimeout: 30000,
+      maxRestarts: 3,
+      debugEscalationTime: 60000
+    }
+  };
+
   const sessionManager = new SessionManager(config, sessionStore);
   const processManager = new ProcessManager(config);
-  const projectManager = new ProjectManager(configPath, config);
-  const workspaceManager = new WorkspaceManager(getWorkspacesConfigPath(), projectManager);
+  const templateManager = new TemplateManager();
+  const workspaceManager = new WorkspaceManager(getWorkspacesConfigPath());
   const statusMonitor = new StatusMonitor();
   const logAggregator = new LogAggregator();
   const gitManager = new GitManager();
+
+  console.log(`  Workspaces: ${Object.keys(workspaceManager.getWorkspaces()).length}`);
+  console.log('');
 
   // Wire up SessionStore to StatusMonitor and LogAggregator for persistence
   statusMonitor.setSessionStore(sessionStore);
@@ -397,8 +403,8 @@ async function main() {
   // Attach designer agent to io for socket handlers
   (ui.io as any).designerAgent = designerAgent;
 
-  // Attach project manager to io for REST API handlers
-  (ui.io as any).projectManager = projectManager;
+  // Attach template manager to io for REST API handlers
+  (ui.io as any).templateManager = templateManager;
 
   // Forward agent messages to frontend
   designerAgent.on('agentMessage', (content: string) => {
@@ -944,9 +950,23 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Track projects with E2E requests already in the queue (prevents duplicates)
   const e2eQueuedProjects: Set<string> = new Set();
 
-  // Helper to get dev server URL for a project (from config only)
+  // Helper to get project config - prefers workspace config if session has workspaceId
+  const getProjectConfigForSession = (projectName: string): ProjectConfig | undefined => {
+    const session = sessionManager.getCurrentSession();
+    if (session?.workspaceId) {
+      const workspaceConfigs = workspaceManager.getWorkspaceProjectConfigs(session.workspaceId);
+      if (workspaceConfigs[projectName]) {
+        return workspaceConfigs[projectName];
+      }
+    }
+    // Fallback to global config
+    return config.projects[projectName];
+  };
+
+  // Helper to get dev server URL for a project
   const getDevServerUrl = (project: string): string | null => {
-    return config.projects[project]?.devServer?.url ?? null;
+    const projectConfig = getProjectConfigForSession(project);
+    return projectConfig?.devServer?.url ?? null;
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -957,7 +977,7 @@ After fixing, the E2E tests will be re-run automatically.`;
   // Helper to check and trigger E2E for a project (queues the request)
   const tryTriggerE2E = async (project: string, message: string) => {
     const session = sessionManager.getCurrentSession();
-    const projectConfig = config.projects[project];
+    const projectConfig = getProjectConfigForSession(project);
 
     // Guard: Skip if project already has E2E queued or is running E2E
     const currentStatus = statusMonitor.getStatus(project)?.status;
@@ -1258,7 +1278,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     for (const [waitingProject, pending] of pendingE2E.entries()) {
       // Re-check ALL dependencies (not just the completed one)
       // This handles race conditions where multiple projects complete around the same time
-      const projectConfig = config.projects[waitingProject];
+      const projectConfig = getProjectConfigForSession(waitingProject);
 
       // Get dependencies: explicit config or from pending.waitingOn as fallback
       let dependencies = projectConfig?.dependsOn;
@@ -1377,37 +1397,32 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Wire up Project Manager events
+  // Wire up Template Manager events
   // ═══════════════════════════════════════════════════════════════
 
-  projectManager.on('projectAdded', ({ name, config: projectConfig }) => {
+  templateManager.on('projectAdded', ({ name, config: projectConfig }) => {
     console.log(`[Orchestrator] Project added: ${name}`);
     (ui.io as any).emit('projectAdded', { name, config: projectConfig });
     chatHandler.systemMessage(`Project "${name}" has been added.`);
   });
 
-  projectManager.on('projectRemoved', ({ name }) => {
-    console.log(`[Orchestrator] Project removed: ${name}`);
-    (ui.io as any).emit('projectRemoved', { name });
-  });
-
-  projectManager.on('npmInstallStart', ({ project }) => {
+  templateManager.on('dependencyInstallStart', ({ project }) => {
     console.log(`[Orchestrator] npm install started for ${project}`);
     (ui.io as any).emit('npmInstallStart', { project });
     chatHandler.systemMessage(`Running npm install for "${project}"...`);
   });
 
-  projectManager.on('npmInstallLog', ({ project, text, stream }) => {
+  templateManager.on('dependencyInstallLog', ({ project, text, stream }) => {
     (ui.io as any).emit('npmInstallLog', { project, text, stream });
   });
 
-  projectManager.on('npmInstallComplete', ({ project }) => {
+  templateManager.on('dependencyInstallComplete', ({ project }) => {
     console.log(`[Orchestrator] npm install completed for ${project}`);
     (ui.io as any).emit('npmInstallComplete', { project });
     chatHandler.systemMessage(`npm install completed for "${project}".`);
   });
 
-  projectManager.on('npmInstallError', ({ project, error }) => {
+  templateManager.on('dependencyInstallError', ({ project, error }) => {
     console.error(`[Orchestrator] npm install failed for ${project}:`, error);
     (ui.io as any).emit('npmInstallError', { project, error });
     chatHandler.systemMessage(`npm install failed for "${project}": ${error}`);
@@ -1762,12 +1777,17 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // If workspaceId provided, look up workspace and prepend context
         let resolvedFeature = feature;
         let resolvedProjects = projects;
+        let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
+
         if (workspaceId) {
           const workspace = workspaceManager.getWorkspace(workspaceId);
           if (workspace) {
+            // Get project configs from workspace (inline storage)
+            workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
-              resolvedProjects = workspace.projects;
+              resolvedProjects = workspaceManager.getWorkspaceProjectNames(workspaceId);
             }
             // Prepend workspace context to feature
             if (workspace.context) {
@@ -1776,13 +1796,18 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
+        // Helper to get project config (workspace first, then global)
+        const getProjectConfig = (projectName: string): ProjectConfig | undefined => {
+          return workspaceProjectConfigs[projectName] || config.projects[projectName];
+        };
+
         // Create session (pass workspaceId for persistence)
         const session = sessionManager.createSession(resolvedFeature, resolvedProjects, workspaceId);
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
         for (const project of resolvedProjects) {
-          const projectConfig = config.projects[project];
+          const projectConfig = getProjectConfig(project);
           if (projectConfig?.gitEnabled) {
             try {
               // Expand path
@@ -1839,10 +1864,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         chatHandler.systemMessage(`Session created: ${session.id}`);
         sessionLogger.chat('system', `Session created: ${session.id}`);
 
-        // Get project paths for Planning Agent to explore
+        // Get project paths for Planning Agent to explore (prefer workspace configs)
         const projectPaths: Record<string, string> = {};
         for (const project of resolvedProjects) {
-          const projectConfig = projectManager.getProject(project);
+          const projectConfig = getProjectConfig(project);
           if (projectConfig) {
             projectPaths[project] = projectConfig.path;
           }
@@ -1947,7 +1972,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         statusMonitor,
         stateMachine,
         logAggregator,
-        projectManager,
+        templateManager,
         planningAgent,
         config,
         getSessionDir: (project: string) => sessionManager.getSessionDir(project),
@@ -2063,50 +2088,59 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
       if (approved) {
         // Add permission to project config for future use (project agents only)
+        // Permissions are now saved to workspace configs
         if (project !== 'planner') {
-          const projectConfig = config.projects[project];
-          if (projectConfig) {
-            if (!projectConfig.permissions) {
-              projectConfig.permissions = { allow: [] };
-            }
+          // Find which workspace contains this project
+          const session = sessionManager.getCurrentSession();
+          const workspaceId = session?.workspaceId;
 
-            let permission: string;
+          if (workspaceId) {
+            const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+            const projectConfig = workspaceProjectConfigs[project];
 
-            // Get the actual command - either from toolInput.command or parsed from toolName
-            const toolInput = pending.toolInput || {};
-            const inputCommand = typeof toolInput.command === 'string' ? toolInput.command : null;
-            const toolMatch = toolName.match(/^(\w+)\((.+)\)$/);
-            const toolType = toolMatch ? toolMatch[1] : toolName;
-            const toolNameCommand = toolMatch ? toolMatch[2] : '';
-            const actualCommand = inputCommand || toolNameCommand;
-
-            if (allowAll && actualCommand) {
-              // Create a wildcard pattern for "allow all" commands of this type
-              // e.g., command "curl https://example.com" -> "Bash(curl *)"
-              const baseCommand = actualCommand.split(/\s+/)[0];
-              if (baseCommand) {
-                permission = `${toolType}(${baseCommand} *)`;
-              } else {
-                // No base command found, save exact command
-                permission = `${toolType}(${actualCommand})`;
+            if (projectConfig) {
+              if (!projectConfig.permissions) {
+                projectConfig.permissions = { allow: [] };
               }
-            } else if (actualCommand) {
-              // Allow this exact command
-              permission = `${toolType}(${actualCommand})`;
-            } else {
-              // No command found - save the exact toolName as-is (don't wildcard)
-              // This prevents dangerous patterns like Bash(*)
-              permission = toolName;
-              console.warn(`[Orchestrator] No command found in permission request, saving exact toolName: ${toolName}`);
-            }
 
-            if (!projectConfig.permissions.allow.includes(permission)) {
-              projectConfig.permissions.allow.push(permission);
-              try {
-                await projectManager.updateProject(project, { permissions: projectConfig.permissions });
-                console.log(`[Orchestrator] Permission saved for ${project}: ${permission}`);
-              } catch (err) {
-                console.error(`[Orchestrator] Failed to save permission:`, err);
+              let permission: string;
+
+              // Get the actual command - either from toolInput.command or parsed from toolName
+              const toolInput = pending.toolInput || {};
+              const inputCommand = typeof toolInput.command === 'string' ? toolInput.command : null;
+              const toolMatch = toolName.match(/^(\w+)\((.+)\)$/);
+              const toolType = toolMatch ? toolMatch[1] : toolName;
+              const toolNameCommand = toolMatch ? toolMatch[2] : '';
+              const actualCommand = inputCommand || toolNameCommand;
+
+              if (allowAll && actualCommand) {
+                // Create a wildcard pattern for "allow all" commands of this type
+                // e.g., command "curl https://example.com" -> "Bash(curl *)"
+                const baseCommand = actualCommand.split(/\s+/)[0];
+                if (baseCommand) {
+                  permission = `${toolType}(${baseCommand} *)`;
+                } else {
+                  // No base command found, save exact command
+                  permission = `${toolType}(${actualCommand})`;
+                }
+              } else if (actualCommand) {
+                // Allow this exact command
+                permission = `${toolType}(${actualCommand})`;
+              } else {
+                // No command found - save the exact toolName as-is (don't wildcard)
+                // This prevents dangerous patterns like Bash(*)
+                permission = toolName;
+                console.warn(`[Orchestrator] No command found in permission request, saving exact toolName: ${toolName}`);
+              }
+
+              if (!projectConfig.permissions.allow.includes(permission)) {
+                projectConfig.permissions.allow.push(permission);
+                try {
+                  workspaceManager.updateWorkspaceProject(workspaceId, project, { permissions: projectConfig.permissions });
+                  console.log(`[Orchestrator] Permission saved for ${project}: ${permission}`);
+                } catch (err) {
+                  console.error(`[Orchestrator] Failed to save permission:`, err);
+                }
               }
             }
           }
@@ -2207,7 +2241,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Handle git push branch request
     socket.on('pushBranch', async ({ project, branchName }: { project: string; branchName: string }) => {
       console.log(`[Orchestrator] Push branch '${branchName}' requested for ${project}`);
-      const projectConfig = config.projects[project];
+      const projectConfig = getProjectConfigForSession(project);
 
       if (!projectConfig) {
         socket.emit('pushBranchError', { project, error: 'Project not found' });
@@ -2242,7 +2276,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Handle git merge branch request
     socket.on('mergeBranch', async ({ project, branchName }: { project: string; branchName: string }) => {
       console.log(`[Orchestrator] Merge branch '${branchName}' requested for ${project}`);
-      const projectConfig = config.projects[project];
+      const projectConfig = getProjectConfigForSession(project);
 
       if (!projectConfig) {
         socket.emit('mergeBranchError', { project, error: 'Project not found' });
@@ -2290,7 +2324,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }> = [];
 
       for (const projectName of projects) {
-        const projectConfig = config.projects[projectName];
+        const projectConfig = getProjectConfigForSession(projectName);
         if (!projectConfig) continue;
 
         if (!projectConfig.gitEnabled) {
@@ -2355,7 +2389,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       const results: Array<{ project: string; success: boolean; error?: string; stashed?: boolean }> = [];
 
       for (const projectName of projects) {
-        const projectConfig = config.projects[projectName];
+        const projectConfig = getProjectConfigForSession(projectName);
         if (!projectConfig || !projectConfig.gitEnabled) continue;
 
         try {
@@ -2404,7 +2438,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Handle GitHub info request (check if project is a GitHub project)
     socket.on('getGitHubInfo', async ({ project }: { project: string }) => {
       console.log(`[Orchestrator] GitHub info requested for ${project}`);
-      const projectConfig = config.projects[project];
+      const projectConfig = getProjectConfigForSession(project);
 
       if (!projectConfig || !projectConfig.gitEnabled) {
         socket.emit('gitHubInfo', { project, isGitHub: false });
@@ -2428,7 +2462,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Handle get branches request (for PR base branch selection)
     socket.on('getBranches', async ({ project }: { project: string }) => {
       console.log(`[Orchestrator] Branches requested for ${project}`);
-      const projectConfig = config.projects[project];
+      const projectConfig = getProjectConfigForSession(project);
 
       if (!projectConfig || !projectConfig.gitEnabled) {
         socket.emit('branches', { project, branches: [] });
@@ -2464,7 +2498,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       body?: string;
     }) => {
       console.log(`[Orchestrator] Create PR requested for ${project}, branch '${branchName}'`);
-      const projectConfig = config.projects[project];
+      const projectConfig = getProjectConfigForSession(project);
 
       if (!projectConfig) {
         socket.emit('createPRError', { project, error: 'Project not found' });
@@ -2567,61 +2601,19 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // ═══════════════════════════════════════════════════════════════
-    // Project Management Socket Events
+    // Template Management Socket Events
+    // Projects are now stored in workspaces, not in a global projects.json
     // ═══════════════════════════════════════════════════════════════
 
-    // Get list of all configured projects
+    // Get list of all configured projects - returns empty (projects are in workspaces now)
     socket.on('getProjects', () => {
-      const projects = projectManager.getProjects();
-      socket.emit('projects', projects);
-    });
-
-    // Add a new project
-    socket.on('addProject', async (options: AddProjectOptions) => {
-      try {
-        await projectManager.addProject(options);
-        socket.emit('addProjectSuccess', { name: options.name });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] Failed to add project:`, error);
-        socket.emit('addProjectError', { error });
-      }
-    });
-
-    // Remove a project
-    socket.on('removeProject', ({ name }: { name: string }) => {
-      try {
-        projectManager.removeProject(name);
-        socket.emit('removeProjectSuccess', { name });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] Failed to remove project:`, error);
-        socket.emit('removeProjectError', { name, error });
-      }
-    });
-
-    // Update project configuration
-    socket.on('updateProject', ({ name, updates }: { name: string; updates: any }) => {
-      try {
-        projectManager.updateProject(name, updates);
-        socket.emit('updateProjectSuccess', { name });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        console.error(`[Orchestrator] Failed to update project:`, error);
-        socket.emit('updateProjectError', { name, error });
-      }
-    });
-
-    // Install dependencies for a project - DEPRECATED: use installCommand in project config instead
-    // Kept for backwards compatibility but does nothing now
-    socket.on('installDependencies', async ({ name }: { name: string }) => {
-      console.log(`[Orchestrator] installDependencies called for ${name} - use installCommand in project config instead`);
+      socket.emit('projects', {});
     });
 
     // Detect project type and get configuration suggestions
     socket.on('detectProjectType', ({ path: projectPath }: { path: string }) => {
       try {
-        const suggestions = projectManager.detectProjectType(projectPath);
+        const suggestions = templateManager.detectProjectType(projectPath);
         socket.emit('projectTypeSuggestions', { path: projectPath, suggestions });
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
@@ -2631,63 +2623,62 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     // Get available templates
     socket.on('getTemplates', () => {
-      const templates = projectManager.getTemplates();
+      const templates = templateManager.getTemplates();
       socket.emit('templates', templates);
     });
 
-    // Create project from template
+    // Create project from template (returns config, doesn't save to projects.json)
     socket.on('createFromTemplate', async (options: CreateFromTemplateOptions) => {
       try {
-        await projectManager.createFromTemplate(options);
+        await templateManager.createFromTemplate(options);
         socket.emit('createFromTemplateSuccess', { name: options.name, template: options.template });
-        // Send updated projects list
-        socket.emit('projects', projectManager.getProjects());
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         socket.emit('createFromTemplateError', { name: options.name, error });
       }
     });
 
-    // Quick start: create frontend + backend app with git and e2e enabled
-    socket.on('quickStartApp', async ({ appName }: { appName: string }) => {
+    // Create project from template and add to existing workspace
+    socket.on('createProjectFromTemplateForWorkspace', async ({
+      workspaceId,
+      name,
+      targetPath,
+      template,
+      permissions,
+    }: {
+      workspaceId: string;
+      name: string;
+      targetPath: string;
+      template: string;
+      permissions?: { dangerouslyAllowAll?: boolean; allow: string[] };
+    }) => {
+      console.log(`[Orchestrator] createProjectFromTemplateForWorkspace received:`, { workspaceId, name, targetPath, template });
       try {
-        const targetPath = `~/orchy/${appName}`;
-        const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
-        const frontendName = `frontend`;
-        const backendName = `backend`;
-
-        // Create parent directory if it doesn't exist
-        if (!fs.existsSync(expandedTargetPath)) {
-          fs.mkdirSync(expandedTargetPath, { recursive: true });
-        }
-
-        // Create backend first with template permissions
-        await projectManager.createFromTemplate({
-          name: `${appName}-${backendName}`,
-          targetPath: `${targetPath}/${backendName}`,
-          template: 'nestjs-backend',
-          permissions: {
-            allow: TEMPLATE_PERMISSIONS['nestjs-backend'] || [],
+        // Create the project from template
+        const projectConfig = await templateManager.createFromTemplate({
+          name,
+          targetPath,
+          template: template as any,
+          permissions: permissions || {
+            allow: TEMPLATE_PERMISSIONS[template] || [],
           },
         });
 
-        // Create frontend (depends on backend for E2E) with template permissions
-        await projectManager.createFromTemplate({
-          name: `${appName}-${frontendName}`,
-          targetPath: `${targetPath}/${frontendName}`,
-          template: 'vite-frontend',
-          dependsOn: [`${appName}-${backendName}`],
-          permissions: {
-            allow: TEMPLATE_PERMISSIONS['vite-frontend'] || [],
-          },
-        });
+        // Add to workspace
+        const workspaceProject: WorkspaceProjectConfig = {
+          name,
+          ...projectConfig,
+        };
+        workspaceManager.addProjectToWorkspace(workspaceId, workspaceProject);
 
-        socket.emit('createFromTemplateSuccess', { name: appName, template: 'quick-start' });
-        // Send updated projects list
-        socket.emit('projects', projectManager.getProjects());
+        // Emit success
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+        socket.emit('createFromTemplateSuccess', { name, template });
+        console.log(`[Orchestrator] Created project ${name} from template ${template} and added to workspace ${workspaceId}`);
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
-        socket.emit('createFromTemplateError', { name: appName, error });
+        console.error(`[Orchestrator] Failed to create project from template:`, error);
+        socket.emit('createFromTemplateError', { name, error });
       }
     });
 
@@ -2695,23 +2686,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     socket.on('quickStartSession', async ({ appName, feature, templateNames, designName }: { appName: string; feature: string; templateNames: string[]; designName?: string }) => {
       const targetPath = `~/orchy/${appName}`;
       const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
-      const createdProjectNames: string[] = [];
+      const createdProjectConfigs: WorkspaceProjectConfig[] = [];
       let createdParentDir = false;
       let createdWorkspaceId: string | null = null;
 
       // Cleanup function to revert on failure
       const cleanup = () => {
         console.log('[Orchestrator] Quick start failed, cleaning up...');
-
-        // Remove created projects from project manager
-        for (const projectName of createdProjectNames) {
-          try {
-            projectManager.removeProject(projectName);
-            console.log(`[Orchestrator] Cleanup: removed project ${projectName}`);
-          } catch (e) {
-            // Ignore cleanup errors
-          }
-        }
 
         // Remove created workspace
         if (createdWorkspaceId) {
@@ -2733,8 +2714,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Emit updated projects and workspaces after cleanup
-        socket.emit('projects', projectManager.getProjects());
+        // Emit updated workspaces after cleanup
         socket.emit('workspaces', workspaceManager.getWorkspaces());
       };
 
@@ -2754,26 +2734,41 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const projectName = `${appName}-${suffix}`;
 
           // Check if this project depends on others (frontend depends on backend for E2E)
-          const dependsOn = templateName.includes('frontend') && createdProjectNames.some(p => p.includes('backend'))
-            ? [createdProjectNames.find(p => p.includes('backend'))!]
+          const dependsOn = templateName.includes('frontend') && createdProjectConfigs.some(p => p.name.includes('backend'))
+            ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
             : undefined;
 
-          await projectManager.createFromTemplate({
+          const projectConfig = await templateManager.createFromTemplate({
             name: projectName,
             targetPath: `${targetPath}/${suffix}`,
-            template: templateName as any, // Template names come from registered templates
+            template: templateName as any,
             dependsOn,
             permissions: {
               allow: TEMPLATE_PERMISSIONS[templateName] || [],
             },
           });
 
-          createdProjectNames.push(projectName);
+          createdProjectConfigs.push({
+            name: projectName,
+            ...projectConfig,
+          });
 
           // Attach design to frontend project if specified
           if (designName && templateName.includes('frontend')) {
             try {
-              await projectManager.attachDesignToProject(projectName, designName);
+              const designUpdate = await templateManager.attachDesignToProject(
+                projectConfig.path,
+                projectName,
+                designName
+              );
+              // Update the project config with attachedDesign
+              const projectIdx = createdProjectConfigs.findIndex(p => p.name === projectName);
+              if (projectIdx >= 0) {
+                createdProjectConfigs[projectIdx] = {
+                  ...createdProjectConfigs[projectIdx],
+                  ...designUpdate,
+                };
+              }
               console.log(`[Orchestrator] Attached design '${designName}' to ${projectName}`);
             } catch (designErr) {
               console.error(`[Orchestrator] Failed to attach design to ${projectName}:`, designErr);
@@ -2781,42 +2776,41 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Create workspace with the newly created projects
+        // Create workspace with the newly created projects (inline storage)
         const workspace = workspaceManager.createWorkspace({
           name: appName,
-          projects: createdProjectNames,
+          projects: createdProjectConfigs,
         });
         createdWorkspaceId = workspace.id;
 
-        // Emit updated projects and workspaces
-        socket.emit('projects', projectManager.getProjects());
+        // Emit updated workspaces
         socket.emit('workspaces', workspaceManager.getWorkspaces());
 
         // Now start the session with this workspace
+        const createdProjectNames = createdProjectConfigs.map(p => p.name);
         const session = sessionManager.createSession(feature, createdProjectNames, workspace.id);
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
-        for (const project of createdProjectNames) {
-          const projectConfig = projectManager.getProjects()[project];
-          if (projectConfig?.gitEnabled) {
+        for (const projectConf of createdProjectConfigs) {
+          if (projectConf.gitEnabled) {
             try {
-              let projectPath = projectConfig.path;
+              let projectPath = projectConf.path;
               if (projectPath.startsWith('~')) {
                 projectPath = projectPath.replace('~', process.env.HOME || '');
               }
 
-              const mainBranchForProject = projectConfig.mainBranch || 'main';
+              const mainBranchForProject = projectConf.mainBranch || 'main';
               await gitManager.initRepo(projectPath, mainBranchForProject);
 
               const actualBranchName = gitManager.generateBranchName(feature);
               const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
               if (branchResult.success) {
-                gitBranches[project] = actualBranchName;
-                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+                gitBranches[projectConf.name] = actualBranchName;
+                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${projectConf.name}`);
               }
             } catch (gitErr) {
-              console.error(`[Orchestrator] Failed to initialize git for ${project}:`, gitErr);
+              console.error(`[Orchestrator] Failed to initialize git for ${projectConf.name}:`, gitErr);
             }
           }
         }
@@ -2841,7 +2835,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const sessionDir = sessionManager.getSessionDir(project);
           if (sessionDir) {
             logAggregator.registerProject(project, sessionDir);
-                      }
+          }
         }
 
         (ui.io as any).emitSessionCreated(session);
@@ -2850,11 +2844,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Get project paths for Planning Agent to explore
         const projectPaths: Record<string, string> = {};
-        for (const project of createdProjectNames) {
-          const projectConfig = projectManager.getProject(project);
-          if (projectConfig) {
-            projectPaths[project] = projectConfig.path;
-          }
+        for (const projectConf of createdProjectConfigs) {
+          projectPaths[projectConf.name] = projectConf.path;
         }
 
         // Request plan from Planning Agent with project paths
@@ -2870,6 +2861,121 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Create workspace from templates (without starting a session)
+    socket.on('createWorkspaceFromTemplate', async ({ appName, templateNames, context, designName }: { appName: string; templateNames: string[]; context?: string; designName?: string }) => {
+      const targetPath = `~/orchy/${appName}`;
+      const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+      const createdProjectConfigs: WorkspaceProjectConfig[] = [];
+      let createdParentDir = false;
+      let createdWorkspaceId: string | null = null;
+
+      // Cleanup function to revert on failure
+      const cleanup = () => {
+        console.log('[Orchestrator] Create workspace from template failed, cleaning up...');
+
+        // Remove created workspace
+        if (createdWorkspaceId) {
+          try {
+            workspaceManager.deleteWorkspace(createdWorkspaceId);
+            console.log(`[Orchestrator] Cleanup: removed workspace ${createdWorkspaceId}`);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        // Remove the parent directory if we created it
+        if (createdParentDir && fs.existsSync(expandedTargetPath)) {
+          try {
+            fs.rmSync(expandedTargetPath, { recursive: true, force: true });
+            console.log(`[Orchestrator] Cleanup: removed directory ${expandedTargetPath}`);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+
+        // Emit updated workspaces after cleanup
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      };
+
+      try {
+        // Create parent directory if it doesn't exist
+        if (!fs.existsSync(expandedTargetPath)) {
+          fs.mkdirSync(expandedTargetPath, { recursive: true });
+          createdParentDir = true;
+        }
+
+        // Create projects from selected templates
+        for (const templateName of templateNames) {
+          // Determine project suffix from template name
+          const suffix = templateName.includes('frontend') ? 'frontend' :
+                        templateName.includes('backend') ? 'backend' :
+                        templateName.replace(/^(react|vite|vue|express|nestjs)-?/, '');
+          const projectName = `${appName}-${suffix}`;
+
+          // Check if this project depends on others (frontend depends on backend for E2E)
+          const dependsOn = templateName.includes('frontend') && createdProjectConfigs.some(p => p.name.includes('backend'))
+            ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
+            : undefined;
+
+          const projectConfig = await templateManager.createFromTemplate({
+            name: projectName,
+            targetPath: `${targetPath}/${suffix}`,
+            template: templateName as any,
+            dependsOn,
+            permissions: {
+              allow: TEMPLATE_PERMISSIONS[templateName] || [],
+            },
+          });
+
+          createdProjectConfigs.push({
+            name: projectName,
+            ...projectConfig,
+          });
+
+          // Attach design to frontend project if specified
+          if (designName && templateName.includes('frontend')) {
+            try {
+              const designUpdate = await templateManager.attachDesignToProject(
+                projectConfig.path,
+                projectName,
+                designName
+              );
+              // Update the project config with attachedDesign
+              const projectIdx = createdProjectConfigs.findIndex(p => p.name === projectName);
+              if (projectIdx >= 0) {
+                createdProjectConfigs[projectIdx] = {
+                  ...createdProjectConfigs[projectIdx],
+                  ...designUpdate,
+                };
+              }
+              console.log(`[Orchestrator] Attached design '${designName}' to ${projectName}`);
+            } catch (designErr) {
+              console.error(`[Orchestrator] Failed to attach design to ${projectName}:`, designErr);
+            }
+          }
+        }
+
+        // Create workspace with the newly created projects
+        const workspace = workspaceManager.createWorkspace({
+          name: appName,
+          projects: createdProjectConfigs,
+          context,
+        });
+        createdWorkspaceId = workspace.id;
+
+        // Emit updated workspaces and success with workspace ID
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+        socket.emit('workspaceFromTemplateCreated', { workspaceId: workspace.id });
+
+        console.log(`[Orchestrator] Workspace from template created: ${workspace.id}`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Create workspace from template failed:', error);
+        cleanup();
+        socket.emit('quickStartError', { error });
+      }
+    });
+
     // ═══════════════════════════════════════════════════════════════
     // Workspace Management Socket Events
     // ═══════════════════════════════════════════════════════════════
@@ -2878,7 +2984,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       socket.emit('workspaces', workspaceManager.getWorkspaces());
     });
 
-    socket.on('createWorkspace', ({ name, projects, context }: { name: string; projects: string[]; context?: string }) => {
+    socket.on('createWorkspace', ({ name, projects, context }: { name: string; projects: WorkspaceProjectConfig[]; context?: string }) => {
       try {
         workspaceManager.createWorkspace({ name, projects, context });
         socket.emit('workspaces', workspaceManager.getWorkspaces());
@@ -2889,13 +2995,50 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: string[]; context?: string } }) => {
+    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string } }) => {
       try {
         workspaceManager.updateWorkspace(id, updates);
         socket.emit('workspaces', workspaceManager.getWorkspaces());
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Failed to update workspace:', error);
+        socket.emit('workspaceError', { error });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Workspace Project CRUD Socket Events
+    // ═══════════════════════════════════════════════════════════════
+
+    socket.on('addProjectToWorkspace', ({ workspaceId, project }: { workspaceId: string; project: WorkspaceProjectConfig }) => {
+      try {
+        workspaceManager.addProjectToWorkspace(workspaceId, project);
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to add project to workspace:', error);
+        socket.emit('workspaceError', { error });
+      }
+    });
+
+    socket.on('updateWorkspaceProject', ({ workspaceId, projectName, updates }: { workspaceId: string; projectName: string; updates: Partial<ProjectConfig> }) => {
+      try {
+        workspaceManager.updateWorkspaceProject(workspaceId, projectName, updates);
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to update workspace project:', error);
+        socket.emit('workspaceError', { error });
+      }
+    });
+
+    socket.on('removeProjectFromWorkspace', ({ workspaceId, projectName }: { workspaceId: string; projectName: string }) => {
+      try {
+        workspaceManager.removeProjectFromWorkspace(workspaceId, projectName);
+        socket.emit('workspaces', workspaceManager.getWorkspaces());
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to remove project from workspace:', error);
         socket.emit('workspaceError', { error });
       }
     });

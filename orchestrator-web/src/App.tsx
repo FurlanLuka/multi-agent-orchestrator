@@ -6,15 +6,13 @@ import { SecondaryTabScreen } from './components/SecondaryTabScreen';
 import { HomePage } from './components/home/HomePage';
 import { PromptScreen } from './components/home/PromptScreen';
 import { CreateWorkspaceView } from './components/home/CreateWorkspaceView';
-import { AdHocPromptScreen } from './components/home/AdHocPromptScreen';
-import { QuickStartView } from './components/home/QuickStartView';
-import { SettingsPage } from './components/settings/SettingsPage';
 import { SessionView } from './components/session/SessionView';
 import { HistoricalSessionView } from './components/session/HistoricalSessionView';
 import { ModeSelectionPage } from './pages/ModeSelectionPage';
 import { DesignSessionPage } from './pages/DesignSessionPage';
 import { DesignsLibraryPage } from './pages/DesignsLibraryPage';
 import { BackButton } from './components/BackButton';
+import type { WorkspaceConfig, ProjectConfig, WorkspaceProjectConfig, ProjectTemplate } from '@orchy/types';
 
 // Wrapper component that handles routing logic
 function AppRoutes() {
@@ -25,14 +23,20 @@ function AppRoutes() {
     dependencyCheck,
     backendError,
     session,
-    projects,
+    templates,
     workspaces,
     creatingProject,
+    addingProject,
     startingSession,
     quickStartError,
+    port,
     startSession,
     createWorkspace,
-    quickStartSession,
+    updateWorkspace,
+    deleteWorkspace,
+    createWorkspaceFromTemplate,
+    createdWorkspaceId,
+    clearCreatedWorkspaceId,
     clearQuickStartError,
     recheckDependencies,
     branchCheckResult,
@@ -41,6 +45,12 @@ function AppRoutes() {
     checkBranchStatus,
     checkoutMainBranch,
     clearBranchCheckResult,
+    addProjectToWorkspace,
+    updateWorkspaceProject,
+    removeProjectFromWorkspace,
+    createProjectFromTemplateForWorkspace,
+    createProjectError,
+    clearCreateProjectError,
   } = useOrchestrator();
 
   const navigate = useNavigate();
@@ -51,6 +61,14 @@ function AppRoutes() {
       navigate('/session');
     }
   }, [session, navigate]);
+
+  // Auto-navigate to prompt screen when workspace is created from template
+  useEffect(() => {
+    if (createdWorkspaceId) {
+      navigate(`/prompt/${createdWorkspaceId}`);
+      clearCreatedWorkspaceId();
+    }
+  }, [createdWorkspaceId, navigate, clearCreatedWorkspaceId]);
 
   // Show splash screen while checking dependencies
   if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
@@ -72,13 +90,20 @@ function AppRoutes() {
   const handleStartFromWorkspace = (feature: string, workspaceId: string, branchName?: string) => {
     const workspace = workspaces[workspaceId];
     if (workspace) {
-      startSession(feature, workspace.projects, branchName, workspaceId);
+      // Get project names from workspace inline projects
+      const projectNames = workspace.projects.map((p: WorkspaceProjectConfig) => p.name);
+      startSession(feature, projectNames, branchName, workspaceId);
     }
   };
 
-  const handleCreateWorkspace = (name: string, projectNames: string[], context?: string) => {
-    createWorkspace(name, projectNames, context);
+  const handleCreateEmptyWorkspace = (name: string, context?: string) => {
+    createWorkspace(name, [], context);
     navigate('/home');
+  };
+
+  const handleCreateFromTemplate = (appName: string, selectedTemplates: string[], context?: string, designName?: string) => {
+    createWorkspaceFromTemplate(appName, selectedTemplates, context, designName);
+    // Navigation happens via useEffect when createdWorkspaceId is set
   };
 
   return (
@@ -91,7 +116,6 @@ function AppRoutes() {
             onSelectDesign={() => navigate('/designs-library')}
             onSelectBuild={() => navigate('/home')}
             onResumeSession={() => navigate('/session')}
-            onSettings={() => navigate('/settings')}
           />
         }
       />
@@ -105,10 +129,8 @@ function AppRoutes() {
               hasActiveSession={!!session}
               onSelectWorkspace={(id) => navigate(`/prompt/${id}`)}
               onCreateWorkspace={() => navigate('/create-workspace')}
-              onSettings={() => navigate('/settings')}
               onResumeSession={() => navigate('/session')}
-              onStartWithoutWorkspace={() => navigate('/')}
-              onQuickStart={() => navigate('/quickstart')}
+              onDeleteWorkspace={deleteWorkspace}
             />
           </>
         }
@@ -138,51 +160,27 @@ function AppRoutes() {
         element={
           <PromptScreenWrapper
             workspaces={workspaces}
-            projects={projects}
+            templates={templates}
             startingSession={startingSession}
             branchCheckResult={branchCheckResult}
             checkingBranches={checkingBranches}
             checkoutingBranches={checkoutingBranches}
+            addingProject={addingProject}
+            creatingProject={creatingProject}
+            gitAvailable={dependencyCheck?.git.available ?? true}
+            port={port}
             onStart={handleStartFromWorkspace}
             onCheckBranchStatus={checkBranchStatus}
             onCheckoutMainBranch={checkoutMainBranch}
             onClearBranchCheck={clearBranchCheckResult}
+            onAddProjectToWorkspace={addProjectToWorkspace}
+            onUpdateWorkspaceProject={updateWorkspaceProject}
+            onRemoveProjectFromWorkspace={removeProjectFromWorkspace}
+            onUpdateWorkspace={updateWorkspace}
+            onCreateProjectFromTemplate={createProjectFromTemplateForWorkspace}
+            createProjectError={createProjectError}
+            onClearCreateProjectError={clearCreateProjectError}
           />
-        }
-      />
-      <Route
-        path="/prompt-adhoc"
-        element={
-          <>
-            <BackButton to="/home" />
-            <AdHocPromptScreen
-              availableProjects={Object.keys(projects)}
-              projectConfigs={projects}
-              startingSession={startingSession}
-              onBack={() => navigate('/home')}
-              onStart={(feature, selectedProjects, branchName) => {
-                startSession(feature, selectedProjects, branchName);
-              }}
-            />
-          </>
-        }
-      />
-      <Route
-        path="/quickstart"
-        element={
-          <>
-            <BackButton to="/home" />
-            <QuickStartView
-              creatingProject={creatingProject || startingSession}
-              error={quickStartError}
-              onClearError={clearQuickStartError}
-              onBack={() => navigate('/home')}
-              onStart={(appName, feature, selectedTemplates, designName) => {
-                quickStartSession(appName, feature, selectedTemplates, designName);
-              }}
-              onGoToDesigner={() => navigate('/design-session')}
-            />
-          </>
         }
       />
       <Route
@@ -191,21 +189,17 @@ function AppRoutes() {
           <>
             <BackButton to="/home" />
             <CreateWorkspaceView
-              availableProjects={Object.keys(projects)}
+              creatingProject={creatingProject}
+              port={port}
+              error={quickStartError}
+              onClearError={clearQuickStartError}
               onBack={() => navigate('/home')}
-              onCreate={handleCreateWorkspace}
-              onOpenAddProject={() => navigate('/settings/projects')}
+              onCreateEmpty={handleCreateEmptyWorkspace}
+              onCreateFromTemplate={handleCreateFromTemplate}
+              onGoToDesigner={() => navigate('/design-session')}
             />
           </>
         }
-      />
-      <Route
-        path="/settings"
-        element={<SettingsPage />}
-      />
-      <Route
-        path="/settings/:tab"
-        element={<SettingsPage />}
       />
       <Route
         path="/session"
@@ -222,18 +216,29 @@ function AppRoutes() {
 // Wrapper for PromptScreen to handle workspaceId param
 function PromptScreenWrapper({
   workspaces,
-  projects,
+  templates,
   startingSession,
   branchCheckResult,
   checkingBranches,
   checkoutingBranches,
+  addingProject,
+  creatingProject,
+  gitAvailable,
+  port,
   onStart,
   onCheckBranchStatus,
   onCheckoutMainBranch,
   onClearBranchCheck,
+  onAddProjectToWorkspace,
+  onUpdateWorkspaceProject,
+  onRemoveProjectFromWorkspace,
+  onUpdateWorkspace,
+  onCreateProjectFromTemplate,
+  createProjectError,
+  onClearCreateProjectError,
 }: {
-  workspaces: Record<string, any>;
-  projects: Record<string, any>;
+  workspaces: Record<string, WorkspaceConfig>;
+  templates: any[];
   startingSession: boolean;
   branchCheckResult: Array<{
     project: string;
@@ -241,13 +246,26 @@ function PromptScreenWrapper({
     currentBranch: string | null;
     mainBranch: string;
     isOnMainBranch: boolean;
+    hasUncommittedChanges: boolean;
+    uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
   }> | null;
   checkingBranches: boolean;
   checkoutingBranches: boolean;
+  addingProject: boolean;
+  creatingProject: boolean;
+  gitAvailable: boolean;
+  port: number | null;
   onStart: (feature: string, workspaceId: string, branchName?: string) => void;
   onCheckBranchStatus: (projects: string[]) => void;
-  onCheckoutMainBranch: (projects: string[]) => void;
+  onCheckoutMainBranch: (projects: string[], stashFirst?: boolean) => void;
   onClearBranchCheck: () => void;
+  onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
+  onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
+  onRemoveProjectFromWorkspace: (workspaceId: string, projectName: string) => void;
+  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string }) => void;
+  onCreateProjectFromTemplate: (workspaceId: string, options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
+  createProjectError: string | null;
+  onClearCreateProjectError: () => void;
 }) {
   const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -261,23 +279,45 @@ function PromptScreenWrapper({
 
   if (!workspace) return null;
 
+  // Derive projectConfigs from workspace inline projects
+  const projectConfigs: Record<string, ProjectConfig> = {};
+  for (const proj of workspace.projects) {
+    const { name, ...config } = proj;
+    projectConfigs[name] = config;
+  }
+
+  // Check if workspace is empty (no projects) - will force edit mode
+  const isEmptyWorkspace = workspace.projects.length === 0;
+
   return (
     <>
       <BackButton to="/home" />
       <PromptScreen
         workspace={workspace}
-        projectConfigs={projects}
+        projectConfigs={projectConfigs}
+        templates={templates}
         startingSession={startingSession}
         branchCheckResult={branchCheckResult}
         checkingBranches={checkingBranches}
         checkoutingBranches={checkoutingBranches}
+        addingProject={addingProject}
+        creatingProject={creatingProject}
+        gitAvailable={gitAvailable}
+        port={port}
+        forceEditMode={isEmptyWorkspace}
         onBack={() => navigate('/home')}
         onStart={onStart}
-        onEditWorkspace={() => navigate('/settings/workspaces')}
         onCheckBranchStatus={onCheckBranchStatus}
         onCheckoutMainBranch={onCheckoutMainBranch}
         onClearBranchCheck={onClearBranchCheck}
         onSelectHistoricalSession={(sessionId) => navigate(`/session/${sessionId}/history`)}
+        onAddProjectToWorkspace={onAddProjectToWorkspace}
+        onUpdateWorkspaceProject={onUpdateWorkspaceProject}
+        onRemoveProjectFromWorkspace={onRemoveProjectFromWorkspace}
+        onUpdateWorkspace={onUpdateWorkspace}
+        onCreateProjectFromTemplate={(options) => onCreateProjectFromTemplate(workspace.id, options)}
+        createProjectError={createProjectError}
+        onClearCreateProjectError={onClearCreateProjectError}
       />
     </>
   );
