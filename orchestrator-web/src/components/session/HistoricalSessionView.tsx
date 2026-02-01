@@ -7,7 +7,6 @@ import {
   Text,
   Box,
   ThemeIcon,
-  ScrollArea,
   Button,
   Collapse,
   Badge,
@@ -29,6 +28,7 @@ import {
 import type {
   PersistedSession,
   StreamingMessage,
+  RequestFlow,
   SessionCompletionReason,
 } from '@orchy/types';
 import { MarkdownMessage } from '../MarkdownMessage';
@@ -37,6 +37,8 @@ import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
 import { GlassCard, TabbedCard } from '../../theme';
 import { BackButton } from '../BackButton';
+import { ChatTimeline } from '../chat/ChatTimeline';
+import type { ChatTimelineData } from '../chat/ChatTimeline';
 
 function getCompletionReason(session: PersistedSession): SessionCompletionReason {
   if (session.status === 'interrupted') return 'interrupted';
@@ -71,6 +73,7 @@ export function HistoricalSessionView() {
 
   const [session, setSession] = useState<PersistedSession | null>(null);
   const [chatMessages, setChatMessages] = useState<StreamingMessage[]>([]);
+  const [flows, setFlows] = useState<RequestFlow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +97,7 @@ export function HistoricalSessionView() {
         const data = await response.json();
         setSession(data.session);
         setChatMessages(data.chatMessages || []);
+        setFlows(data.flows || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load session');
       } finally {
@@ -103,6 +107,14 @@ export function HistoricalSessionView() {
 
     fetchSession();
   }, [sessionId]);
+
+  // Prepare chat timeline data for the ChatTimeline component
+  const chatTimelineData: ChatTimelineData = useMemo(() => ({
+    messages: chatMessages,
+    flows,
+    activeFlows: [],  // No active flows in historical view
+    completedFlows: flows,  // All flows are completed in historical view
+  }), [chatMessages, flows]);
 
   // Get unique projects from tasks
   const planProjects = useMemo(() => {
@@ -540,43 +552,17 @@ export function HistoricalSessionView() {
             </Tabs.Panel>
 
             <Tabs.Panel value="chat" pt="lg">
-              <GlassCard p={0} style={{ maxHeight: 'calc(100vh - 300px)', overflow: 'hidden' }}>
-                <ScrollArea h="100%" p="md">
-                  <Stack gap="md">
-                    {chatMessages.length > 0 ? (
-                      chatMessages.map((msg, idx) => (
-                        <Box
-                          key={msg.id || idx}
-                          style={{
-                            padding: '12px 16px',
-                            borderRadius: 8,
-                            backgroundColor: msg.role === 'user'
-                              ? 'rgba(100, 150, 200, 0.08)'
-                              : 'rgba(160, 130, 110, 0.04)',
-                            border: '1px solid var(--border-subtle)',
-                          }}
-                        >
-                          <Group gap="xs" mb="xs">
-                            <Badge size="xs" variant="light" color={msg.role === 'user' ? 'blue' : 'gray'}>
-                              {msg.role === 'user' ? 'You' : 'Assistant'}
-                            </Badge>
-                            <Text size="xs" c="dimmed">
-                              {new Date(msg.createdAt).toLocaleTimeString()}
-                            </Text>
-                          </Group>
-                          {msg.content.map((block, blockIdx) => {
-                            if (block.type === 'text') {
-                              return <MarkdownMessage key={blockIdx} content={block.text} />;
-                            }
-                            return null;
-                          })}
-                        </Box>
-                      ))
-                    ) : (
-                      <Text c="dimmed" ta="center" py="xl">No chat history available</Text>
-                    )}
+              <GlassCard p={0} style={{ height: 'calc(100vh - 300px)', overflow: 'hidden' }}>
+                {chatMessages.length > 0 || flows.length > 0 ? (
+                  <ChatTimeline
+                    data={chatTimelineData}
+                    showInput={false}  // Read-only view - no input
+                  />
+                ) : (
+                  <Stack align="center" justify="center" h="100%">
+                    <Text c="dimmed" ta="center" py="xl">No chat history available</Text>
                   </Stack>
-                </ScrollArea>
+                )}
               </GlassCard>
             </Tabs.Panel>
           </Tabs>

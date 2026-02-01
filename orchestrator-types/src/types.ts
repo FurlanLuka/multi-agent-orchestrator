@@ -601,6 +601,7 @@ export interface PersistedSession {
   statuses: Record<string, ProjectState>;
   testStates: Record<string, PersistedTestState>;
   taskStates?: TaskState[];  // Task execution states
+  flows?: RequestFlow[];  // Request flows for chat timeline (task executions, E2E tests, etc.)
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
   workspaceId?: string;  // Workspace that started this session
   status: 'planning' | 'running' | 'completed' | 'interrupted';
@@ -655,6 +656,7 @@ export interface FullSessionData {
   session: PersistedSession;
   logs: LogEntry[];
   chatMessages: StreamingMessage[];
+  flows: RequestFlow[];  // Request flows for chat timeline
 }
 
 // ═══════════════════════════════════════════════════════════════

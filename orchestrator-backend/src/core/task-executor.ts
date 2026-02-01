@@ -782,6 +782,23 @@ ${task.task}
    - \`all_complete\`: Session is done - **STOP IMMEDIATELY**, do not do any more work
    - \`escalate\`: **STOP IMMEDIATELY** - do not continue, do not try other tasks, user intervention is required
 
+## Requesting User Input
+
+If you need credentials, API keys, environment variables, or any values that only the user can provide, use:
+\`mcp__orchestrator-planning__request_user_input\`
+
+Example:
+\`\`\`json
+{
+  "inputs": [
+    {"name": "GOOGLE_CLIENT_ID", "label": "Google OAuth Client ID", "description": "From Google Cloud Console", "required": true},
+    {"name": "GOOGLE_CLIENT_SECRET", "label": "Google OAuth Secret", "description": "From Google Cloud Console", "required": true, "sensitive": true}
+  ]
+}
+\`\`\`
+
+The tool blocks until the user provides values, then returns them as JSON.
+
 ## Critical Rules
 
 1. **DO NOT skip calling mcp__orchestrator-permission__task_complete** - the orchestrator needs it to verify your work
@@ -792,6 +809,7 @@ ${task.task}
 6. **DO NOT use browser automation tools** to test your work
 7. Focus ONLY on implementing the feature code
 8. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
+9. **If you need API keys, secrets, or config values** - use \`request_user_input\` instead of hardcoding or guessing
 
 ## Status Reporting
 

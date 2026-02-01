@@ -19,6 +19,9 @@ import {
   TaskDefinition,
   ExplorationAnalysisResult,
   PlanningSessionState,
+  RequestFlow,
+  FlowStep,
+  FlowStatus,
 } from '@orchy/types';
 
 /**
@@ -585,8 +588,117 @@ export class SessionStore extends EventEmitter {
     return messages;
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // Flow Persistence (for chat timeline)
+  // ═══════════════════════════════════════════════════════════════
+
   /**
-   * Gets full session data for loading (session + logs + chat)
+   * Adds a new flow to the session (called on flowStart)
+   */
+  addFlow(sessionId: string, flow: RequestFlow): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    if (!session.flows) {
+      session.flows = [];
+    }
+
+    session.flows.push(flow);
+    this.writeSession(session);
+  }
+
+  /**
+   * Adds a step to an existing flow (called on flowStep)
+   */
+  addFlowStep(sessionId: string, flowId: string, step: FlowStep): void {
+    const session = this.loadSession(sessionId);
+    if (!session?.flows) return;
+
+    const flowIndex = session.flows.findIndex(f => f.id === flowId);
+    if (flowIndex === -1) return;
+
+    // Mark previous active steps as completed
+    const updatedSteps = session.flows[flowIndex].steps.map(s =>
+      s.status === 'active' ? { ...s, status: 'completed' as const } : s
+    );
+
+    session.flows[flowIndex] = {
+      ...session.flows[flowIndex],
+      steps: [...updatedSteps, step],
+    };
+
+    this.writeSession(session);
+  }
+
+  /**
+   * Completes a flow with result (called on flowComplete)
+   */
+  completeFlow(
+    sessionId: string,
+    flowId: string,
+    status: FlowStatus,
+    result?: { passed: boolean; summary?: string; details?: string },
+    timestamp?: number
+  ): void {
+    const session = this.loadSession(sessionId);
+    if (!session?.flows) return;
+
+    const flowIndex = session.flows.findIndex(f => f.id === flowId);
+    if (flowIndex === -1) return;
+
+    const finalStepStatus = status === 'completed' ? 'completed' as const : 'failed' as const;
+    const updatedSteps = session.flows[flowIndex].steps.map(s => ({
+      ...s,
+      status: s.status === 'active' ? finalStepStatus : s.status,
+    }));
+
+    session.flows[flowIndex] = {
+      ...session.flows[flowIndex],
+      status,
+      completedAt: timestamp || Date.now(),
+      result,
+      steps: updatedSteps,
+    };
+
+    this.writeSession(session);
+  }
+
+  /**
+   * Updates a flow's result and optionally type (for flow mutations like "Plan approved")
+   */
+  updateFlow(
+    sessionId: string,
+    flowId: string,
+    updates: {
+      result?: { passed: boolean; summary?: string; details?: string };
+      type?: RequestFlow['type'];
+    }
+  ): void {
+    const session = this.loadSession(sessionId);
+    if (!session?.flows) return;
+
+    const flowIndex = session.flows.findIndex(f => f.id === flowId);
+    if (flowIndex === -1) return;
+
+    session.flows[flowIndex] = {
+      ...session.flows[flowIndex],
+      ...(updates.result ? { result: updates.result } : {}),
+      ...(updates.type ? { type: updates.type } : {}),
+    };
+
+    this.writeSession(session);
+  }
+
+  /**
+   * Gets all flows for a session
+   */
+  getFlows(sessionId: string): RequestFlow[] {
+    const session = this.loadSession(sessionId);
+    return session?.flows || [];
+  }
+
+  /**
+   * Gets full session data for loading (session + logs + chat + flows)
    */
   getFullSessionData(sessionId: string): FullSessionData | null {
     const session = this.loadSession(sessionId);
@@ -596,6 +708,7 @@ export class SessionStore extends EventEmitter {
       session,
       logs: this.getLogs(sessionId),
       chatMessages: this.getChatHistory(sessionId),
+      flows: session.flows || [],
     };
   }
 

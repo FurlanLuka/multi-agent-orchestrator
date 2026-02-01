@@ -180,15 +180,7 @@ export class EventQueue extends EventEmitter {
           });
           break;
         }
-
-        default: {
-          // For other events (hook events, etc.), use the generic analyzeEvent
-          const action = await this.analyzeEvent(event);
-          if (action) {
-            console.log(`[EventQueue] Planning Agent returned action: ${action.type}`);
-            this.emit('action', action);
-          }
-        }
+        // All OrchestratorEvent types are handled explicitly above
       }
     } catch (err) {
       console.error('[EventQueue] Error processing event:', err);
@@ -198,30 +190,6 @@ export class EventQueue extends EventEmitter {
     // Process next event
     // Small delay to prevent overwhelming the Planning Agent
     setTimeout(() => this.processNext(), 100);
-  }
-
-  /**
-   * Sends event to Planning Agent for analysis
-   */
-  private async analyzeEvent(event: QueuedEvent): Promise<PlanningAction | null> {
-    // Format event for Planning Agent
-    // Note: event.data already contains type, so we just add project and queuedAt
-    const eventJson = JSON.stringify({
-      ...event.data,
-      project: event.project,
-      queuedAt: event.queuedAt
-    }, null, 2);
-
-    try {
-      // Ask Planning Agent to analyze the event
-      const response = await this.planningAgent.analyzeEvent(eventJson);
-
-      // Parse action from response
-      return this.parseAction(response);
-    } catch (err) {
-      console.error('[EventQueue] Planning Agent analysis failed:', err);
-      return null;
-    }
   }
 
   /**

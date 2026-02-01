@@ -664,6 +664,11 @@ export function useSocket() {
         activeSessionMessagesRef.current = data.chatMessages;
       }
 
+      // Restore flows from session
+      if (data.flows && data.flows.length > 0) {
+        setFlows(data.flows);
+      }
+
       // Restore test states
       const restoredTestStates: Record<string, ProjectTestState> = {};
       for (const [project, testState] of Object.entries(data.session.testStates)) {

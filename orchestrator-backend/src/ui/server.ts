@@ -1329,6 +1329,10 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
   // Flow Events (for two-section chat UX)
   // ═══════════════════════════════════════════════════════════════
 
+  // Helper to get session store for flow persistence
+  const getSessionStore = () => deps.sessionManager?.getSessionStore();
+  const getCurrentSessionId = () => getSessionStore()?.getCurrentSessionId();
+
   // Emit flow start event (begins a new tracked flow)
   const emitFlowStart = (flow: RequestFlow) => {
     // Track planning flows for approval coordination
@@ -1336,21 +1340,42 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       currentPlanningFlowId = flow.id;
     }
     io.emit('flowStart', flow);
+    // Persist flow to session
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      getSessionStore()?.addFlow(sessionId, flow);
+    }
   };
 
   // Emit flow step event (adds or updates a step in a flow)
   const emitFlowStep = (flowId: string, step: FlowStep) => {
     io.emit('flowStep', { flowId, step });
+    // Persist flow step to session
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      getSessionStore()?.addFlowStep(sessionId, flowId, step);
+    }
   };
 
   // Emit flow complete event (marks flow as completed or failed)
   const emitFlowComplete = (flowId: string, status: FlowStatus, result?: { passed: boolean; summary?: string; details?: string }) => {
-    io.emit('flowComplete', { flowId, status, result, timestamp: Date.now() });
+    const timestamp = Date.now();
+    io.emit('flowComplete', { flowId, status, result, timestamp });
+    // Persist flow completion to session
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      getSessionStore()?.completeFlow(sessionId, flowId, status, result, timestamp);
+    }
   };
 
   // Emit flow update event (updates an existing flow's result/summary and optionally type)
   const emitFlowUpdate = (flowId: string, result: { passed: boolean; summary?: string; details?: string }, type?: string) => {
     io.emit('flowUpdate', { flowId, result, type, timestamp: Date.now() });
+    // Persist flow update to session
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      getSessionStore()?.updateFlow(sessionId, flowId, { result, type: type as RequestFlow['type'] });
+    }
   };
 
   // Emit instant flow (already completed - goes straight to history)
@@ -1362,6 +1387,11 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       completedAt: Date.now(),
     };
     io.emit('flowStart', completeFlow);  // Emit as flowStart so frontend processes it
+    // Persist instant flow to session (already complete)
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      getSessionStore()?.addFlow(sessionId, completeFlow);
+    }
   };
 
   // Track the current planning flow ID for coordinating plan approval

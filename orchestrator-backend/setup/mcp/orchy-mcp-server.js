@@ -166,41 +166,6 @@ async function handleMessage(msg) {
           }
         },
         {
-          name: 'submit_sub_features',
-          description: 'Stage 2 completion: Submit breakdown into sub-features (3-7 chunks). Blocks until user approves or requests changes. Returns { status: "approved" } or { status: "refine", feedback: "..." }.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              subFeatures: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    name: { type: 'string', description: 'Short name for the sub-feature' },
-                    description: { type: 'string', description: 'Description of what this sub-feature entails' }
-                  },
-                  required: ['name', 'description']
-                },
-                description: 'Array of 3-7 sub-features'
-              }
-            },
-            required: ['subFeatures']
-          }
-        },
-        {
-          name: 'submit_sub_feature_refinement',
-          description: 'Stage 3 per-item: Submit refinement for a single sub-feature. Blocks until user approves or requests changes. Returns { status: "approved" } or { status: "refine", feedback: "..." }. Call once per sub-feature.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              subFeatureId: { type: 'string', description: 'ID of the sub-feature being refined' },
-              refinedDescription: { type: 'string', description: 'Refined description after any clarifying questions' },
-              acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria for this sub-feature' }
-            },
-            required: ['subFeatureId', 'refinedDescription', 'acceptanceCriteria']
-          }
-        },
-        {
           name: 'submit_technical_spec',
           description: 'Stage 5 completion: Submit API contracts and architecture after project exploration. Blocks until user approves or requests changes. Returns { status: "approved" } or { status: "refine", feedback: "..." }.',
           inputSchema: {
@@ -354,26 +319,6 @@ async function handleMessage(msg) {
     const keyRequirements = params.arguments?.keyRequirements || [];
 
     const result = await submitRefinedFeature(refinedDescription, keyRequirements);
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
-  else if (method === 'tools/call' && params?.name === 'submit_sub_features') {
-    const subFeatures = params.arguments?.subFeatures || [];
-
-    const result = await submitSubFeatures(subFeatures);
-
-    respond(id, {
-      content: [{ type: 'text', text: result }]
-    });
-  }
-  else if (method === 'tools/call' && params?.name === 'submit_sub_feature_refinement') {
-    const subFeatureId = params.arguments?.subFeatureId || '';
-    const refinedDescription = params.arguments?.refinedDescription || '';
-    const acceptanceCriteria = params.arguments?.acceptanceCriteria || [];
-
-    const result = await submitSubFeatureRefinement(subFeatureId, refinedDescription, acceptanceCriteria);
 
     respond(id, {
       content: [{ type: 'text', text: result }]
@@ -661,84 +606,6 @@ function submitRefinedFeature(refinedDescription, keyRequirements) {
         'Content-Length': Buffer.byteLength(postData)
       },
       timeout: 600000  // 10 minute timeout for user approval
-    }, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        resolve(body || JSON.stringify({ status: 'approved' }));
-      });
-    });
-
-    req.on('error', () => resolve(JSON.stringify({ status: 'approved', note: 'Could not reach orchestrator - auto-approving' })));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(JSON.stringify({ status: 'approved', note: 'Approval timeout - auto-approving' }));
-    });
-
-    req.write(postData);
-    req.end();
-  });
-}
-
-function submitSubFeatures(subFeatures) {
-  return new Promise((resolve) => {
-    const postData = JSON.stringify({
-      project: PROJECT,
-      subFeatures
-    });
-
-    const url = new URL(`${ORCHESTRATOR_URL}/api/submit-sub-features`);
-
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      },
-      timeout: 600000
-    }, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        resolve(body || JSON.stringify({ status: 'approved' }));
-      });
-    });
-
-    req.on('error', () => resolve(JSON.stringify({ status: 'approved', note: 'Could not reach orchestrator - auto-approving' })));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(JSON.stringify({ status: 'approved', note: 'Approval timeout - auto-approving' }));
-    });
-
-    req.write(postData);
-    req.end();
-  });
-}
-
-function submitSubFeatureRefinement(subFeatureId, refinedDescription, acceptanceCriteria) {
-  return new Promise((resolve) => {
-    const postData = JSON.stringify({
-      project: PROJECT,
-      subFeatureId,
-      refinedDescription,
-      acceptanceCriteria
-    });
-
-    const url = new URL(`${ORCHESTRATOR_URL}/api/submit-sub-feature-refinement`);
-
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      },
-      timeout: 600000
     }, (res) => {
       let body = '';
       res.on('data', chunk => body += chunk);

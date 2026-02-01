@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, RedistributionContext, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, ExplorationAnalysisResult, SessionProjectConfig, PlanningSessionState, PlanningStage, PLANNING_STAGE_NAMES } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -432,6 +432,15 @@ User: ${newMessage}`;
                         this.emit('planningStatus', statusEvent);
                       }
                     } else if (block.type === 'tool_use' && block.id && block.name) {
+                      // Log ALL tool calls with details
+                      console.log(`[PlanningAgent] Tool call: ${block.name}`);
+                      const inputStr = JSON.stringify(block.input, null, 2);
+                      if (inputStr.length > 500) {
+                        console.log(`[PlanningAgent]   Input: ${inputStr.slice(0, 500)}...`);
+                      } else {
+                        console.log(`[PlanningAgent]   Input: ${inputStr}`);
+                      }
+
                       contentBlock = {
                         type: 'tool_use',
                         id: block.id,
@@ -873,198 +882,159 @@ ${prompt}`;
 
   /**
    * Builds the Stage 1 prompt for Feature Refinement.
-   * Agent conducts Socratic Q&A then calls submit_refined_feature.
+   * Agent explores projects first, then conducts Q&A and calls submit_refined_feature.
    */
   private buildFeatureRefinementPrompt(
     feature: string,
     projects: string[],
     projectPaths: Record<string, string>
   ): string {
-    // Build project list with design info
-    const projectList = projects.map(p => {
+    // Build explicit explore commands for each project - guidelines + feature-related
+    const exploreCommands = projects.map((p) => {
+      const path = projectPaths[p] || 'unknown';
       const config = this.projectConfig[p];
-      const designInfo = config?.attachedDesign
-        ? ` (has design: "${config.attachedDesign}" - see ui_mockup/ folder)`
-        : '';
-      return `- ${p}: ${projectPaths[p] || 'unknown'}${designInfo}`;
-    }).join('\n');
-
-    // Check if any project has a design attached
-    const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
-    const designSection = projectsWithDesign.length > 0 ? `
-## Design System Available
-
-The following projects have design mockups attached:
-${projectsWithDesign.map(p => `- **${p}**: Design "${this.projectConfig[p]?.attachedDesign}" is in \`${projectPaths[p]}/ui_mockup/\``).join('\n')}
-
-**IMPORTANT**: Before asking about visual style or UI preferences, READ the design files in ui_mockup/ folders.
-The design system already defines colors, typography, components, and layouts. Use what's there.
-` : '';
+      const hasDesign = config?.attachedDesign;
+      const designPart = hasDesign ? ' and ui_mockup/' : '';
+      return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
+1. Read CLAUDE.md and .claude/skills/*.md${designPart} - summarize project purpose, conventions, patterns
+2. Search for code related to: ${feature}
+3. Find similar existing features or patterns we can learn from
+Return: project overview + relevant existing code for this feature")`;
+    }).join('\n\n');
 
     return `You are a planning agent conducting Stage 1: Feature Refinement.
 
-This is **PRODUCT** refinement - focus on user needs, not technical implementation.
-
-## Initial Feature Request
+## Feature Request
 ${feature}
 
 ## Projects
-${projectList}
-${designSection}
-## Your Task: Understand the Product Need
+${projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n')}
 
-### Step 1: FIRST, Analyze What Already Exists (REQUIRED)
+## STEP 1: EXPLORE PROJECTS + FEATURE CONTEXT (MANDATORY)
 
-Before asking ANY questions, you MUST understand each project. For EACH project, read:
+Launch Explore agents in parallel - one per project. Each agent explores:
+- Project guidelines (CLAUDE.md, skills)
+- Code related to the requested feature
 
-1. **CLAUDE.md** - Project overview, conventions, what already exists
-   - Path: \`{projectPath}/CLAUDE.md\`
+**Launch ALL of these in a SINGLE message:**
 
-2. **Skills folder** - Available capabilities and patterns
-   - Path: \`{projectPath}/.claude/skills/\`
-   - Read any .md files in this folder
+${exploreCommands}
 
-3. **Design mockups** (if attached)
-   - Path: \`{projectPath}/ui_mockup/\`
-   - Read design files to understand the visual direction
+**DO NOT proceed until you have explored ALL projects.**
 
-This tells you:
-- What the project already does
-- What conventions to follow
-- What components/patterns already exist
-- What the design system looks like
+## STEP 2: ASK CLARIFYING QUESTIONS
 
-#### PARALLEL ANALYSIS (Recommended for Multiple Projects)
+After exploring, ask 1-5 clarifying questions about PRODUCT requirements:
+- What user problem does this solve?
+- What's the expected user flow?
+- Any edge cases or error handling preferences?
 
-For faster analysis, spawn multiple subagents to explore different projects simultaneously:
+Use \`mcp__orchestrator-planning__ask_planning_question\` for questions.
 
-**How to use:**
-1. Use the Task tool with \`subagent_type="Explore"\`
-2. Launch multiple agents in a SINGLE message (multiple Task tool calls)
-3. Each agent explores a different project
-4. Wait for all agents, then synthesize findings
-
-**Example - Parallel project exploration:**
-\`\`\`
-Agent 1: "Read CLAUDE.md and .claude/skills/ in {frontend-path}. Summarize what exists."
-Agent 2: "Read CLAUDE.md and .claude/skills/ in {backend-path}. Summarize what exists."
-Agent 3: "Read ui_mockup/ in {frontend-path}. Describe the design system."
-\`\`\`
-
-**Tips:**
-- Use "quick" thoroughness for initial CLAUDE.md/skills reads
-- Be specific in each agent's task to avoid duplicate work
-- Combine findings from all agents before asking questions
-
-### Step 2: Ask Informed Questions
-
-Now that you understand what exists, ask clarifying questions:
-- Focus on PRODUCT requirements (what users need)
-- Skip questions about things you already learned from the files
-- Skip design questions if you read the ui_mockup/ folder
-- Typically 1-3 questions for simple features, 3-5 for complex ones
-
-Use \`mcp__orchestrator-planning__ask_planning_question\` to ask questions.
-
-### Step 3: Synthesize
-
-After the Q&A dialogue, synthesize what you learned into:
-- A refined feature description (1-2 paragraphs) - what the USER gets
-- Key product requirements (user-facing outcomes) - as many as needed, typically 2-6
+## STEP 3: SUBMIT REFINED FEATURE
 
 Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
-- refinedDescription: Your synthesized description
-- keyRequirements: Array of requirement strings
+- refinedDescription: 1-2 paragraph summary
+- keyRequirements: Array of user-facing requirements
 
-The tool returns JSON with:
-- status: "approved" or "refine"
-- feedback: (if refine) What to change
-- nextPrompt: (if approved) Instructions for exploring the codebase
+[PLANNER_STATUS] {"phase": "exploring", "message": "Launching project exploration..."}
 
-**IMPORTANT:** If status is "approved", the response includes a \`nextPrompt\` field with instructions for Project Exploration.
-You MUST follow the instructions in nextPrompt to explore the codebase and understand how to implement this feature.
-Do NOT invent your own exploration behavior - use the provided prompt exactly.
-
-If status is "refine", revise based on feedback and resubmit.
-
-## Status Reporting
-[PLANNER_STATUS] {"phase": "exploring", "message": "Analyzing projects..."}
-
-**START by reading CLAUDE.md and skills for each project. Then ask informed questions.**`;
+**START NOW: Launch the Explore agents for all projects in a single message.**`;
   }
 
   /**
-   * Generates the Stage 2 prompt for Exploration & Planning.
+   * Generates the Stage 2 prompt for Implementation Planning.
    * Called when submit_refined_feature is approved.
-   * Combines exploration and technical planning into a single stage.
+   * Uses Plan tool directly (skips manual technical spec).
    */
   generateExplorationPlanningPrompt(refinedDescription: string, requirements: string[]): string {
-    return `## Stage 2: Exploration & Planning
+    const projects = this.pendingPlanContext?.projects || [];
+    const projectPaths = this.pendingPlanContext?.projectPaths || {};
 
-You have a refined understanding of the feature:
+    const projectList = projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n');
+    const requirementsList = requirements.map((r, i) => `${i + 1}. ${r}`).join('\n');
 
-**Description:**
-${refinedDescription}
+    return `## Stage 2: Generate Implementation Plan
+
+**Feature:** ${refinedDescription}
 
 **Requirements:**
-${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+${requirementsList}
 
-## Your Task
+**Projects:**
+${projectList}
 
-Now explore the codebase to understand HOW to implement this, then define the technical approach.
+## YOUR TASK: Call the Plan tool
 
-### Step 1: Explore the Codebase
+Use the Task tool with subagent_type="Plan" to generate the implementation plan.
 
-Use the Task tool with subagent_type="Explore" to analyze the codebase:
+Task(subagent_type="Plan", description="Plan ${refinedDescription.slice(0, 30)}", prompt="
+Create implementation plan for this feature:
 
-**Launch exploration agents in a SINGLE message:**
-1. "Explore for existing API patterns, database models, and authentication"
-2. "Explore for frontend components, state management, and routing patterns"
-3. "Search for similar features already implemented that we can learn from"
+**Feature:** ${refinedDescription}
 
-### What to Discover
+**Requirements:**
+${requirementsList}
 
-- Existing code patterns and conventions
-- Database schema and models
-- API endpoint patterns
-- Frontend component structure
-- Authentication/authorization patterns
-- Testing patterns
+**Projects:**
+${projectList}
 
-### Step 2: Define Technical Approach
+## YOUR STEPS:
 
-Based on your exploration, define:
+1. EXPLORE each project to understand:
+   - Existing patterns related to this feature
+   - Where new code should be added
+   - API patterns, database models, component structure
+   - How similar features are implemented
 
-1. **API Contracts** - For each endpoint needed:
-   - endpoint: The path (e.g., "/api/users")
-   - method: HTTP method
-   - request: Request body fields and types
-   - response: Response body fields and types
-   - providedBy: Which project implements this
-   - consumedBy: Which projects call this
+2. GENERATE implementation plan with tasks for each project
 
-2. **Architecture Decisions** - Key technical choices (keep it brief, 2-5 decisions)
+## OUTPUT FORMAT:
 
-3. **Execution Order** - Which projects to implement first and dependencies
+{
+  \\"feature\\": \\"Feature name\\",
+  \\"description\\": \\"Brief description\\",
+  \\"overview\\": \\"High-level implementation approach\\",
+  \\"architecture\\": \\"flowchart LR\\\\n    ui[Frontend] --> api[Backend API]\\\\n    api --> db[(Database)]\\",
+  \\"tasks\\": [
+    {
+      \\"project\\": \\"project-name\\",
+      \\"name\\": \\"Task name\\",
+      \\"task\\": \\"## Detailed task description in markdown\\\\n\\\\n**Files to create:**\\\\n- path/to/file.ts\\\\n\\\\n**Implementation:**\\\\n- Step by step instructions...\\"
+    }
+  ],
+  \\"testPlan\\": {
+    \\"project-name\\": [\\"E2E scenario 1\\", \\"E2E scenario 2\\"]
+  },
+  \\"e2eDependencies\\": {
+    \\"frontend\\": [\\"backend\\"]
+  }
+}
 
-### Submit for Approval
+## TASK REQUIREMENTS:
 
-Call \`mcp__orchestrator-planning__submit_technical_spec\` with:
-- apiContracts: Array of contract objects
-- architectureDecisions: Array of decision strings
-- executionOrder: Array of { project, dependsOn: string[] }
+Each task MUST include:
+1. **Files to create/modify** - exact paths matching project conventions
+2. **Implementation details** - functions, classes, components
+3. **For APIs:** Complete contract for EVERY endpoint:
+   - HTTP method and full path
+   - Request/response body schemas
+   - Status codes and error handling
+4. **For UIs:** component props, state, behavior, API endpoints called
 
-The tool returns JSON with:
-- status: "approved" or "refine"
-- feedback: (if refine) What to change
-- instructions: (if approved) Next steps for task generation
+## RULES:
 
-**IMPORTANT:** If status is "approved", follow the \`instructions\` field for Task Generation.
+- Tasks for DIFFERENT projects run IN PARALLEL
+- Tasks for SAME project run SEQUENTIALLY (in array order)
+- NO task-level dependencies - e2eDependencies controls E2E test order only
+- testPlan = E2E scenarios only (automatable via HTTP or browser)
+")
 
-If status is "refine", update based on feedback and resubmit.
+After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the plan.
 
-## Status Reporting
-[PLANNER_STATUS] {"phase": "exploring", "message": "Exploring codebase..."}`;
+[PLANNER_STATUS] {"phase": "planning", "message": "Generating implementation plan..."}
+
+**Call the Plan tool now.**`;
   }
 
   /**
@@ -1356,71 +1326,6 @@ The [TASK_RESULT] marker followed by JSON is REQUIRED. This is how the orchestra
         analysis: `Analysis failed: ${err}`,
         suggestedAction: 'escalate'
       };
-    }
-  }
-
-  /**
-   * Sends coordination message between agents
-   */
-  async coordinateAgents(message: string): Promise<string> {
-    const prompt = `Coordination needed between agents:
-
-${message}
-
-Please provide guidance on how to handle this coordination.`;
-
-    return await this.sendChat(prompt);
-  }
-
-  /**
-   * Analyzes an event and returns an action
-   */
-  async analyzeEvent(eventJson: string): Promise<string> {
-    const prompt = `Analyze this event and return a JSON action:
-
-${eventJson}
-
-Return one of these action types as JSON:
-- {"type": "chat_response", "message": "..."}
-- {"type": "send_to_agent", "project": "...", "prompt": "..."}
-- {"type": "send_e2e", "project": "...", "prompt": "..."}
-- {"type": "restart_server", "project": "..."}
-- {"type": "complete", "summary": "..."}
-- {"type": "noop"}
-
-## RESPONSE FORMAT (REQUIRED)
-
-You may add brief explanation text before the marker, but you MUST end with:
-
-[EVENT_ACTION] {"type": "...", ...}
-
-The [EVENT_ACTION] marker followed by JSON is REQUIRED.`;
-
-    try {
-      const result = await this.sendChat(prompt);
-
-      // Try marker-based parsing first
-      const parsed = parseMarkedResponse<{ type: string }>(result, MARKERS.EVENT_ACTION, ['type']);
-      if (parsed.success && parsed.data) {
-        console.log(`[PlanningAgent] Parsed event action via [EVENT_ACTION] marker`);
-        return JSON.stringify(parsed.data);
-      }
-
-      // Fallback: Extract JSON from response (legacy format)
-      console.log(`[PlanningAgent] Event action marker not found, falling back to regex: ${parsed.error}`);
-      const jsonMatch = result.match(/\{[\s\S]*?"type"\s*:\s*"[^"]+"[\s\S]*?\}/);
-      if (jsonMatch) {
-        try {
-          JSON.parse(jsonMatch[0]);
-          return jsonMatch[0];
-        } catch {
-          // Fall through
-        }
-      }
-      return '{"type": "noop"}';
-    } catch (err) {
-      console.error('[PlanningAgent] Error analyzing event:', err);
-      return '{"type": "noop"}';
     }
   }
 
@@ -1751,69 +1656,5 @@ Rules:
   clearHistory(): void {
     this.conversationHistory = [];
     console.log('[PlanningAgent] Conversation history cleared');
-  }
-
-  /**
-   * Requests a redistribution plan when execution is stuck
-   * This happens when tasks fail and other tasks are blocked
-   */
-  async requestRedistribution(context: RedistributionContext): Promise<void> {
-    const completedSection = context.completedWork.length > 0
-      ? `## Completed Work (DO NOT REDO - these are done)\n${context.completedWork.map(w =>
-          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Status: ${w.status}`
-        ).join('\n')}`
-      : '## Completed Work\nNo tasks completed yet.';
-
-    const failedSection = context.failedWork.length > 0
-      ? `## Failed Work (NEEDS FIXING)\n${context.failedWork.map(w =>
-          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Error: ${w.error || 'Unknown error'}\n  Original task: ${w.task.task.slice(0, 200)}...`
-        ).join('\n\n')}`
-      : '## Failed Work\nNo tasks failed.';
-
-    const pendingSection = context.pendingWork.length > 0
-      ? `## Pending Work (BLOCKED)\n${context.pendingWork.map(w =>
-          `- Task #${w.index} [${w.task.project}]: ${w.task.name}\n  Blocked by tasks: ${w.blockedBy?.join(', ') || 'unknown'}`
-        ).join('\n')}`
-      : '## Pending Work\nNo tasks pending.';
-
-    const prompt = `# EXECUTION STUCK - REDISTRIBUTION NEEDED
-
-The current execution is STUCK and cannot continue. Please analyze and create a NEW plan.
-
-## Original Feature
-${context.feature}
-
-${completedSection}
-
-${failedSection}
-
-${pendingSection}
-
-## Your Task
-
-1. **EXPLORE** the current state of the codebase to see what was actually implemented
-   - Check the projects to see what code exists
-   - Look at error logs, build output, etc.
-
-2. **ANALYZE** why tasks failed
-   - Check build errors, missing dependencies, incorrect code
-   - Understand what went wrong
-
-3. **CREATE A NEW PLAN** that:
-   - Does NOT redo completed work (assume it's correct)
-   - Fixes the issues in failed tasks (create new fix tasks)
-   - May reorganize pending tasks if dependencies changed
-   - May add new tasks to address discovered issues
-
-4. **Use the same JSON format** as before with task indices
-
-IMPORTANT:
-- Task indices in the new plan start fresh (0, 1, 2...) - don't reference old indices
-- If a completed task is broken, create a FIX task that patches it
-- Be specific about what went wrong and how to fix it
-
-Start by exploring the current state, then create the new plan.`;
-
-    await this.sendChat(prompt, PlanningAgentManager.TIMEOUTS.PLAN_CREATION);
   }
 }

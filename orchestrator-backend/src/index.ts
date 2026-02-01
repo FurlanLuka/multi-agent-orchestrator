@@ -1785,6 +1785,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Get project configs from workspace (inline storage)
             workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
 
+            // MERGE workspace configs into config.projects so all managers have access
+            // This is the simple fix: ProcessManager, SessionManager, TaskExecutor, etc. all use config.projects
+            Object.assign(config.projects, workspaceProjectConfigs);
+
+            // Also update PlanningAgent's project config
+            planningAgent.setProjectConfig(config.projects);
+
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
               resolvedProjects = workspaceManager.getWorkspaceProjectNames(workspaceId);
@@ -2738,6 +2745,12 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
             : undefined;
 
+          // Create the subdirectory for this project (e.g., ~/orchy/blog2/frontend)
+          const projectSubdir = path.join(expandedTargetPath, suffix);
+          if (!fs.existsSync(projectSubdir)) {
+            fs.mkdirSync(projectSubdir, { recursive: true });
+          }
+
           const projectConfig = await templateManager.createFromTemplate({
             name: projectName,
             targetPath: `${targetPath}/${suffix}`,
@@ -2916,6 +2929,12 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const dependsOn = templateName.includes('frontend') && createdProjectConfigs.some(p => p.name.includes('backend'))
             ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
             : undefined;
+
+          // Create the subdirectory for this project (e.g., ~/orchy/blog2/frontend)
+          const projectSubdir = path.join(expandedTargetPath, suffix);
+          if (!fs.existsSync(projectSubdir)) {
+            fs.mkdirSync(projectSubdir, { recursive: true });
+          }
 
           const projectConfig = await templateManager.createFromTemplate({
             name: projectName,
