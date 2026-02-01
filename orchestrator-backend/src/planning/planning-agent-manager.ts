@@ -78,6 +78,7 @@ export class PlanningAgentManager extends EventEmitter {
   } | null = null;
 
   // Request queue for serializing Claude calls (prevents race conditions)
+  private readonly MAX_QUEUE_SIZE = 10;
   private requestQueue: Array<{
     prompt: string;
     timeout: number;
@@ -575,6 +576,11 @@ User: ${newMessage}`;
    * This prevents race conditions where multiple Claude processes spawn simultaneously.
    */
   private async queuedExecute(prompt: string, timeout: number): Promise<string> {
+    // Reject if queue is full to prevent resource exhaustion
+    if (this.requestQueue.length >= this.MAX_QUEUE_SIZE) {
+      throw new Error('Planning Agent queue full - too many concurrent requests');
+    }
+
     return new Promise((resolve, reject) => {
       this.requestQueue.push({ prompt, timeout, resolve, reject });
       this.processQueue();

@@ -183,10 +183,21 @@ export class DesignerAgentManager extends EventEmitter {
    */
   async endSession(): Promise<void> {
     const sessionId = this.session?.id;
+    const proc = this.currentProcess;
 
-    if (this.currentProcess) {
-      console.log('[DesignerAgent] Ending session, killing process');
-      this.currentProcess.kill('SIGTERM');
+    if (proc) {
+      console.log('[DesignerAgent] Ending session, sending SIGTERM');
+      proc.kill('SIGTERM');
+
+      // Force kill after 5 seconds if process doesn't respond
+      const forceKillTimeout = setTimeout(() => {
+        if (proc.exitCode === null && proc.signalCode === null) {
+          console.log('[DesignerAgent] Process not responding, sending SIGKILL');
+          proc.kill('SIGKILL');
+        }
+      }, 5000);
+
+      proc.once('exit', () => clearTimeout(forceKillTimeout));
       this.currentProcess = null;
     }
 
