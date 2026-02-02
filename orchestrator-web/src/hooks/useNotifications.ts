@@ -39,27 +39,26 @@ export function useNotifications() {
   const prevDesignPreview = useRef(designPreview);
   const prevDesignComplete = useRef(designComplete);
 
-  const shouldNotify = useCallback((): boolean => {
-    // If notifyOnlyWhenHidden is enabled, only notify when tab is hidden
+  const shouldShowBrowserNotification = useCallback((): boolean => {
+    // If notifyOnlyWhenHidden is enabled, only show browser notification when tab is hidden
     if (settings.notifyOnlyWhenHidden && !document.hidden) {
-      console.debug('[Notifications] Skipped - tab is visible and notifyOnlyWhenHidden is enabled');
       return false;
     }
     return true;
   }, [settings.notifyOnlyWhenHidden]);
 
   const sendNotification = useCallback((config: NotificationConfig) => {
-    if (!shouldNotify()) return;
-
     console.log(`[Notifications] Sending: ${config.title}`);
 
-    // Play sound if enabled
+    // Play sound if enabled - always plays regardless of tab visibility
     if (settings.soundEnabled) {
       play(config.sound, settings.soundVolume);
     }
 
-    // Show browser notification if enabled and permission granted
-    if (settings.browserNotificationsEnabled && Notification.permission === 'granted') {
+    // Show browser notification if enabled, permission granted, and visibility conditions met
+    if (settings.browserNotificationsEnabled &&
+        Notification.permission === 'granted' &&
+        shouldShowBrowserNotification()) {
       try {
         new Notification(config.title, {
           body: config.getMessage(),
@@ -70,7 +69,7 @@ export function useNotifications() {
         console.debug('Browser notification error:', err);
       }
     }
-  }, [shouldNotify, settings, play]);
+  }, [settings, play, shouldShowBrowserNotification]);
 
   // Watch for permission prompt changes
   // Notify when: new permission appears (null→value) OR different permission (valueA→valueB)
@@ -82,7 +81,7 @@ export function useNotifications() {
     // Notify if there's a current prompt AND it's different from previous
     if (curr && curr !== prev) {
       sendNotification({
-        sound: 'alert',
+        sound: 'chime',
         title: 'Permission needed',
         getMessage: () => `Permission needed: ${curr.toolName}`,
       });
@@ -128,7 +127,7 @@ export function useNotifications() {
     if (curr && curr !== prev) {
       const currentQ = curr.questions[curr.currentIndex];
       sendNotification({
-        sound: 'soft',
+        sound: 'chime',
         title: 'Question from planner',
         getMessage: () => currentQ?.question || 'The planner has a question for you',
       });
@@ -143,7 +142,7 @@ export function useNotifications() {
 
     if (curr && curr !== prev) {
       sendNotification({
-        sound: 'alert',
+        sound: 'chime',
         title: 'Input required',
         getMessage: () => curr.inputs[0]?.label || 'User input is required',
       });
@@ -179,7 +178,7 @@ export function useNotifications() {
     // Only notify if in a design session and input was locked, now unlocked
     if (designSessionId && prev === true && curr === false) {
       sendNotification({
-        sound: 'soft',
+        sound: 'chime',
         title: 'Design input ready',
         getMessage: () => 'The design assistant is waiting for your response',
       });
