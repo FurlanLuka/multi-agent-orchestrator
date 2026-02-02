@@ -8,11 +8,7 @@
     "dev": "NODE_ENV=development ts-node src/index.ts",
     "build": "tsc",
     "obfuscate": "javascript-obfuscator dist --output dist --config obfuscator.config.json",
-    "build:release": "npm run clean && npm run build && npm run obfuscate",
-    "build:pkg-macos-arm64": "pkg . --targets node18-macos-arm64 --output ../dist/orchy-macos-arm64",
-    "build:pkg-macos-x64": "pkg . --targets node18-macos-x64 --output ../dist/orchy-macos-x64",
-    "build:pkg-linux-x64": "pkg . --targets node18-linux-x64 --output ../dist/orchy-linux-x64",
-    "build:pkg-windows-x64": "pkg . --targets node18-win-x64 --output ../dist/orchy-windows-x64.exe",
+    "build:pkg-all": "pkg . --targets node18-macos-arm64,node18-macos-x64,node18-linux-x64,node18-win-x64 --out-path ../dist",
     "clean": "rm -rf dist web-dist"
   },
   "dependencies": {

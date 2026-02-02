@@ -260,7 +260,19 @@ export function useSocket() {
       cleanup = unsubscribe;
     });
 
+    // Also poll for injected port (Tauri injects via window.eval)
+    const pollInterval = setInterval(() => {
+      if (window.__ORCHESTRATOR_PORT__) {
+        const injectedPort = window.__ORCHESTRATOR_PORT__;
+        console.log(`[useSocket] Found injected port: ${injectedPort}`);
+        setPort(injectedPort);
+        setSocketUrl(`http://localhost:${injectedPort}`);
+        clearInterval(pollInterval);
+      }
+    }, 100);
+
     return () => {
+      clearInterval(pollInterval);
       if (cleanup) cleanup();
     };
   }, [port]);

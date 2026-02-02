@@ -82,6 +82,8 @@ export function HistoricalSessionView() {
   const [architectureValid, setArchitectureValid] = useState(true);
   const [activeTab, setActiveTab] = useState<string | null>('overview');
 
+  const effectivePort = (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+
   useEffect(() => {
     const fetchSession = async () => {
       if (!sessionId) return;
@@ -90,7 +92,7 @@ export function HistoricalSessionView() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/sessions/${sessionId}`);
+        const response = await fetch(`http://localhost:${effectivePort}/api/sessions/${sessionId}`);
         if (!response.ok) {
           throw new Error('Failed to fetch session');
         }
@@ -106,7 +108,7 @@ export function HistoricalSessionView() {
     };
 
     fetchSession();
-  }, [sessionId]);
+  }, [sessionId, effectivePort]);
 
   // Prepare chat timeline data for the ChatTimeline component
   const chatTimelineData: ChatTimelineData = useMemo(() => ({

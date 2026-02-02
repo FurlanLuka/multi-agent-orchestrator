@@ -593,6 +593,7 @@ export function PromptScreen({
           <SessionHistoryList
             workspaceId={workspace.id}
             onSelectSession={onSelectHistoricalSession}
+            port={effectivePort}
           />
         )}
       </Stack>

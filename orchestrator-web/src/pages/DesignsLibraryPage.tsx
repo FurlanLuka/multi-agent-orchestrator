@@ -23,6 +23,7 @@ interface DesignsLibraryPageProps {
 
 export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
   const { port } = useOrchestrator();
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
   const [designs, setDesigns] = useState<SavedDesignFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,13 +36,13 @@ export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
 
   // Fetch designs on mount
   const fetchDesigns = useCallback(async () => {
-    if (!port) return;
+    if (!effectivePort) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`http://localhost:${port}/api/designs`);
+      const response = await fetch(`http://localhost:${effectivePort}/api/designs`);
       if (!response.ok) {
         throw new Error('Failed to fetch designs');
       }
@@ -52,7 +53,7 @@ export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
     } finally {
       setLoading(false);
     }
-  }, [port]);
+  }, [effectivePort]);
 
   useEffect(() => {
     fetchDesigns();
@@ -60,12 +61,12 @@ export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
 
   // Handle clicking on a design card
   const handleDesignClick = async (design: SavedDesignFolder) => {
-    if (!port) return;
+    if (!effectivePort) return;
 
     setLoadingDesign(design.name);
 
     try {
-      const response = await fetch(`http://localhost:${port}/api/designs/${encodeURIComponent(design.name)}`);
+      const response = await fetch(`http://localhost:${effectivePort}/api/designs/${encodeURIComponent(design.name)}`);
       if (!response.ok) {
         throw new Error('Failed to load design');
       }
@@ -83,11 +84,11 @@ export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
   const handleDeleteDesign = async (design: SavedDesignFolder, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!port) return;
+    if (!effectivePort) return;
     if (!confirm(`Delete "${design.name}"? This cannot be undone.`)) return;
 
     try {
-      const response = await fetch(`http://localhost:${port}/api/designs/${encodeURIComponent(design.name)}`, {
+      const response = await fetch(`http://localhost:${effectivePort}/api/designs/${encodeURIComponent(design.name)}`, {
         method: 'DELETE',
       });
       if (!response.ok) {

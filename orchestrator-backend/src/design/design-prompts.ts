@@ -1,20 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { DesignReferenceLibrary, DesignCategory } from '@orchy/types';
+import { DesignCategory, DesignReferenceLibrary } from '@orchy/types';
 import {
   getComponentListForPrompt,
   getSectionListForPrompt,
   getStyleApproachesForPrompt,
 } from './design-definitions';
-
-/**
- * Load the design references library
- */
-export function loadDesignReferences(): DesignReferenceLibrary {
-  const referencesPath = path.join(__dirname, 'design-references.json');
-  const content = fs.readFileSync(referencesPath, 'utf-8');
-  return JSON.parse(content) as DesignReferenceLibrary;
-}
+import { designReferences } from './design-references';
 
 /**
  * Get category-specific opening messages
@@ -37,7 +29,7 @@ function getCategoryOpeningMessage(category: DesignCategory): string {
  * Get system prompt for the Designer Agent
  */
 export function getDesignerSystemPrompt(category?: DesignCategory): string {
-  const references = loadDesignReferences();
+  const references = designReferences;
 
   const categoryContext = category
     ? `The user has already selected "${category}" as their project type. Your first message should acknowledge this and ask a natural follow-up question to understand their project better. Use the opening message style below as a guide.
@@ -638,7 +630,7 @@ export function getMockupGenerationPrompt(
   componentsHtml: string
 ): string {
   const sectionList = getSectionListForPrompt(category);
-  const references = loadDesignReferences();
+  const references = designReferences;
   const categoryStyles = references.categories[category];
 
   return `Generate 3-4 full-page mockup variations for a ${category} project.

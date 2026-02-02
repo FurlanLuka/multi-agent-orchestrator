@@ -13,7 +13,9 @@
  * Check if running inside Tauri
  */
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && !!window.__TAURI__;
+  const result = typeof window !== 'undefined' && !!window.__TAURI__;
+  console.log('[Tauri] isTauri check:', result, 'window.__TAURI__:', typeof window !== 'undefined' ? window.__TAURI__ : 'undefined');
+  return result;
 }
 
 /**
@@ -26,11 +28,15 @@ export async function getBackendPort(): Promise<number | null> {
     return window.__ORCHESTRATOR_PORT__;
   }
 
-  // Try Tauri invoke if available
+  // Try Tauri invoke if available (Tauri v2 uses core.invoke)
   if (isTauri() && window.__TAURI__) {
     try {
-      const port = await window.__TAURI__.invoke<number | null>('get_backend_port');
-      return port;
+      // Tauri v2: invoke is under core
+      const invoke = window.__TAURI__.core?.invoke || window.__TAURI__.invoke;
+      if (invoke) {
+        const port = await invoke<number | null>('get_backend_port');
+        return port;
+      }
     } catch (e) {
       console.error('Failed to get backend port from Tauri:', e);
     }
@@ -45,7 +51,11 @@ export async function getBackendPort(): Promise<number | null> {
 export async function isBackendReady(): Promise<boolean> {
   if (isTauri() && window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke<boolean>('is_backend_ready');
+      // Tauri v2: invoke is under core
+      const invoke = window.__TAURI__.core?.invoke || window.__TAURI__.invoke;
+      if (invoke) {
+        return await invoke<boolean>('is_backend_ready');
+      }
     } catch (e) {
       console.error('Failed to check backend status:', e);
     }
@@ -59,12 +69,16 @@ export async function isBackendReady(): Promise<boolean> {
  * Listen for backend ready event from Tauri
  */
 export async function onBackendReady(callback: (port: number) => void): Promise<() => void> {
+  console.log('[Tauri] onBackendReady called, isTauri:', isTauri());
   if (isTauri() && window.__TAURI__) {
+    console.log('[Tauri] Setting up backend-ready listener, __TAURI__.event:', window.__TAURI__.event);
     return window.__TAURI__.event.listen<number>('backend-ready', (event) => {
+      console.log('[Tauri] backend-ready event received:', event);
       callback(event.payload);
     });
   }
 
+  console.log('[Tauri] Not in Tauri mode, returning no-op');
   // No-op cleanup function if not in Tauri
   return () => {};
 }

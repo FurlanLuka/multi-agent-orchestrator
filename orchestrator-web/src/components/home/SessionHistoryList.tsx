@@ -15,6 +15,7 @@ import { GlassCard } from '../../theme';
 interface SessionHistoryListProps {
   workspaceId: string;
   onSelectSession: (sessionId: string) => void;
+  port: number | null;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -52,17 +53,19 @@ function getCompletionBadge(reason: SessionCompletionReason | undefined, status:
   }
 }
 
-export function SessionHistoryList({ workspaceId, onSelectSession }: SessionHistoryListProps) {
+export function SessionHistoryList({ workspaceId, onSelectSession, port }: SessionHistoryListProps) {
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
   useEffect(() => {
     const fetchSessions = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/workspaces/${workspaceId}/sessions`);
+        const response = await fetch(`http://localhost:${effectivePort}/api/workspaces/${workspaceId}/sessions`);
         if (!response.ok) {
           throw new Error('Failed to fetch sessions');
         }
@@ -76,7 +79,7 @@ export function SessionHistoryList({ workspaceId, onSelectSession }: SessionHist
     };
 
     fetchSessions();
-  }, [workspaceId]);
+  }, [workspaceId, effectivePort]);
 
   if (loading) {
     return (

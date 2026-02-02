@@ -86,6 +86,8 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     finishAddingPages,
   } = useOrchestrator();
 
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+
   // Activate notification system
   useNotifications();
 
@@ -151,13 +153,13 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
 
   // Handle save to library
   const handleSaveToLibrary = async () => {
-    if (!port || !designName.trim()) return;
+    if (!effectivePort || !designName.trim()) return;
 
     setSaving(true);
     setSaveError(null);
 
     try {
-      const response = await fetch(`http://localhost:${port}/api/designer/save-design-folder`, {
+      const response = await fetch(`http://localhost:${effectivePort}/api/designer/save-design-folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ designName: designName.trim() }),

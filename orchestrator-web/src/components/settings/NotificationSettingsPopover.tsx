@@ -15,10 +15,12 @@ import {
   IconBell,
   IconVolume,
   IconBrowserCheck,
+  IconDeviceDesktop,
   IconEyeOff,
 } from '@tabler/icons-react';
 import { useNotificationSettings, type BrowserPermissionStatus } from '../../hooks/useNotificationSettings';
 import { useAudioNotifications } from '../../hooks/useAudioNotifications';
+import { isTauri } from '../../lib/tauri';
 
 export function NotificationSettingsPopover() {
   const [opened, setOpened] = useState(false);
@@ -26,6 +28,7 @@ export function NotificationSettingsPopover() {
   const { play } = useAudioNotifications();
 
   const browserPermission = getBrowserPermissionStatus();
+  const isDesktopApp = isTauri();
 
   const handleSoundToggle = useCallback((enabled: boolean) => {
     updateSettings({ soundEnabled: enabled });
@@ -135,12 +138,16 @@ export function NotificationSettingsPopover() {
 
           <Divider />
 
-          {/* Browser notifications */}
+          {/* Browser/Desktop notifications */}
           <Box>
             <Group justify="space-between">
               <Group gap="xs">
-                <IconBrowserCheck size={16} style={{ color: 'var(--text-dimmed)' }} />
-                <Text size="sm">Browser notifications</Text>
+                {isDesktopApp ? (
+                  <IconDeviceDesktop size={16} style={{ color: 'var(--text-dimmed)' }} />
+                ) : (
+                  <IconBrowserCheck size={16} style={{ color: 'var(--text-dimmed)' }} />
+                )}
+                <Text size="sm">{isDesktopApp ? 'Desktop notifications' : 'Browser notifications'}</Text>
               </Group>
               <Group gap="xs">
                 {getPermissionBadge(browserPermission)}
@@ -154,25 +161,30 @@ export function NotificationSettingsPopover() {
             </Group>
             {browserPermission === 'denied' && (
               <Text size="xs" c="dimmed" mt="xs" ml={24}>
-                Enable in browser settings to use notifications
+                {isDesktopApp
+                  ? 'Enable in system settings to use notifications'
+                  : 'Enable in browser settings to use notifications'}
               </Text>
             )}
           </Box>
 
-          <Divider />
-
-          {/* Only when hidden */}
-          <Group justify="space-between">
-            <Group gap="xs">
-              <IconEyeOff size={16} style={{ color: 'var(--text-dimmed)' }} />
-              <Text size="sm">Only when tab hidden</Text>
-            </Group>
-            <Switch
-              checked={settings.notifyOnlyWhenHidden}
-              onChange={e => handleOnlyWhenHiddenToggle(e.currentTarget.checked)}
-              size="sm"
-            />
-          </Group>
+          {/* Only when hidden - hide in desktop app since it's less relevant */}
+          {!isDesktopApp && (
+            <>
+              <Divider />
+              <Group justify="space-between">
+                <Group gap="xs">
+                  <IconEyeOff size={16} style={{ color: 'var(--text-dimmed)' }} />
+                  <Text size="sm">Only when tab hidden</Text>
+                </Group>
+                <Switch
+                  checked={settings.notifyOnlyWhenHidden}
+                  onChange={e => handleOnlyWhenHiddenToggle(e.currentTarget.checked)}
+                  size="sm"
+                />
+              </Group>
+            </>
+          )}
         </Stack>
       </Popover.Dropdown>
     </Popover>

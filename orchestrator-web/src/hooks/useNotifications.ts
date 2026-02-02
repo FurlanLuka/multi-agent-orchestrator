@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useOrchestrator } from '../context/OrchestratorContext';
 import { useNotificationSettings } from './useNotificationSettings';
 import { useAudioNotifications, type NotificationSoundType } from './useAudioNotifications';
+import { isTauri } from '../lib/tauri';
 
 interface NotificationConfig {
   sound: NotificationSoundType;
@@ -40,6 +41,10 @@ export function useNotifications() {
   const prevDesignComplete = useRef(designComplete);
 
   const shouldShowBrowserNotification = useCallback((): boolean => {
+    // In Tauri mode, always show notifications (no tab visibility concept)
+    if (isTauri()) {
+      return true;
+    }
     // If notifyOnlyWhenHidden is enabled, only show browser notification when tab is hidden
     if (settings.notifyOnlyWhenHidden && !document.hidden) {
       return false;
@@ -47,7 +52,7 @@ export function useNotifications() {
     return true;
   }, [settings.notifyOnlyWhenHidden]);
 
-  const sendNotification = useCallback((config: NotificationConfig) => {
+  const sendNotification = useCallback(async (config: NotificationConfig) => {
     console.log(`[Notifications] Sending: ${config.title}`);
 
     // Play sound if enabled - always plays regardless of tab visibility
@@ -55,10 +60,45 @@ export function useNotifications() {
       play(config.sound, settings.soundVolume);
     }
 
-    // Show browser notification if enabled, permission granted, and visibility conditions met
-    if (settings.browserNotificationsEnabled &&
-        Notification.permission === 'granted' &&
-        shouldShowBrowserNotification()) {
+    // Skip visual notification if disabled or visibility check fails
+    if (!settings.browserNotificationsEnabled || !shouldShowBrowserNotification()) {
+      return;
+    }
+
+    // Use Tauri native notifications if in Tauri mode
+    if (isTauri() && window.__TAURI__) {
+      try {
+        console.log('[Notifications] Using Tauri notifications');
+        const { sendNotification: tauriSendNotification, isPermissionGranted, requestPermission } =
+          await import('@tauri-apps/plugin-notification');
+
+        let permitted = await isPermissionGranted();
+        console.log('[Notifications] Permission granted:', permitted);
+
+        if (!permitted) {
+          console.log('[Notifications] Requesting permission...');
+          const result = await requestPermission();
+          console.log('[Notifications] Permission result:', result);
+          permitted = result === 'granted';
+        }
+
+        if (permitted) {
+          const body = config.getMessage();
+          console.log('[Notifications] Sending notification:', config.title, body);
+          await tauriSendNotification({
+            title: config.title,
+            body: body,
+          });
+          console.log('[Notifications] Notification sent successfully');
+        }
+      } catch (err) {
+        console.error('[Notifications] Tauri notification error:', err);
+      }
+      return;
+    }
+
+    // Browser fallback
+    if (Notification.permission === 'granted') {
       try {
         new Notification(config.title, {
           body: config.getMessage(),
