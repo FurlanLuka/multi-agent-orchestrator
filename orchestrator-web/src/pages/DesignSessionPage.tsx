@@ -17,7 +17,9 @@ import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, Icon
 import type { DesignPhase, DesignCategory } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextarea, GlassTextInput, glass, radii } from '../theme';
 import { DesignPreviewOverlay } from '../components/design/DesignPreviewOverlay';
+import { NotificationSettingsPopover } from '../components/settings/NotificationSettingsPopover';
 import { useOrchestrator } from '../context/OrchestratorContext';
+import { useNotifications } from '../hooks/useNotifications';
 
 interface DesignSessionPageProps {
   onBack: () => void;
@@ -83,6 +85,9 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     submitDesignFeedback,
     finishAddingPages,
   } = useOrchestrator();
+
+  // Activate notification system
+  useNotifications();
 
   // Local state for category selection (before session starts)
   const [localPhase, setLocalPhase] = useState<ExtendedPhase>('category');
@@ -199,6 +204,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
             </ActionIcon>
           </Box>
 
+          {/* Notification Settings */}
+          <Box style={{ position: 'absolute', top: 24, right: 24 }}>
+            <NotificationSettingsPopover />
+          </Box>
+
           {/* Title */}
           <Stack align="center" gap={4}>
             <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
@@ -256,6 +266,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
             <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
               <IconArrowLeft size={20} />
             </ActionIcon>
+          </Box>
+
+          {/* Notification Settings */}
+          <Box style={{ position: 'absolute', top: 24, right: 24 }}>
+            <NotificationSettingsPopover />
           </Box>
 
           {/* Save Card */}
@@ -334,6 +349,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
         <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
           <IconArrowLeft size={20} />
         </ActionIcon>
+      </Box>
+
+      {/* Notification Settings - fixed top right */}
+      <Box style={{ position: 'absolute', top: 24, right: 24 }}>
+        <NotificationSettingsPopover />
       </Box>
 
       <Container size={(designRefine || showPagesPanel) ? 'lg' : 'sm'} py={60}>

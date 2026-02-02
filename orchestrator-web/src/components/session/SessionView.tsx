@@ -29,6 +29,8 @@ import { UserInputOverlay } from '../UserInputOverlay';
 import { CompletionPanel } from './CompletionPanel';
 import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
+import { NotificationSettingsPopover } from '../settings/NotificationSettingsPopover';
+import { useNotifications } from '../../hooks/useNotifications';
 import { glass, radii, TabbedCard } from '../../theme';
 
 interface SessionViewProps {
@@ -51,6 +53,9 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     retryProject,
     startNewSession,
   } = useOrchestrator();
+
+  // Activate notification system
+  useNotifications();
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const [showInitialPrompt, setShowInitialPrompt] = useState(false);
@@ -158,14 +163,17 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
             <Title order={3} style={{ fontWeight: 700, color: 'var(--text-heading)' }}>
               Orchy
             </Title>
-            <Button
-              variant="subtle"
-              color="rose"
-              leftSection={<IconPlayerStop size={16} />}
-              onClick={() => setStopModalOpen(true)}
-            >
-              Stop Session
-            </Button>
+            <Group gap="xs">
+              <NotificationSettingsPopover />
+              <Button
+                variant="subtle"
+                color="rose"
+                leftSection={<IconPlayerStop size={16} />}
+                onClick={() => setStopModalOpen(true)}
+              >
+                Stop Session
+              </Button>
+            </Group>
           </Group>
 
           {allComplete && <CompletionPanel onBackToHome={onBackToHome} />}
