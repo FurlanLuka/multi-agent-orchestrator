@@ -82,6 +82,7 @@ interface PromptScreenProps {
   onCheckoutMainBranch: (projects: string[], stashFirst?: boolean) => void;
   onClearBranchCheck: () => void;
   onSelectHistoricalSession?: (sessionId: string) => void;
+  onResumeSession?: (sessionId: string) => void;
   // Workspace project CRUD
   onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
   onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
@@ -111,6 +112,7 @@ export function PromptScreen({
   onCheckoutMainBranch,
   onClearBranchCheck,
   onSelectHistoricalSession,
+  onResumeSession,
   onAddProjectToWorkspace,
   onUpdateWorkspaceProject,
   onRemoveProjectFromWorkspace,
@@ -667,6 +669,7 @@ export function PromptScreen({
           <SessionHistoryList
             workspaceId={workspace.id}
             onSelectSession={onSelectHistoricalSession}
+            onResumeSession={onResumeSession}
             port={effectivePort}
           />
         )}

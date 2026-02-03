@@ -7,14 +7,30 @@ import {
   Badge,
   UnstyledButton,
   ThemeIcon,
+  Button,
 } from '@mantine/core';
-import { IconCheck, IconX, IconAlertTriangle, IconMinus, IconHistory } from '@tabler/icons-react';
+import { IconCheck, IconX, IconAlertTriangle, IconMinus, IconHistory, IconPlayerPlay } from '@tabler/icons-react';
 import type { SessionHistoryEntry, SessionCompletionReason } from '@orchy/types';
 import { GlassCard } from '../../theme';
+
+/**
+ * Determines if a session can be resumed
+ * Resumable conditions:
+ * - Status is 'interrupted'
+ * - Completion reason is 'task_errors' or 'test_errors'
+ */
+function isSessionResumable(session: SessionHistoryEntry): boolean {
+  return (
+    session.status === 'interrupted' ||
+    session.completionReason === 'task_errors' ||
+    session.completionReason === 'test_errors'
+  );
+}
 
 interface SessionHistoryListProps {
   workspaceId: string;
   onSelectSession: (sessionId: string) => void;
+  onResumeSession?: (sessionId: string) => void;
   port: number | null;
 }
 
@@ -53,7 +69,7 @@ function getCompletionBadge(reason: SessionCompletionReason | undefined, status:
   }
 }
 
-export function SessionHistoryList({ workspaceId, onSelectSession, port }: SessionHistoryListProps) {
+export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSession, port }: SessionHistoryListProps) {
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,19 +128,21 @@ export function SessionHistoryList({ workspaceId, onSelectSession, port }: Sessi
       <Stack gap="xs">
         {sessions.slice(0, 5).map((session) => {
           const badge = getCompletionBadge(session.completionReason, session.status);
+          const resumable = isSessionResumable(session);
 
           return (
-            <UnstyledButton
+            <GlassCard
               key={session.id}
-              onClick={() => onSelectSession(session.id)}
+              hoverable
+              p="sm"
+              style={{ cursor: 'pointer' }}
             >
-              <GlassCard
-                hoverable
-                p="sm"
-                style={{ cursor: 'pointer' }}
-              >
-                <Group justify="space-between" wrap="nowrap">
-                  <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
+              <Group justify="space-between" wrap="nowrap">
+                <UnstyledButton
+                  onClick={() => onSelectSession(session.id)}
+                  style={{ flex: 1, overflow: 'hidden' }}
+                >
+                  <Stack gap={2}>
                     <Text
                       size="sm"
                       fw={500}
@@ -137,6 +155,22 @@ export function SessionHistoryList({ workspaceId, onSelectSession, port }: Sessi
                       {formatRelativeTime(session.completedAt || session.updatedAt)}
                     </Text>
                   </Stack>
+                </UnstyledButton>
+                <Group gap="xs" wrap="nowrap">
+                  {resumable && onResumeSession && (
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="sage"
+                      leftSection={<IconPlayerPlay size={12} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onResumeSession(session.id);
+                      }}
+                    >
+                      Resume
+                    </Button>
+                  )}
                   <Badge
                     size="sm"
                     variant="light"
@@ -146,8 +180,8 @@ export function SessionHistoryList({ workspaceId, onSelectSession, port }: Sessi
                     {badge.label}
                   </Badge>
                 </Group>
-              </GlassCard>
-            </UnstyledButton>
+              </Group>
+            </GlassCard>
           );
         })}
       </Stack>

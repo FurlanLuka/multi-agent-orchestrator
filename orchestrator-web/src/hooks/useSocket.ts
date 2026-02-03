@@ -676,10 +676,8 @@ export function useSocket() {
         activeSessionMessagesRef.current = data.chatMessages;
       }
 
-      // Restore flows from session
-      if (data.flows && data.flows.length > 0) {
-        setFlows(data.flows);
-      }
+      // Restore flows from session (or clear if empty/undefined)
+      setFlows(data.flows || []);
 
       // Restore test states
       const restoredTestStates: Record<string, ProjectTestState> = {};
@@ -702,6 +700,7 @@ export function useSocket() {
       setActiveSessionId(data.session.id);
       activeSessionIdRef.current = data.session.id;
       setAllComplete(data.session.status === 'completed');
+      setStartingSession(false);  // Clear loading state after session restored
 
       console.log(`Session ${data.session.id} auto-reconnected`);
     });
@@ -714,6 +713,12 @@ export function useSocket() {
     // Dev servers stopped event
     socket.on('devServersStopped', () => {
       console.log('Dev servers stopped');
+    });
+
+    // Resume session error
+    socket.on('resumeError', ({ error }: { error: string }) => {
+      console.error('[useSocket] Resume session error:', error);
+      setStartingSession(false);
     });
 
     // Git push events
@@ -1172,6 +1177,15 @@ export function useSocket() {
     activeSessionIdRef.current = null;
   }, []);
 
+  // Resume an interrupted or failed session
+  const resumeSession = useCallback((sessionId: string) => {
+    if (socketRef.current) {
+      setStartingSession(true);
+      // Don't clear messages - they will be restored from the session via sessionLoaded
+      socketRef.current.emit('resumeSession', { sessionId });
+    }
+  }, []);
+
   // Submit user input response (for request_user_input MCP tool)
   const submitUserInput = useCallback((requestId: string, values: Record<string, string>) => {
     if (socketRef.current) {
@@ -1572,6 +1586,7 @@ export function useSocket() {
     clearSession,
     stopSession,
     startNewSession,
+    resumeSession,
     submitUserInput,
     pushBranch,
     clearPushResult,

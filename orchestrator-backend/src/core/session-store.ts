@@ -486,6 +486,21 @@ export class SessionStore extends EventEmitter {
   }
 
   /**
+   * Updates the session status (for resuming interrupted sessions)
+   */
+  updateSessionStatus(sessionId: string, status: PersistedSession['status']): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+
+    session.status = status;
+    if (status === 'running') {
+      session.completedAt = undefined;
+    }
+    this.writeSession(session);
+    console.log(`[SessionStore] Updated session ${sessionId} status to ${status}`);
+  }
+
+  /**
    * Appends a log entry to the session's logs
    */
   appendLog(sessionId: string, entry: LogEntry): void {

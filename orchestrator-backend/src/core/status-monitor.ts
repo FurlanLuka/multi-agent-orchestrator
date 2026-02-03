@@ -344,4 +344,16 @@ export class StatusMonitor extends EventEmitter {
     }
     console.log(`[StatusMonitor] Restored statuses for ${Object.keys(statuses).length} projects`);
   }
+
+  /**
+   * Restores task states from a persisted session
+   * Used when resuming an interrupted session
+   */
+  restoreTaskStates(taskStates: TaskState[]): void {
+    this.taskStates.clear();
+    for (const state of taskStates) {
+      this.taskStates.set(state.taskIndex, state);
+    }
+    console.log(`[StatusMonitor] Restored ${taskStates.length} task states`);
+  }
 }

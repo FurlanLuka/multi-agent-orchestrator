@@ -51,6 +51,7 @@ function AppRoutes() {
     createProjectFromTemplateForWorkspace,
     createProjectError,
     clearCreateProjectError,
+    resumeSession,
   } = useOrchestrator();
 
   const navigate = useNavigate();
@@ -180,6 +181,7 @@ function AppRoutes() {
             onCreateProjectFromTemplate={createProjectFromTemplateForWorkspace}
             createProjectError={createProjectError}
             onClearCreateProjectError={clearCreateProjectError}
+            onResumeSession={resumeSession}
           />
         }
       />
@@ -236,6 +238,7 @@ function PromptScreenWrapper({
   onCreateProjectFromTemplate,
   createProjectError,
   onClearCreateProjectError,
+  onResumeSession,
 }: {
   workspaces: Record<string, WorkspaceConfig>;
   templates: any[];
@@ -266,6 +269,7 @@ function PromptScreenWrapper({
   onCreateProjectFromTemplate: (workspaceId: string, options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
   createProjectError: string | null;
   onClearCreateProjectError: () => void;
+  onResumeSession: (sessionId: string) => void;
 }) {
   const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -311,6 +315,7 @@ function PromptScreenWrapper({
         onCheckoutMainBranch={onCheckoutMainBranch}
         onClearBranchCheck={onClearBranchCheck}
         onSelectHistoricalSession={(sessionId) => navigate(`/session/${sessionId}/history`)}
+        onResumeSession={onResumeSession}
         onAddProjectToWorkspace={onAddProjectToWorkspace}
         onUpdateWorkspaceProject={onUpdateWorkspaceProject}
         onRemoveProjectFromWorkspace={onRemoveProjectFromWorkspace}

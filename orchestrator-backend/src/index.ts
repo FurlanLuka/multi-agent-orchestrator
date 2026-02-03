@@ -2245,6 +2245,233 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Handle session resume request (continue from where interrupted)
+    socket.on('resumeSession', async ({ sessionId }: { sessionId: string }) => {
+      console.log(`[Orchestrator] Resume session requested: ${sessionId}`);
+
+      try {
+        // Load full session data
+        const fullData = sessionStore.getFullSessionData(sessionId);
+        if (!fullData) {
+          socket.emit('resumeError', { error: 'Session not found' });
+          return;
+        }
+
+        if (!fullData.session.plan) {
+          socket.emit('resumeError', { error: 'Session has no plan - cannot resume' });
+          return;
+        }
+
+        // Check if session is resumable
+        const completionReason = sessionStore.getCompletionReason(fullData.session);
+        const isResumable = fullData.session.status === 'interrupted' ||
+          completionReason === 'task_errors' ||
+          completionReason === 'test_errors';
+
+        if (!isResumable) {
+          socket.emit('resumeError', { error: 'Session cannot be resumed - already completed successfully' });
+          return;
+        }
+
+        // If there's an active session, interrupt it first
+        const currentSession = sessionManager.getCurrentSession();
+        if (currentSession && currentSession.id !== sessionId) {
+          console.log(`[Orchestrator] Interrupting current session ${currentSession.id} to resume ${sessionId}`);
+          sessionManager.markSessionInterrupted();
+          processManager.stopAll();
+        }
+
+        // Load workspace configs if session has workspaceId
+        let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
+        if (fullData.session.workspaceId) {
+          const workspace = workspaceManager.getWorkspace(fullData.session.workspaceId);
+          if (workspace) {
+            workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(fullData.session.workspaceId);
+            // Merge workspace configs into config.projects
+            Object.assign(config.projects, workspaceProjectConfigs);
+            planningAgent.setProjectConfig(config.projects);
+          }
+        }
+
+        // Get tasks to run (skip completed)
+        const taskStates = fullData.session.taskStates || [];
+        const completedIndices = new Set(
+          taskStates.filter(t => t.status === 'completed').map(t => t.taskIndex)
+        );
+
+        const tasksToRun = fullData.session.plan.tasks
+          .map((task, idx) => ({ task, taskIndex: idx }))
+          .filter(({ taskIndex }) => !completedIndices.has(taskIndex));
+
+        if (tasksToRun.length === 0) {
+          // No tasks to run, but maybe E2E tests need to run
+          console.log(`[Orchestrator] All tasks completed - checking for E2E tests`);
+        }
+
+        // Update session status to running
+        sessionStore.updateSessionStatus(sessionId, 'running');
+
+        // Load the session into session manager
+        sessionManager.loadSession(sessionId);
+
+        // Set current session ID on StatusMonitor and LogAggregator
+        statusMonitor.setCurrentSessionId(sessionId);
+        logAggregator.setCurrentSessionId(sessionId);
+
+        // Clear in-memory logs before starting fresh execution
+        logAggregator.clearAll();
+
+        // Restore statuses from persisted session
+        statusMonitor.restoreStatuses(fullData.session.statuses);
+
+        // Restore task states (important: preserve completed task statuses)
+        statusMonitor.restoreTaskStates(fullData.session.taskStates || []);
+
+        // Initialize log aggregator for each project (starts fresh, no old logs)
+        for (const project of fullData.session.projects) {
+          const sessionDir = sessionManager.getSessionDir(project);
+          if (sessionDir) {
+            logAggregator.registerProject(project, sessionDir);
+          }
+        }
+
+        // Create session logger
+        sessionLogger = new SessionLogger(sessionId);
+        sessionLogger.log('SESSION_RESUME', { sessionId, tasksToRun: tasksToRun.length });
+
+        // Emit sessionLoaded to restore UI state
+        // - Include chat messages to restore conversation history
+        // - Filter out active/in_progress flows (stale from interrupted session)
+        // - Keep completed flows for history
+        // - Clear logs since we're starting fresh execution
+        const completedFlows = (fullData.flows || []).filter(
+          f => f.status !== 'in_progress'
+        );
+        socket.emit('sessionLoaded', {
+          ...fullData,
+          logs: [],              // Clear logs - fresh execution
+          flows: completedFlows, // Keep completed flows, clear active ones
+          isActive: true,
+        });
+
+        // Emit session and statuses to all clients
+        const restoredSession = sessionManager.getCurrentSession();
+        if (restoredSession) {
+          (ui.io as any).emitSession(restoredSession);
+          (ui.io as any).emitStatus(statusMonitor.getAllStatuses());
+          (ui.io as any).emitTaskStates(statusMonitor.getAllTaskStates());
+        }
+
+        chatHandler.systemMessage(`Resuming session ${sessionId}...`);
+
+        // Start dev servers for all projects
+        for (const project of fullData.session.projects) {
+          try {
+            console.log(`[Orchestrator] Starting dev server for ${project}...`);
+            await processManager.startDevServer(project);
+          } catch (err) {
+            console.error(`[Orchestrator] Failed to start dev server for ${project}:`, err);
+            statusMonitor.updateStatus(project, 'FATAL_DEBUGGING', `Dev server failed: ${err}`);
+          }
+        }
+
+        // If there are tasks to run, start execution
+        if (tasksToRun.length > 0) {
+          // Start the state machine
+          stateMachine.transition('start');
+
+          // Group tasks by project
+          allTasksByProject = new Map<string, Array<{ task: TaskDefinition; taskIndex: number }>>();
+          tasksToRun.forEach(({ task, taskIndex }) => {
+            const existing = allTasksByProject.get(task.project) || [];
+            existing.push({ task, taskIndex });
+            allTasksByProject.set(task.project, existing);
+          });
+
+          // Create TaskExecutor instance
+          taskExecutor = new TaskExecutor({
+            processManager,
+            statusMonitor,
+            stateMachine,
+            logAggregator,
+            templateManager,
+            planningAgent,
+            config,
+            getSessionDir: (project: string) => sessionManager.getSessionDir(project),
+            getDevServerUrl,
+            gitManager,
+            getGitBranch: (project: string) => restoredSession?.gitBranches?.[project],
+            io: ui.io,
+            sessionLogger: sessionLogger || undefined,
+          });
+
+          taskExecutor.clearTaskSummaries();
+
+          // Set up task complete handler
+          ui.setTaskCompleteHandler(async (request: TaskCompleteRequest) => {
+            console.log(`[Orchestrator] Task complete for ${request.project} task #${request.taskIndex}`);
+
+            const projectTasks = allTasksByProject.get(request.project);
+            if (!projectTasks || projectTasks.length === 0) {
+              return { status: 'escalate', escalationReason: 'No tasks found for project' };
+            }
+
+            if (!taskExecutor) {
+              return { status: 'escalate', escalationReason: 'TaskExecutor not initialized' };
+            }
+
+            return await taskExecutor.handleTaskCompleteRequest(request, projectTasks);
+          });
+
+          // Track failed tasks
+          taskExecutor.on('taskFailed', ({ taskIndex, project }: { taskIndex: number; project: string }) => {
+            console.log(`[Orchestrator] Tracking failed task #${taskIndex} for ${project}`);
+            failedTaskIndex.set(project, taskIndex);
+          });
+
+          chatHandler.systemMessage(`Resuming execution with ${tasksToRun.length} remaining task(s)...`);
+
+          // Run tasks using persistent sessions
+          const projectPromises = Array.from(allTasksByProject.entries()).map(async ([project, projectTasks]) => {
+            console.log(`[Orchestrator] Starting persistent session for ${project} with ${projectTasks.length} task(s)`);
+
+            const result = await taskExecutor!.executePersistentSession(project, projectTasks);
+
+            if (!result.success) {
+              console.error(`[Orchestrator] Persistent session for ${project} ended with failures`);
+              if (result.failedTasks.length > 0) {
+                const failedTask = projectTasks.find(t => t.taskIndex === result.failedTasks[0]);
+                chatHandler.systemMessage(
+                  `Task "${failedTask?.task.name || result.failedTasks[0]}" failed for ${project}. ` +
+                  `Please provide a fix instruction to continue.`
+                );
+              }
+              return;
+            }
+
+            console.log(`[Orchestrator] Persistent session completed for ${project}`);
+          });
+
+          await Promise.all(projectPromises);
+          chatHandler.systemMessage('Resumed execution. Monitoring progress...');
+        } else {
+          // All tasks completed, projects should go to E2E or IDLE
+          chatHandler.systemMessage('All tasks already completed. Checking project status...');
+          for (const project of fullData.session.projects) {
+            const status = statusMonitor.getStatus(project);
+            if (status?.status !== 'IDLE') {
+              statusMonitor.updateStatus(project, 'READY', 'Resuming - all tasks completed');
+            }
+          }
+        }
+
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to resume session:', error);
+        socket.emit('resumeError', { error });
+      }
+    });
+
     // Handle git push branch request
     socket.on('pushBranch', async ({ project, branchName }: { project: string; branchName: string }) => {
       console.log(`[Orchestrator] Push branch '${branchName}' requested for ${project}`);
