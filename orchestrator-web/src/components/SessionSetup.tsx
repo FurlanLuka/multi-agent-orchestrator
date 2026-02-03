@@ -20,6 +20,7 @@ interface SessionSetupProps {
   onStartSession: (feature: string, projects: string[], branchName?: string) => void;
   connected: boolean;
   startingSession?: boolean;
+  managedGit?: boolean;  // When true, hide branch name input (auto-generated)
 }
 
 export function SessionSetup({
@@ -28,6 +29,7 @@ export function SessionSetup({
   onStartSession,
   connected,
   startingSession = false,
+  managedGit = false,
 }: SessionSetupProps) {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [branchName, setBranchName] = useState('');
@@ -84,7 +86,7 @@ export function SessionSetup({
         size="md"
       />
 
-      {hasGitEnabledProject && (
+      {hasGitEnabledProject && !managedGit && (
         <GlassTextInput
           label="Branch Name"
           placeholder="e.g., feature/my-feature (auto-generated if empty)"

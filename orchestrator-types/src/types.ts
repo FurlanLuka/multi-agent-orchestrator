@@ -62,6 +62,8 @@ export interface WorkspaceConfig {
   name: string;            // "Blog"
   projects: WorkspaceProjectConfig[];  // inline project configs
   context?: string;        // planning context/rules (markdown)
+  managedGit?: boolean;    // Auto-generate branches, hide branch input. Default: true
+  autoMerge?: boolean;     // Auto-merge on completion. Default: true
   createdAt: number;
   updatedAt: number;
 }

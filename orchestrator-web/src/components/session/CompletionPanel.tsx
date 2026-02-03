@@ -6,6 +6,8 @@ import {
   Text,
   Button,
   Badge,
+  Box,
+  Loader,
 } from '@mantine/core';
 import {
   IconCheck,
@@ -16,6 +18,8 @@ import {
   IconExternalLink,
   IconPlayerStop,
   IconGitPullRequest,
+  IconCircleCheck,
+  IconInfoCircle,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { GlassCard, GlassSelect } from '../../theme';
@@ -38,6 +42,10 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
     mergingBranch,
     mergeResults,
     mergeBranch,
+    approveChanges,
+    approvingChanges,
+    approveChangesResults,
+    mergeSessionStatus,
     creatingPR,
     prResults,
     createPR,
@@ -47,18 +55,30 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
     getBranches,
   } = useOrchestrator();
 
-  // Derive project configs from workspace
-  const projectConfigs = useMemo(() => {
+  // Derive project configs and workspace settings
+  const { projectConfigs, isManagedGit, isAutoMerge } = useMemo(() => {
     const configs: Record<string, ProjectConfig> = {};
+    let managedGit = false;
+    let autoMerge = false;
+
     if (session?.workspaceId && workspaces[session.workspaceId]) {
       const workspace = workspaces[session.workspaceId];
       for (const proj of workspace.projects) {
         const { name, ...config } = proj;
         configs[name] = config;
       }
+      // Check if managed git is enabled (default: true for new workspaces)
+      managedGit = workspace.managedGit !== false;
+      autoMerge = workspace.autoMerge !== false;
     }
-    return configs;
+    return { projectConfigs: configs, isManagedGit: managedGit, isAutoMerge: autoMerge };
   }, [session?.workspaceId, workspaces]);
+
+  // Check if all changes have been approved/merged
+  const allChangesApproved = useMemo(() => {
+    if (!approveChangesResults) return false;
+    return Object.values(approveChangesResults).every(r => r.success);
+  }, [approveChangesResults]);
 
   // Selected base branch for PR creation per project
   const [prBaseBranch, setPrBaseBranch] = useState<Record<string, string>>({});
@@ -109,8 +129,131 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
         </Group>
       </GlassCard>
 
-      {/* Card 2: Git Operations */}
-      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && (
+      {/* Card 2: Approve Changes (Managed Git) */}
+      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && isManagedGit && (
+        <GlassCard p="md">
+          <Stack gap="md">
+            {/* Header */}
+            <Group gap="xs">
+              <ThemeIcon size="sm" radius="md" color="sage" variant="light">
+                <IconCircleCheck size={14} />
+              </ThemeIcon>
+              <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>Approve Changes</Text>
+            </Group>
+
+            {/* Auto-merged status */}
+            {isAutoMerge && allChangesApproved && (
+              <Group gap="sm" align="center">
+                <ThemeIcon size="lg" radius="md" color="sage" variant="light">
+                  <IconCheck size={18} />
+                </ThemeIcon>
+                <Box>
+                  <Text fw={500} size="sm">Changes approved and merged</Text>
+                  <Text size="xs" c="dimmed">All feature branches have been merged to main.</Text>
+                </Box>
+              </Group>
+            )}
+
+            {/* Manual approval UI (when autoMerge is disabled or merge not yet done) */}
+            {(!isAutoMerge || !allChangesApproved) && !approvingChanges && (
+              <>
+                {/* Help text */}
+                <Box
+                  p="sm"
+                  style={{
+                    background: 'rgba(250, 247, 245, 0.8)',
+                    borderRadius: 8,
+                    border: '1px solid rgba(160, 130, 110, 0.08)',
+                  }}
+                >
+                  <Group gap="xs" mb={6}>
+                    <IconInfoCircle size={14} style={{ color: 'var(--mantine-color-peach-6)' }} />
+                    <Text size="xs" fw={500}>What happens when you approve?</Text>
+                  </Group>
+                  <Text size="xs" c="dimmed">
+                    Your feature branches will be pushed to remote and merged into the main branch across all projects.
+                  </Text>
+                  <Text size="xs" c="dimmed" mt={4}>
+                    <strong>Not ready yet?</strong> You can close this and approve later from the session history.
+                  </Text>
+                </Box>
+
+                {/* Branch list */}
+                <Stack gap="xs">
+                  {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
+                    const mainBranch = projectConfigs[projectName]?.mainBranch || 'main';
+                    const result = approveChangesResults?.[projectName];
+
+                    return (
+                      <Group key={projectName} gap="xs" wrap="wrap">
+                        <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
+                          {projectName}: {branchName}
+                        </Badge>
+                        <Text size="xs" c="dimmed">→ {mainBranch}</Text>
+                        {result?.success && (
+                          <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>
+                            Merged
+                          </Badge>
+                        )}
+                        {result && !result.success && (
+                          <Badge color="rose" variant="light" size="xs">
+                            Failed
+                          </Badge>
+                        )}
+                      </Group>
+                    );
+                  })}
+                </Stack>
+
+                {/* Approve button */}
+                {!allChangesApproved && (
+                  <Button
+                    color="sage"
+                    leftSection={<IconCircleCheck size={16} />}
+                    onClick={() => session?.id && approveChanges(session.id)}
+                  >
+                    Approve Changes
+                  </Button>
+                )}
+
+                {/* Error display */}
+                {approveChangesResults && !allChangesApproved && (
+                  <Text size="xs" c="rose">
+                    Some merge operations failed. Check the status above for details.
+                  </Text>
+                )}
+              </>
+            )}
+
+            {/* Loading state */}
+            {approvingChanges && (
+              <Stack gap="sm" align="center" py="md">
+                <Loader size="sm" />
+                <Text size="sm" c="dimmed">Pushing and merging branches...</Text>
+                <Stack gap="xs" w="100%">
+                  {Object.entries(session.gitBranches).map(([projectName]) => {
+                    const status = mergeSessionStatus[projectName];
+                    return (
+                      <Group key={projectName} gap="xs" wrap="wrap">
+                        <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
+                          {projectName}
+                        </Badge>
+                        {status === 'pushing' && <Badge color="peach" variant="light" size="xs">Pushing...</Badge>}
+                        {status === 'merging' && <Badge color="honey" variant="light" size="xs">Merging...</Badge>}
+                        {status === 'completed' && <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>Done</Badge>}
+                        {status === 'failed' && <Badge color="rose" variant="light" size="xs">Failed</Badge>}
+                      </Group>
+                    );
+                  })}
+                </Stack>
+              </Stack>
+            )}
+          </Stack>
+        </GlassCard>
+      )}
+
+      {/* Card 2b: Git Operations (non-managed git) */}
+      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && !isManagedGit && (
         <GlassCard p="md">
           <Stack gap="md">
             <Group gap="xs">

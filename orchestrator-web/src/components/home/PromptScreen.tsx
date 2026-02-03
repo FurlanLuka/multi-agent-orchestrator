@@ -14,6 +14,7 @@ import {
   Box,
   Modal,
   ThemeIcon,
+  Switch,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -26,6 +27,7 @@ import {
   IconPlayerPlay,
   IconServer,
   IconAlertTriangle,
+  IconGitMerge,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -92,7 +94,7 @@ interface PromptScreenProps {
   onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
   onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
   onRemoveProjectFromWorkspace: (workspaceId: string, projectName: string) => void;
-  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string }) => void;
+  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string; managedGit?: boolean; autoMerge?: boolean }) => void;
   onCreateProjectFromTemplate: (options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
   createProjectError?: string | null;
   onClearCreateProjectError?: () => void;
@@ -158,6 +160,8 @@ export function PromptScreen({
   }, [hasProjects, isEditMode]);
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [contextValue, setContextValue] = useState(workspace.context || '');
+  const [managedGitValue, setManagedGitValue] = useState(workspace.managedGit !== false);
+  const [autoMergeValue, setAutoMergeValue] = useState(workspace.autoMerge !== false);
   const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
 
   // Modal states
@@ -206,14 +210,19 @@ export function PromptScreen({
     setSessionProjectConfigs(configs);
   }, [workspace.projects]);
 
-  // Sync context when workspace changes
+  // Sync context and git settings when workspace changes
   useEffect(() => {
     setContextValue(workspace.context || '');
-  }, [workspace.context]);
+    setManagedGitValue(workspace.managedGit !== false);
+    setAutoMergeValue(workspace.autoMerge !== false);
+  }, [workspace.context, workspace.managedGit, workspace.autoMerge]);
 
   const hasGitEnabledProject = workspace.projects.some(
     p => p.gitEnabled
   );
+
+  // Check if managed git is enabled (default: true for new workspaces)
+  const isManagedGit = workspace.managedGit !== false;
 
   const hasContent = editor ? editor.getText().trim().length > 0 : false;
 
@@ -339,9 +348,19 @@ export function PromptScreen({
       if (!hasProjects) {
         return;
       }
-      // Exiting edit mode - save context if changed
+      // Exiting edit mode - save changes if any
+      const updates: { context?: string; managedGit?: boolean; autoMerge?: boolean } = {};
       if (contextValue !== workspace.context) {
-        onUpdateWorkspace(workspace.id, { context: contextValue });
+        updates.context = contextValue;
+      }
+      if (managedGitValue !== (workspace.managedGit !== false)) {
+        updates.managedGit = managedGitValue;
+      }
+      if (autoMergeValue !== (workspace.autoMerge !== false)) {
+        updates.autoMerge = autoMergeValue;
+      }
+      if (Object.keys(updates).length > 0) {
+        onUpdateWorkspace(workspace.id, updates);
       }
     }
     setIsEditMode(!isEditMode);
@@ -520,6 +539,46 @@ export function PromptScreen({
               This context will be prepended to every feature request in this workspace.
             </Text>
           </Stack>
+
+          {/* Git Settings section */}
+          {hasGitEnabledProject && (
+            <Stack gap="sm">
+              <Group gap="xs" align="center">
+                <IconGitMerge size={18} style={{ color: 'var(--mantine-color-lavender-6)' }} />
+                <Title order={4}>Git Settings</Title>
+              </Group>
+              <GlassCard p="md">
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-start">
+                    <Stack gap={2} style={{ flex: 1 }}>
+                      <Text size="sm" fw={500}>Managed Git</Text>
+                      <Text size="xs" c="dimmed">
+                        Automatically generate branch names from feature descriptions. When disabled, you can manually enter branch names.
+                      </Text>
+                    </Stack>
+                    <Switch
+                      checked={managedGitValue}
+                      onChange={(e) => setManagedGitValue(e.currentTarget.checked)}
+                      color="lavender"
+                    />
+                  </Group>
+                  <Group justify="space-between" align="flex-start">
+                    <Stack gap={2} style={{ flex: 1 }}>
+                      <Text size="sm" fw={500}>Auto Merge</Text>
+                      <Text size="xs" c="dimmed">
+                        Automatically merge feature branches when all tasks and E2E tests complete successfully.
+                      </Text>
+                    </Stack>
+                    <Switch
+                      checked={autoMergeValue}
+                      onChange={(e) => setAutoMergeValue(e.currentTarget.checked)}
+                      color="lavender"
+                    />
+                  </Group>
+                </Stack>
+              </GlassCard>
+            </Stack>
+          )}
         </Stack>
 
         {/* Add Project Modal */}
@@ -692,7 +751,7 @@ export function PromptScreen({
                   editor={editor}
                 />
 
-                {hasGitEnabledProject && (
+                {hasGitEnabledProject && !isManagedGit && (
                   <GlassTextInput
                     label="Branch Name"
                     placeholder="e.g., feature/my-feature (auto-generated if empty)"

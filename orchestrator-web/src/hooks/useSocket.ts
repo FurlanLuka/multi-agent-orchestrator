@@ -142,6 +142,10 @@ export function useSocket() {
   // Git merge state tracking
   const [mergingBranch, setMergingBranch] = useState<Record<string, boolean>>({});
   const [mergeResults, setMergeResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  // Approve changes (managed git) state tracking
+  const [approvingChanges, setApprovingChanges] = useState(false);
+  const [approveChangesResults, setApproveChangesResults] = useState<Record<string, { success: boolean; message: string }> | null>(null);
+  const [mergeSessionStatus, setMergeSessionStatus] = useState<Record<string, 'pushing' | 'merging' | 'completed' | 'failed'>>({});
   // GitHub PR state tracking
   const [creatingPR, setCreatingPR] = useState<Record<string, boolean>>({});
   const [prResults, setPRResults] = useState<Record<string, { success: boolean; message: string; prUrl?: string }>>({});
@@ -828,6 +832,39 @@ export function useSocket() {
       console.error(`Git merge error for ${project}: ${error}`);
     });
 
+    // Approve changes (managed git) events
+    socket.on('mergeSessionStarted', ({ sessionId: _sessionId, projects }: { sessionId: string; projects: string[] }) => {
+      console.log(`Merge session started: ${projects.join(', ')}`);
+      setApprovingChanges(true);
+      setApproveChangesResults(null);
+      setMergeSessionStatus({});
+    });
+
+    socket.on('mergeProgress', ({ sessionId: _sessionId, project, status, message }: { sessionId: string; project: string; status: 'pushing' | 'merging' | 'completed' | 'failed'; message?: string }) => {
+      console.log(`Merge progress for ${project}: ${status}${message ? ` - ${message}` : ''}`);
+      setMergeSessionStatus(prev => ({ ...prev, [project]: status }));
+    });
+
+    socket.on('mergeSessionCompleted', ({ sessionId: _sessionId, results, allSucceeded }: { sessionId: string; results: Record<string, { success: boolean; message: string }>; allSucceeded: boolean }) => {
+      console.log(`Merge session completed: ${allSucceeded ? 'all succeeded' : 'some failed'}`);
+      setApprovingChanges(false);
+      setApproveChangesResults(results);
+    });
+
+    socket.on('approveChangesSuccess', ({ sessionId: _sessionId, results }: { sessionId: string; results: Record<string, { success: boolean; message: string }> }) => {
+      console.log('Approve changes success');
+      setApprovingChanges(false);
+      setApproveChangesResults(results);
+    });
+
+    socket.on('approveChangesError', ({ sessionId: _sessionId, error, results }: { sessionId: string; error: string; results?: Record<string, { success: boolean; message: string }> }) => {
+      console.error(`Approve changes error: ${error}`);
+      setApprovingChanges(false);
+      if (results) {
+        setApproveChangesResults(results);
+      }
+    });
+
     // GitHub PR events
     socket.on('gitHubInfo', ({ project, isGitHub, repoUrl }: { project: string; isGitHub: boolean; repoUrl?: string }) => {
       setGitHubInfo(prev => ({ ...prev, [project]: { isGitHub, repoUrl } }));
@@ -1197,7 +1234,7 @@ export function useSocket() {
     }
   }, []);
 
-  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string }) => {
+  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }) => {
     if (socketRef.current) {
       socketRef.current.emit('updateWorkspace', { id, updates });
     }
@@ -1331,6 +1368,22 @@ export function useSocket() {
       });
       socketRef.current.emit('mergeBranch', { project, branchName });
     }
+  }, []);
+
+  // Approve changes (managed git - merges all branches at once)
+  const approveChanges = useCallback((sessionId: string) => {
+    if (socketRef.current) {
+      setApprovingChanges(true);
+      setApproveChangesResults(null);
+      setMergeSessionStatus({});
+      socketRef.current.emit('approveChanges', { sessionId });
+    }
+  }, []);
+
+  // Clear approve changes results
+  const clearApproveChangesResults = useCallback(() => {
+    setApproveChangesResults(null);
+    setMergeSessionStatus({});
   }, []);
 
   // Get GitHub info for a project
@@ -1764,6 +1817,11 @@ export function useSocket() {
     pushBranch,
     clearPushResult,
     mergeBranch,
+    approveChanges,
+    approvingChanges,
+    approveChangesResults,
+    mergeSessionStatus,
+    clearApproveChangesResults,
     getGitHubInfo,
     createPR,
     getBranches,

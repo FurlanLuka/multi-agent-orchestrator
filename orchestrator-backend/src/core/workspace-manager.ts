@@ -55,7 +55,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.workspaces[id];
   }
 
-  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string }): WorkspaceConfig {
+  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }): WorkspaceConfig {
     const id = this.generateId(opts.name);
 
     const now = Date.now();
@@ -64,6 +64,8 @@ export class WorkspaceManager extends EventEmitter {
       name: opts.name,
       projects: opts.projects,
       context: opts.context,
+      managedGit: opts.managedGit ?? true,   // Default: true for new workspaces
+      autoMerge: opts.autoMerge ?? true,     // Default: true for new workspaces
       createdAt: now,
       updatedAt: now,
     };
@@ -75,7 +77,7 @@ export class WorkspaceManager extends EventEmitter {
     return workspace;
   }
 
-  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string }): WorkspaceConfig {
+  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }): WorkspaceConfig {
     const workspace = this.workspaces[id];
     if (!workspace) {
       throw new Error(`Workspace "${id}" does not exist`);
@@ -84,6 +86,8 @@ export class WorkspaceManager extends EventEmitter {
     if (updates.name !== undefined) workspace.name = updates.name;
     if (updates.projects !== undefined) workspace.projects = updates.projects;
     if (updates.context !== undefined) workspace.context = updates.context;
+    if (updates.managedGit !== undefined) workspace.managedGit = updates.managedGit;
+    if (updates.autoMerge !== undefined) workspace.autoMerge = updates.autoMerge;
     workspace.updatedAt = Date.now();
 
     this.saveConfig();

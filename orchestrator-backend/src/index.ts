@@ -123,6 +123,7 @@ import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
+import { generateBranchName } from './utils/ask-agent';
 import { TEMPLATE_PERMISSIONS } from '@orchy/types';
 import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted, initializePlannerPermissionsIfNeeded } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
@@ -1387,13 +1388,24 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     }
   });
 
-  statusMonitor.on('allComplete', () => {
+  statusMonitor.on('allComplete', async () => {
     console.log('[Orchestrator] All projects IDLE - Feature complete!');
     chatHandler.systemMessage('All projects completed! Feature implementation done.');
     (ui.io as any).emitAllComplete();
 
     // Mark session as completed
     sessionManager.markSessionCompleted();
+
+    // Check if auto-merge is enabled for this workspace
+    const session = sessionManager.getCurrentSession();
+    if (session?.workspaceId) {
+      const workspace = workspaceManager.getWorkspace(session.workspaceId);
+      // Auto-merge if enabled (default: true) and there are git branches
+      if (workspace?.autoMerge !== false && session.gitBranches && Object.keys(session.gitBranches).length > 0) {
+        console.log('[Orchestrator] Auto-merge enabled, triggering automatic approval...');
+        await executeMergeSession(session.id);
+      }
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -1691,6 +1703,107 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // Merge Session Helper (for managed git approve changes flow)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Executes merge operations for all git branches in a session.
+   * Used by both auto-merge (on completion) and manual approve changes button.
+   */
+  const executeMergeSession = async (sessionId: string) => {
+    const persistedSession = sessionStore.loadSession(sessionId);
+    if (!persistedSession) {
+      console.error(`[Orchestrator] Merge session failed: session ${sessionId} not found`);
+      return { success: false, error: 'Session not found' };
+    }
+
+    const session = sessionStore.toSession(persistedSession);
+
+    if (!session.gitBranches || Object.keys(session.gitBranches).length === 0) {
+      console.log(`[Orchestrator] No git branches to merge for session ${sessionId}`);
+      return { success: true, message: 'No branches to merge' };
+    }
+
+    // Get workspace config for project configs
+    let projectConfigs: Record<string, ProjectConfig> = {};
+    if (session.workspaceId) {
+      projectConfigs = workspaceManager.getWorkspaceProjectConfigs(session.workspaceId);
+    }
+
+    const results: Record<string, { success: boolean; message: string }> = {};
+    let allSucceeded = true;
+
+    // Emit merge session started
+    ui.io.emit('mergeSessionStarted', { sessionId, projects: Object.keys(session.gitBranches) });
+
+    const gitBranches = session.gitBranches as Record<string, string>;
+    for (const [projectName, branchName] of Object.entries(gitBranches)) {
+      const projectConfig = projectConfigs[projectName] || config.projects[projectName];
+      if (!projectConfig) {
+        results[projectName] = { success: false, message: 'Project config not found' };
+        allSucceeded = false;
+        continue;
+      }
+
+      // Expand path
+      let projectPath = projectConfig.path;
+      if (projectPath.startsWith('~')) {
+        projectPath = projectPath.replace('~', process.env.HOME || '');
+      }
+
+      const mainBranch = projectConfig.mainBranch || 'main';
+
+      try {
+        console.log(`[Orchestrator] Merging ${branchName} to ${mainBranch} for ${projectName}...`);
+
+        // Emit progress
+        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'pushing' });
+
+        // First push the branch to remote
+        const pushResult = await gitManager.pushBranch(projectPath, branchName);
+        if (!pushResult.success) {
+          results[projectName] = { success: false, message: `Push failed: ${pushResult.message}` };
+          allSucceeded = false;
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: pushResult.message });
+          continue;
+        }
+
+        // Emit progress
+        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'merging' });
+
+        // Then merge to main
+        const mergeResult = await gitManager.mergeBranch(projectPath, branchName, mainBranch);
+        if (mergeResult.success) {
+          results[projectName] = { success: true, message: `Merged to ${mainBranch}` };
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'completed' });
+        } else {
+          results[projectName] = { success: false, message: mergeResult.message };
+          allSucceeded = false;
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: mergeResult.message });
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        results[projectName] = { success: false, message: errorMsg };
+        allSucceeded = false;
+        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: errorMsg });
+      }
+    }
+
+    // Emit merge session completed
+    ui.io.emit('mergeSessionCompleted', { sessionId, results, allSucceeded });
+
+    if (allSucceeded) {
+      console.log(`[Orchestrator] All branches merged successfully for session ${sessionId}`);
+      chatHandler.systemMessage('All changes approved and merged successfully!');
+    } else {
+      console.warn(`[Orchestrator] Some merge operations failed for session ${sessionId}:`, results);
+      chatHandler.systemMessage('Some merge operations failed. Check the results for details.');
+    }
+
+    return { success: allSucceeded, results };
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   // Wire up UI Socket events
   // ═══════════════════════════════════════════════════════════════
 
@@ -1778,12 +1891,16 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         let resolvedFeature = feature;
         let resolvedProjects = projects;
         let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
+        let isManagedGit = false;
 
         if (workspaceId) {
           const workspace = workspaceManager.getWorkspace(workspaceId);
           if (workspace) {
             // Get project configs from workspace (inline storage)
             workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+
+            // Check if managed git is enabled (default: true for new workspaces)
+            isManagedGit = workspace.managedGit !== false;
 
             // MERGE workspace configs into config.projects so all managers have access
             // This is the simple fix: ProcessManager, SessionManager, TaskExecutor, etc. all use config.projects
@@ -1813,6 +1930,20 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
+
+        // For managed git: generate branch name with AI if not provided
+        let actualBranchName: string | undefined;
+        if (isManagedGit && !branchName?.trim()) {
+          try {
+            console.log('[Orchestrator] Managed git: generating branch name with AI...');
+            actualBranchName = await generateBranchName(feature);
+            console.log(`[Orchestrator] Generated branch name: ${actualBranchName}`);
+          } catch (err) {
+            console.warn('[Orchestrator] Failed to generate branch name with AI, using fallback:', err);
+            actualBranchName = gitManager.generateBranchName(feature);
+          }
+        }
+
         for (const project of resolvedProjects) {
           const projectConfig = getProjectConfig(project);
           if (projectConfig?.gitEnabled) {
@@ -1827,14 +1958,34 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               const mainBranchForProject = projectConfig.mainBranch || 'main';
               await gitManager.initRepo(projectPath, mainBranchForProject);
 
-              // Generate branch name if not provided
-              const actualBranchName = branchName?.trim() || gitManager.generateBranchName(resolvedFeature);
+              // For managed git: checkout main and pull latest before creating feature branch
+              if (isManagedGit) {
+                console.log(`[Orchestrator] Managed git: checking out ${mainBranchForProject} and pulling latest for ${project}...`);
+                // Checkout main branch
+                const checkoutResult = await gitManager.createAndCheckoutBranch(projectPath, mainBranchForProject);
+                if (!checkoutResult.success) {
+                  console.warn(`[Orchestrator] Failed to checkout ${mainBranchForProject} for ${project}: ${checkoutResult.message}`);
+                }
+                // Pull latest (ignore errors for repos without remote)
+                try {
+                  const pullResult = await gitManager.pullBranch(projectPath, mainBranchForProject);
+                  if (pullResult.success) {
+                    console.log(`[Orchestrator] Pulled latest ${mainBranchForProject} for ${project}`);
+                  }
+                } catch (pullErr) {
+                  // Pull may fail if no remote configured, which is fine
+                  console.log(`[Orchestrator] Pull skipped for ${project} (no remote or error): ${pullErr}`);
+                }
+              }
+
+              // Use branch name from: 1) user input, 2) AI-generated (managed git), 3) fallback
+              const finalBranchName = branchName?.trim() || actualBranchName || gitManager.generateBranchName(resolvedFeature);
 
               // Create and checkout branch
-              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
+              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, finalBranchName);
               if (branchResult.success) {
-                gitBranches[project] = actualBranchName;
-                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+                gitBranches[project] = finalBranchName;
+                console.log(`[Orchestrator] Git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
               } else {
                 console.error(`[Orchestrator] Failed to setup git branch for ${project}: ${branchResult.message}`);
               }
@@ -2834,6 +2985,23 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
+    // Handle approve changes request (managed git - merges all branches)
+    socket.on('approveChanges', async ({ sessionId }: { sessionId: string }) => {
+      console.log(`[Orchestrator] Approve changes requested for session ${sessionId}`);
+      try {
+        const result = await executeMergeSession(sessionId);
+        if (result.success) {
+          socket.emit('approveChangesSuccess', { sessionId, results: result.results });
+        } else {
+          socket.emit('approveChangesError', { sessionId, error: 'Some merge operations failed', results: result.results });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Approve changes failed:`, error);
+        socket.emit('approveChangesError', { sessionId, error });
+      }
+    });
+
     // ═══════════════════════════════════════════════════════════════
     // Template Management Socket Events
     // Projects are now stored in workspaces, not in a global projects.json
@@ -3241,7 +3409,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string } }) => {
+    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean } }) => {
       try {
         workspaceManager.updateWorkspace(id, updates);
         socket.emit('workspaces', workspaceManager.getWorkspaces());

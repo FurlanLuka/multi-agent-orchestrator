@@ -288,6 +288,38 @@ export class GitManager {
   }
 
   /**
+   * Pulls latest changes from origin for a branch
+   * Used by managed git to ensure feature branches are created from latest main
+   */
+  async pullBranch(
+    projectPath: string,
+    branchName: string
+  ): Promise<{ success: boolean; message: string }> {
+    // Check if remote 'origin' exists
+    const remoteResult = await this.runGitCommand(projectPath, ['remote', 'get-url', 'origin']);
+    if (remoteResult.exitCode !== 0) {
+      return { success: false, message: 'No remote \'origin\' configured' };
+    }
+
+    // Pull from origin
+    const pullResult = await this.runGitCommand(projectPath, ['pull', 'origin', branchName]);
+    if (pullResult.exitCode === 0) {
+      console.log(`[GitManager] Pulled latest '${branchName}' from origin at ${projectPath}`);
+      return { success: true, message: `Pulled latest '${branchName}'` };
+    }
+
+    // Check for specific errors
+    const errorOutput = (pullResult.stderr || '').toLowerCase();
+    if (errorOutput.includes('couldn\'t find remote ref')) {
+      // Remote branch doesn't exist yet - this is fine for local-only repos
+      return { success: true, message: 'No remote branch to pull from' };
+    }
+
+    console.warn(`[GitManager] Pull failed for '${branchName}': ${pullResult.stderr}`);
+    return { success: false, message: pullResult.stderr || 'Failed to pull branch' };
+  }
+
+  /**
    * Generates a branch name from a feature description
    * Format: feature/kebab-case-feature-name (max 50 chars)
    */
