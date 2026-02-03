@@ -1,6 +1,7 @@
-import { Container, Stack, Title, Text, SimpleGrid, Group, Badge } from '@mantine/core';
-import { IconSparkles, IconPalette, IconHammer } from '@tabler/icons-react';
+import { Container, Stack, Title, Text, SimpleGrid, Group, Badge, Box } from '@mantine/core';
+import { IconSparkles, IconRocket } from '@tabler/icons-react';
 import { FormCard, GlassBar } from '../theme';
+import { HelpOverlay, HelpTrigger } from '../components/overlay';
 
 interface ModeSelectionPageProps {
   hasActiveSession: boolean;
@@ -39,36 +40,69 @@ export function ModeSelectionPage({
         </GlassBar>
       )}
 
-      <Container size="sm" py={hasActiveSession ? 100 : 80}>
-        <Stack align="center" gap="xl">
-          <Stack align="center" gap={4}>
-            <Title order={1} ta="center" style={{ letterSpacing: '-.02em' }}>
+      <Container size="md" py={hasActiveSession ? 80 : 60}>
+        <Stack gap="xl">
+          {/* Header */}
+          <Stack gap={0}>
+            <Title order={2} style={{ letterSpacing: '-.02em' }}>
               Orchy
             </Title>
-            <Text c="dimmed" size="sm" ta="center">
-              How would you like to start?
-            </Text>
+            <Group gap="xs">
+              <Text c="dimmed" size="sm">
+                How would you like to start?
+              </Text>
+              <Text c="dimmed" size="sm">·</Text>
+              <HelpOverlay
+                trigger={<HelpTrigger />}
+                title="Getting Started"
+                icon={<IconRocket size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+                maxWidth={520}
+              >
+                <Stack gap="md">
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Design</Text>
+                    <Text size="sm" c="dimmed">
+                      Create a design system before you write any code. Pick colors, fonts, and component styles through an interactive chat — perfect for new projects or when you want a polished, consistent look from the start.
+                    </Text>
+                  </Box>
+
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Build</Text>
+                    <Text size="sm" c="dimmed">
+                      Jump straight into coding. Describe the feature you want to build, and AI will plan and implement it across your projects. Great for existing codebases or when you already know what you need.
+                    </Text>
+                  </Box>
+
+                  <Box
+                    p="sm"
+                    style={{
+                      background: 'rgba(250, 247, 245, 0.8)',
+                      borderRadius: 10,
+                      border: '1px solid rgba(160, 130, 110, 0.08)',
+                    }}
+                  >
+                    <Text size="xs" c="dimmed">
+                      <Text span fw={500} c="dark">Tip:</Text> You can always create a design later and apply it to your build projects — or skip design entirely if you prefer.
+                    </Text>
+                  </Box>
+                </Stack>
+              </HelpOverlay>
+            </Group>
           </Stack>
 
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" w="100%" maw={600}>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             {/* Design Mode Card */}
             <FormCard
               hoverable
               onClick={onSelectDesign}
-              style={{ cursor: 'pointer', minHeight: 180 }}
+              style={{ cursor: 'pointer' }}
             >
-              <Stack gap="sm" align="center" ta="center">
-                <Group gap={8} justify="center">
-                  <IconPalette size={24} color="var(--mantine-color-peach-6)" />
-                  <Title order={3} fw={600}>Design First</Title>
-                </Group>
+              <Stack gap="xs" align="center" ta="center" py="md">
+                <Title order={3} fw={600}>Design</Title>
                 <Text size="sm" c="dimmed">
                   Create a design system before coding.
                   Choose colors, typography, and component styles
                   through an interactive process.
-                </Text>
-                <Text size="xs" c="peach.6" fw={500}>
-                  Best for new projects
                 </Text>
               </Stack>
             </FormCard>
@@ -77,20 +111,14 @@ export function ModeSelectionPage({
             <FormCard
               hoverable
               onClick={onSelectBuild}
-              style={{ cursor: 'pointer', minHeight: 180 }}
+              style={{ cursor: 'pointer' }}
             >
-              <Stack gap="sm" align="center" ta="center">
-                <Group gap={8} justify="center">
-                  <IconHammer size={24} color="var(--mantine-color-peach-6)" />
-                  <Title order={3} fw={600}>Build Feature</Title>
-                </Group>
+              <Stack gap="xs" align="center" ta="center" py="md">
+                <Title order={3} fw={600}>Build</Title>
                 <Text size="sm" c="dimmed">
                   Jump straight into implementation.
                   Describe your feature and let AI plan
                   and build it across your projects.
-                </Text>
-                <Text size="xs" c="peach.6" fw={500}>
-                  Best for existing codebases
                 </Text>
               </Stack>
             </FormCard>

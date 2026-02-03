@@ -11,7 +11,7 @@ export function AddWorkspaceCard({ onClick }: AddWorkspaceCardProps) {
     <GlassDashedCard
       onClick={onClick}
       style={{
-        aspectRatio: '1',
+        minHeight: 160,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

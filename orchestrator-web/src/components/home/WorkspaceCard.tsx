@@ -1,46 +1,59 @@
-import { Text, ActionIcon, Box } from '@mantine/core';
-import { IconTrash } from '@tabler/icons-react';
+import { Text, ActionIcon, Stack, Group, Badge } from '@mantine/core';
+import { IconTrash, IconFolder } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@orchy/types';
 import { GlassCard } from '../../theme';
 
 interface WorkspaceCardProps {
   workspace: WorkspaceConfig;
-  isEditMode?: boolean;
   onClick: () => void;
-  onDelete?: () => void;
+  onDelete?: (e: React.MouseEvent) => void;
 }
 
-export function WorkspaceCard({ workspace, isEditMode, onClick, onDelete }: WorkspaceCardProps) {
+export function WorkspaceCard({ workspace, onClick, onDelete }: WorkspaceCardProps) {
+  const projectCount = workspace.projects.length;
+
   return (
     <GlassCard
-      hoverable={!isEditMode}
-      onClick={isEditMode ? undefined : onClick}
+      hoverable
+      onClick={onClick}
       p="lg"
       style={{
-        aspectRatio: '1',
+        minHeight: 160,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        flexDirection: 'column',
         position: 'relative',
-        cursor: isEditMode ? 'default' : 'pointer',
       }}
     >
-      {isEditMode && onDelete && (
-        <Box style={{ position: 'absolute', top: 8, right: 8 }}>
-          <ActionIcon
-            variant="light"
-            color="rose"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-          >
-            <IconTrash size={14} />
-          </ActionIcon>
-        </Box>
+      {/* Delete button */}
+      {onDelete && (
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          style={{ position: 'absolute', top: 8, right: 8 }}
+          onClick={onDelete}
+        >
+          <IconTrash size={14} />
+        </ActionIcon>
       )}
-      <Text fw={600} size="lg" ta="center">{workspace.name}</Text>
+
+      {/* Content */}
+      <Stack gap="sm" style={{ flex: 1 }}>
+        <Stack gap={4}>
+          <Text fw={600} size="md">{workspace.name}</Text>
+          {workspace.context && (
+            <Text size="xs" c="dimmed" lineClamp={2}>{workspace.context}</Text>
+          )}
+        </Stack>
+
+        <Group gap="xs" mt="auto">
+          {projectCount > 0 && (
+            <Badge size="xs" variant="light" color="peach" leftSection={<IconFolder size={10} />}>
+              {projectCount} {projectCount === 1 ? 'project' : 'projects'}
+            </Badge>
+          )}
+        </Group>
+      </Stack>
     </GlassCard>
   );
 }

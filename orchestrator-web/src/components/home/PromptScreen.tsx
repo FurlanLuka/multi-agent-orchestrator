@@ -11,6 +11,7 @@ import {
   Grid,
   Badge,
   Tooltip,
+  Box,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -20,6 +21,7 @@ import {
   IconEdit,
   IconTrash,
   IconCheck,
+  IconPlayerPlay,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -43,6 +45,7 @@ import { SessionHistoryList } from './SessionHistoryList';
 import { AddProjectModal } from '../AddProjectModal';
 import type { AddProjectOptions, CreateProjectOptions } from '../AddProjectModal';
 import { EditProjectModal } from '../EditProjectModal';
+import { HelpOverlay, HelpTrigger } from '../overlay';
 import type { PermissionsConfig } from '../CollapsiblePermissions';
 
 interface BranchCheckResult {
@@ -517,7 +520,7 @@ export function PromptScreen({
     <Container size="xl" pt={60} pb="xl">
       <Stack gap="xl">
         {/* Page Header */}
-        <Stack gap={4}>
+        <Stack gap={0}>
           <Group gap="xs" align="center">
             <Title order={2} style={{ letterSpacing: '-.02em' }}>
               {workspace.name}
@@ -528,9 +531,80 @@ export function PromptScreen({
               </ActionIcon>
             </Tooltip>
           </Group>
-          <Text c="dimmed" size="sm">
-            Describe your feature and configure project settings
-          </Text>
+          <Group gap="xs">
+            <Text c="dimmed" size="sm">
+              Describe your feature and configure project settings
+            </Text>
+            <Text c="dimmed" size="sm">·</Text>
+            <HelpOverlay
+              trigger={<HelpTrigger />}
+              title="Starting a Session"
+              icon={<IconPlayerPlay size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+              maxWidth={580}
+            >
+              <Stack gap="md">
+                <Box>
+                  <Text fw={600} size="sm" mb={4}>What happens when you start?</Text>
+                  <Text size="sm" c="dimmed">
+                    When you click "Start Planning", AI will analyze your feature request and create a detailed implementation plan. You'll be able to review and approve each step before any code is written.
+                  </Text>
+                </Box>
+
+                <Box>
+                  <Text fw={600} size="sm" mb={10}>How to describe your feature:</Text>
+                  <Stack gap={8}>
+                    {[
+                      { step: 1, title: 'Be specific', desc: 'Describe what you want to build in detail' },
+                      { step: 2, title: 'Include context', desc: 'Mention any constraints, preferences, or existing patterns to follow' },
+                      { step: 3, title: 'Set expectations', desc: 'Note if you want tests, documentation, or specific approaches' },
+                    ].map(({ step, title, desc }) => (
+                      <Group
+                        key={step}
+                        gap="xs"
+                        wrap="nowrap"
+                        align="center"
+                        px="sm"
+                        py={8}
+                        style={{
+                          background: 'rgba(250, 247, 245, 0.8)',
+                          borderRadius: 10,
+                          border: '1px solid rgba(160, 130, 110, 0.08)',
+                        }}
+                      >
+                        <Box
+                          style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            background: 'var(--mantine-color-peach-1)',
+                            color: 'var(--mantine-color-peach-6)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {step}
+                        </Box>
+                        <Box style={{ flex: 1, minWidth: 0 }}>
+                          <Text size="xs"><Text span fw={500}>{title}</Text> <Text span c="dimmed">— {desc}</Text></Text>
+                        </Box>
+                      </Group>
+                    ))}
+                  </Stack>
+                </Box>
+
+                <Box>
+                  <Text fw={600} size="sm" mb={4}>Project selection:</Text>
+                  <Text size="sm" c="dimmed">
+                    Use the panel on the right to choose which projects to include. You can also mark projects as read-only if they should be referenced but not modified.
+                  </Text>
+                </Box>
+              </Stack>
+            </HelpOverlay>
+          </Group>
         </Stack>
 
         {/* Two-column layout */}
