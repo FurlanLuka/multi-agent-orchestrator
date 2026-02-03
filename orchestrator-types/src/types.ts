@@ -56,6 +56,38 @@ export interface WorkspaceProjectConfig extends ProjectConfig {
   name: string;
 }
 
+// GitHub configuration for workspaces
+export interface GitHubConfig {
+  enabled: boolean;
+  repo?: string;           // "owner/repo-name"
+  visibility?: 'public' | 'private';
+  owner?: string;
+  ownerType?: 'user' | 'org';
+}
+
+// GitHub global settings (stored in ~/.orchy-config/github-settings.json)
+export interface GitHubGlobalSettings {
+  enabled: boolean;
+  promptedOnFirstLoad: boolean;
+  defaultVisibility: 'public' | 'private';
+  defaultOwnerType: 'user' | 'org';
+  defaultOwner?: string;
+}
+
+// GitHub authentication status
+export interface GitHubAuthStatus {
+  authenticated: boolean;
+  username?: string;
+  error?: string;
+}
+
+// GitHub repository access verification result
+export interface GitHubRepoAccessResult {
+  hasAccess: boolean;
+  repoExists: boolean;
+  error?: string;
+}
+
 // Workspace configuration (stored in workspaces.json)
 export interface WorkspaceConfig {
   id: string;              // slug, e.g. "blog"
@@ -65,6 +97,7 @@ export interface WorkspaceConfig {
   managedGit?: boolean;    // Auto-generate branches, hide branch input. Default: true
   autoMerge?: boolean;     // Auto-merge on completion. Default: true
   orchyManaged?: boolean;  // True for template-created monorepo workspaces (single git repo at workspace root)
+  github?: GitHubConfig;   // GitHub integration settings (only for orchyManaged workspaces)
   createdAt: number;
   updatedAt: number;
 }
@@ -95,12 +128,13 @@ export interface Session {
 
 // User input request (MCP tool: request_user_input)
 export interface UserInputField {
-  type?: 'input' | 'confirmation';  // Type: "input" (default) for text fields, "confirmation" for yes/no dialogs
+  type?: 'input' | 'confirmation' | 'github_secret';  // Type: "input" (default) for text fields, "confirmation" for yes/no dialogs, "github_secret" for GitHub secrets
   name?: string;          // Variable name (e.g., GOOGLE_CLIENT_ID) - required for type: "input"
   label: string;          // Display label (input field label OR confirmation dialog title)
   description?: string;   // Help text (input) OR detailed message (confirmation, supports markdown)
   sensitive?: boolean;    // If true, mask input (only for type: "input")
   required?: boolean;     // If true, must provide value (only for type: "input")
+  repo?: string;          // For github_secret type: the repo to set the secret on (owner/repo)
 }
 
 export interface UserInputRequest {

@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -59,6 +59,7 @@ export class PlanningAgentManager extends EventEmitter {
   private currentProcess: ChildProcess | null = null;
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
   private projectConfig: Record<string, ProjectConfig> = {};
+  private workspaceGitHub: GitHubConfig | null = null;
 
   // State tracking for user action requests
   private orchestratorState: OrchestratorState = 'IDLE';
@@ -100,6 +101,13 @@ export class PlanningAgentManager extends EventEmitter {
   constructor(orchestratorDir: string) {
     super();
     this.orchestratorDir = orchestratorDir;
+  }
+
+  /**
+   * Sets the workspace GitHub configuration
+   */
+  setWorkspaceGitHub(github: GitHubConfig | undefined): void {
+    this.workspaceGitHub = github || null;
   }
 
   /**
@@ -270,11 +278,52 @@ When NOT executing (refusing):
 - Explain why based on the current project status
 - Tell user what status would allow the action`;
 
+    // Add GitHub integration section if enabled
+    let githubSection = '';
+    if (this.workspaceGitHub?.enabled && this.workspaceGitHub?.repo) {
+      githubSection = `
+
+## GITHUB INTEGRATION
+
+This workspace is connected to GitHub repository: **${this.workspaceGitHub.repo}**
+
+### GitHub Actions
+You can create CI/CD workflows in \`.github/workflows/\` for:
+- Automated testing on push/PR
+- Deployment pipelines
+- Release automation
+
+### Setting GitHub Secrets
+When the application needs secrets for CI/CD (API keys, deployment credentials, etc.):
+
+1. **For GitHub Actions secrets**, use \`request_user_input\` with type: "github_secret":
+\`\`\`json
+{
+  "inputs": [{
+    "type": "github_secret",
+    "name": "DEPLOY_TOKEN",
+    "label": "Deployment Token",
+    "description": "Token for deploying to production",
+    "repo": "${this.workspaceGitHub.repo}"
+  }]
+}
+\`\`\`
+
+This will:
+- Show the user the exact command: \`gh secret set DEPLOY_TOKEN --repo ${this.workspaceGitHub.repo}\`
+- Securely collect the secret value
+- Set the secret on GitHub
+
+**Important:** Use github_secret type for secrets that should be stored in GitHub Actions secrets (CI/CD credentials). Use regular "input" type for local .env files.`;
+    }
+
+    const fullSystemPrompt = systemPrompt + githubSection;
+
     // Build state context for user action requests
     const stateContext = this.buildStateContext();
 
     if (this.conversationHistory.length === 0) {
-      return `${systemPrompt}
+      return `${fullSystemPrompt}
 
 ## Current Orchestrator State
 ${stateContext}
@@ -288,7 +337,7 @@ User: ${newMessage}`;
       .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
       .join('\n\n');
 
-    return `${systemPrompt}
+    return `${fullSystemPrompt}
 
 ## Current Orchestrator State
 ${stateContext}

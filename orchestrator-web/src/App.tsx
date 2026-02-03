@@ -13,7 +13,8 @@ import { DesignSessionPage } from './pages/DesignSessionPage';
 import { DesignsLibraryPage } from './pages/DesignsLibraryPage';
 import { BackButton } from './components/BackButton';
 import { DevServerPanel, PortConflictModal, DevServerLogsModal } from './components/devserver';
-import type { WorkspaceConfig, ProjectConfig, WorkspaceProjectConfig, ProjectTemplate } from '@orchy/types';
+import { GitHubSetupModal } from './components/settings/GitHubSetupModal';
+import type { WorkspaceConfig, ProjectConfig, WorkspaceProjectConfig, ProjectTemplate, GitHubGlobalSettings } from '@orchy/types';
 
 // Wrapper component that handles routing logic
 function AppRoutes() {
@@ -57,6 +58,10 @@ function AppRoutes() {
 
   const navigate = useNavigate();
 
+  // GitHub setup modal state
+  const [showGitHubSetup, setShowGitHubSetup] = useState(false);
+  const [gitHubSettingsChecked, setGitHubSettingsChecked] = useState(false);
+
   // Auto-navigate to session when one starts
   useEffect(() => {
     if (session) {
@@ -71,6 +76,48 @@ function AppRoutes() {
       clearCreatedWorkspaceId();
     }
   }, [createdWorkspaceId, navigate, clearCreatedWorkspaceId]);
+
+  // Check GitHub settings after dependencies are checked
+  const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+  useEffect(() => {
+    // Check GitHub settings once dependency check is complete (regardless of gh availability)
+    if (!checkingDependencies && !gitHubSettingsChecked) {
+      fetch(`http://localhost:${effectivePort}/api/github/settings`)
+        .then(res => res.json())
+        .then(data => {
+          setGitHubSettingsChecked(true);
+          // Show modal if gh is installed and user hasn't been prompted yet
+          if (data.ghInstalled && !data.promptedOnFirstLoad) {
+            setShowGitHubSetup(true);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch GitHub settings:', err);
+          setGitHubSettingsChecked(true);
+        });
+    }
+  }, [checkingDependencies, gitHubSettingsChecked, effectivePort]);
+
+  const handleGitHubEnable = (settings: Partial<GitHubGlobalSettings>) => {
+    fetch(`http://localhost:${effectivePort}/api/github/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    })
+      .then(() => setShowGitHubSetup(false))
+      .catch(err => console.error('Failed to save GitHub settings:', err));
+  };
+
+  const handleGitHubDismiss = () => {
+    // Mark as prompted so we don't ask again
+    fetch(`http://localhost:${effectivePort}/api/github/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ promptedOnFirstLoad: true }),
+    })
+      .then(() => setShowGitHubSetup(false))
+      .catch(err => console.error('Failed to save GitHub settings:', err));
+  };
 
   // Show splash screen while checking dependencies
   if (checkingDependencies || backendError || (dependencyCheck && !dependencyCheck.claude.available)) {
@@ -109,6 +156,7 @@ function AppRoutes() {
   };
 
   return (
+    <>
     <Routes>
       <Route
         path="/"
@@ -213,6 +261,15 @@ function AppRoutes() {
         element={<HistoricalSessionView />}
       />
     </Routes>
+
+    {/* GitHub Setup Modal - shown once when gh CLI is available and user hasn't been prompted */}
+    <GitHubSetupModal
+      opened={showGitHubSetup}
+      onClose={() => setShowGitHubSetup(false)}
+      onEnable={handleGitHubEnable}
+      onDismiss={handleGitHubDismiss}
+    />
+    </>
   );
 }
 

@@ -11,6 +11,8 @@ import {
   Loader,
   Alert,
   Select,
+  Switch,
+  Badge,
 } from '@mantine/core';
 import {
   IconFolder,
@@ -20,8 +22,9 @@ import {
   IconStack2,
   IconPalette,
   IconAlertCircle,
+  IconBrandGithub,
 } from '@tabler/icons-react';
-import type { SavedDesignFolder } from '@orchy/types';
+import type { SavedDesignFolder, GitHubConfig, GitHubGlobalSettings } from '@orchy/types';
 import {
   FormCard,
   GlassCard,
@@ -39,7 +42,7 @@ interface CreateWorkspaceViewProps {
   onClearError?: () => void;
   onBack: () => void;
   onCreateEmpty: (name: string, context?: string) => void;
-  onCreateFromTemplate: (appName: string, selectedTemplates: string[], context?: string, designName?: string) => void;
+  onCreateFromTemplate: (appName: string, selectedTemplates: string[], context?: string, designName?: string, github?: GitHubConfig) => void;
   onGoToDesigner?: () => void;
 }
 
@@ -60,6 +63,15 @@ export function CreateWorkspaceView({
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
   const [savedDesigns, setSavedDesigns] = useState<SavedDesignFolder[]>([]);
 
+  // GitHub integration state
+  const [githubSettings, setGithubSettings] = useState<(GitHubGlobalSettings & { ghInstalled?: boolean }) | null>(null);
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [githubVisibility, setGithubVisibility] = useState<'private' | 'public'>('private');
+  const [githubOwnerType, setGithubOwnerType] = useState<'user' | 'org'>('user');
+  const [githubOrg, setGithubOrg] = useState('');
+  const [githubUsername, setGithubUsername] = useState<string | null>(null);
+  const [githubOrgs, setGithubOrgs] = useState<string[]>([]);
+
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
   // Fetch saved designs for template mode
@@ -69,6 +81,42 @@ export function CreateWorkspaceView({
         .then(res => res.json())
         .then(data => setSavedDesigns(data.designs || []))
         .catch(err => console.error('Failed to fetch designs:', err));
+    }
+  }, [mode, effectivePort]);
+
+  // Fetch GitHub settings and user info
+  useEffect(() => {
+    if (mode === 'template') {
+      // Fetch GitHub global settings
+      fetch(`http://localhost:${effectivePort}/api/github/settings`)
+        .then(res => res.json())
+        .then(data => {
+          setGithubSettings(data);
+          // Set defaults from global settings
+          if (data.defaultVisibility) {
+            setGithubVisibility(data.defaultVisibility);
+          }
+          if (data.defaultOwnerType) {
+            setGithubOwnerType(data.defaultOwnerType);
+          }
+          if (data.defaultOwner) {
+            setGithubOrg(data.defaultOwner);
+          }
+        })
+        .catch(err => console.error('Failed to fetch GitHub settings:', err));
+
+      // Fetch authenticated user info
+      fetch(`http://localhost:${effectivePort}/api/github/user`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.username) {
+            setGithubUsername(data.username);
+          }
+          if (data.orgs) {
+            setGithubOrgs(data.orgs);
+          }
+        })
+        .catch(err => console.error('Failed to fetch GitHub user:', err));
     }
   }, [mode, effectivePort]);
 
@@ -96,11 +144,22 @@ export function CreateWorkspaceView({
     if (mode === 'empty') {
       onCreateEmpty(name.trim(), context.trim() || undefined);
     } else if (mode === 'template' && appName) {
+      // Build GitHub config if enabled
+      const githubConfig: GitHubConfig | undefined = githubEnabled
+        ? {
+            enabled: true,
+            visibility: githubVisibility,
+            ownerType: githubOwnerType,
+            owner: githubOwnerType === 'org' ? githubOrg : githubUsername || undefined,
+          }
+        : undefined;
+
       onCreateFromTemplate(
         appName,
         selectedTemplates,
         context.trim() || undefined,
-        hasFrontend ? selectedDesign || undefined : undefined
+        hasFrontend ? selectedDesign || undefined : undefined,
+        githubConfig
       );
     }
   };
@@ -344,6 +403,104 @@ export function CreateWorkspaceView({
                         )}
                       </Group>
                     </Group>
+                  </GlassCard>
+                )}
+
+                {/* GitHub Integration - shown only when globally enabled */}
+                {githubSettings?.enabled && githubSettings?.ghInstalled && (
+                  <GlassCard p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" wrap="nowrap">
+                        <Group gap="sm" wrap="nowrap">
+                          <ThemeIcon size="md" radius="md" color="dark" variant="light">
+                            <IconBrandGithub size={16} />
+                          </ThemeIcon>
+                          <Stack gap={0}>
+                            <Text size="sm" fw={500}>GitHub Repository</Text>
+                            <Text size="xs" c="dimmed">Create a repo for this workspace</Text>
+                          </Stack>
+                        </Group>
+                        <Switch
+                          checked={githubEnabled}
+                          onChange={(e) => setGithubEnabled(e.currentTarget.checked)}
+                          size="sm"
+                        />
+                      </Group>
+
+                      {githubEnabled && (
+                        <Stack gap="xs" pl={36}>
+                          {/* Repo preview */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed">Repository:</Text>
+                            <Badge size="sm" variant="light" color="dark">
+                              {githubOwnerType === 'org' && githubOrg
+                                ? `${githubOrg}/${appName}`
+                                : githubUsername
+                                  ? `${githubUsername}/${appName}`
+                                  : appName}
+                            </Badge>
+                          </Group>
+
+                          {/* Visibility */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed" w={70}>Visibility:</Text>
+                            <Button
+                              size="xs"
+                              variant={githubVisibility === 'private' ? 'filled' : 'light'}
+                              color={githubVisibility === 'private' ? 'dark' : 'gray'}
+                              onClick={() => setGithubVisibility('private')}
+                            >
+                              Private
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant={githubVisibility === 'public' ? 'filled' : 'light'}
+                              color={githubVisibility === 'public' ? 'dark' : 'gray'}
+                              onClick={() => setGithubVisibility('public')}
+                            >
+                              Public
+                            </Button>
+                          </Group>
+
+                          {/* Owner type */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed" w={70}>Owner:</Text>
+                            <Button
+                              size="xs"
+                              variant={githubOwnerType === 'user' ? 'filled' : 'light'}
+                              color={githubOwnerType === 'user' ? 'dark' : 'gray'}
+                              onClick={() => setGithubOwnerType('user')}
+                            >
+                              Personal
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant={githubOwnerType === 'org' ? 'filled' : 'light'}
+                              color={githubOwnerType === 'org' ? 'dark' : 'gray'}
+                              onClick={() => setGithubOwnerType('org')}
+                              disabled={githubOrgs.length === 0}
+                            >
+                              Organization
+                            </Button>
+                          </Group>
+
+                          {/* Organization select */}
+                          {githubOwnerType === 'org' && githubOrgs.length > 0 && (
+                            <Group gap="xs">
+                              <Text size="xs" c="dimmed" w={70}>Org:</Text>
+                              <Select
+                                size="xs"
+                                placeholder="Select organization"
+                                data={githubOrgs.map(org => ({ value: org, label: org }))}
+                                value={githubOrg}
+                                onChange={(val) => setGithubOrg(val || '')}
+                                style={{ flex: 1, maxWidth: 200 }}
+                              />
+                            </Group>
+                          )}
+                        </Stack>
+                      )}
+                    </Stack>
                   </GlassCard>
                 )}
               </>

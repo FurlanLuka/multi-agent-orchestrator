@@ -398,55 +398,101 @@ export class GitManager {
 
 
   /**
+   * Checks if remote 'origin' is configured
+   */
+  async hasRemote(projectPath: string): Promise<boolean> {
+    const result = await this.runGitCommand(projectPath, ['remote', 'get-url', 'origin']);
+    return result.exitCode === 0;
+  }
+
+  /**
    * Merges a branch into the target branch (typically main)
-   * Checks out target, pulls latest, merges source, pushes
+   * For repos with remote: pulls latest, merges, pushes
+   * For local repos: just merges locally
    */
   async mergeBranch(
     projectPath: string,
     sourceBranch: string,
     targetBranch: string
   ): Promise<{ success: boolean; message: string }> {
-    // 1. Checkout target branch
+    // Check if remote exists
+    const hasRemote = await this.hasRemote(projectPath);
+
+    // 1. Stash any uncommitted changes before checkout
+    const stashResult = await this.runGitCommand(projectPath, ['stash', 'push', '-m', 'orchy-merge-stash']);
+    const didStash = stashResult.exitCode === 0 && !stashResult.stdout.includes('No local changes');
+
+    // 2. Checkout target branch
     const checkoutResult = await this.runGitCommand(projectPath, ['checkout', targetBranch]);
     if (checkoutResult.exitCode !== 0) {
+      // Restore stash if we stashed
+      if (didStash) {
+        await this.runGitCommand(projectPath, ['stash', 'pop']);
+      }
       return { success: false, message: `Failed to checkout ${targetBranch}: ${checkoutResult.stderr}` };
     }
 
-    // 2. Pull latest changes
-    const pullResult = await this.runGitCommand(projectPath, ['pull', 'origin', targetBranch]);
-    if (pullResult.exitCode !== 0) {
-      // Try to recover - go back to source branch
-      await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
-      return { success: false, message: `Failed to pull ${targetBranch}: ${pullResult.stderr}` };
+    // 3. Pull latest changes (only if remote exists)
+    if (hasRemote) {
+      const pullResult = await this.runGitCommand(projectPath, ['pull', 'origin', targetBranch]);
+      if (pullResult.exitCode !== 0) {
+        // Check if it's just "no tracking branch" or similar - don't fail for that
+        const errorLower = (pullResult.stderr || '').toLowerCase();
+        if (!errorLower.includes('couldn\'t find remote ref') &&
+            !errorLower.includes('no tracking information')) {
+          // Try to recover - go back to source branch
+          await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
+          if (didStash) {
+            await this.runGitCommand(projectPath, ['stash', 'pop']);
+          }
+          return { success: false, message: `Failed to pull ${targetBranch}: ${pullResult.stderr}` };
+        }
+        // Otherwise continue - local-only target branch is fine
+        console.log(`[GitManager] No remote tracking for ${targetBranch}, continuing with local merge`);
+      }
     }
 
-    // 3. Merge source branch
+    // 4. Merge source branch
     const mergeResult = await this.runGitCommand(projectPath, ['merge', sourceBranch, '--no-edit']);
     if (mergeResult.exitCode !== 0) {
       // Abort merge and go back to source branch
       await this.runGitCommand(projectPath, ['merge', '--abort']);
       await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
+      if (didStash) {
+        await this.runGitCommand(projectPath, ['stash', 'pop']);
+      }
 
-      const errorOutput = mergeResult.stderr.toLowerCase();
+      const errorOutput = (mergeResult.stderr || '').toLowerCase();
       if (errorOutput.includes('conflict')) {
         return { success: false, message: 'Merge failed: conflicts detected. Please resolve manually.' };
       }
-      return { success: false, message: `Merge failed: ${mergeResult.stderr}` };
+      return { success: false, message: `Merge failed: ${mergeResult.stderr || mergeResult.stdout}` };
     }
 
-    // 4. Push merged changes
-    const pushResult = await this.runGitCommand(projectPath, ['push', 'origin', targetBranch]);
-    if (pushResult.exitCode !== 0) {
-      // Go back to source branch but keep the merge locally
-      await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
-      return { success: false, message: `Merge succeeded but push failed: ${pushResult.stderr}` };
+    // 5. Push merged changes (only if remote exists)
+    if (hasRemote) {
+      const pushResult = await this.runGitCommand(projectPath, ['push', 'origin', targetBranch]);
+      if (pushResult.exitCode !== 0) {
+        // Go back to source branch but keep the merge locally
+        await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
+        if (didStash) {
+          await this.runGitCommand(projectPath, ['stash', 'pop']);
+        }
+        return { success: false, message: `Merge succeeded locally but push failed: ${pushResult.stderr}. The merge is saved locally.` };
+      }
     }
 
-    // 5. Go back to source branch
+    // 6. Go back to source branch
     await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
 
-    console.log(`[GitManager] Merged '${sourceBranch}' into '${targetBranch}' at ${projectPath}`);
-    return { success: true, message: `Merged '${sourceBranch}' into '${targetBranch}'` };
+    // 7. Restore stash if we stashed
+    if (didStash) {
+      await this.runGitCommand(projectPath, ['stash', 'pop']);
+    }
+
+    const pushNote = hasRemote ? ' and pushed' : ' (local only - no remote configured)';
+    console.log(`[GitManager] Merged '${sourceBranch}' into '${targetBranch}'${pushNote} at ${projectPath}`);
+    return { success: true, message: `Merged '${sourceBranch}' into '${targetBranch}'${pushNote}` };
   }
 
   /**

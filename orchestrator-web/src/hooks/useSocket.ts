@@ -1214,12 +1214,17 @@ export function useSocket() {
   }, []);
 
   // Create workspace from templates (without starting a session)
-  const createWorkspaceFromTemplate = useCallback((appName: string, templateNames: string[], context?: string, designName?: string) => {
+  const createWorkspaceFromTemplate = useCallback((appName: string, templateNames: string[], context?: string, designName?: string, github?: {
+    enabled: boolean;
+    visibility?: 'public' | 'private';
+    ownerType?: 'user' | 'org';
+    owner?: string;
+  }) => {
     if (socketRef.current) {
       setCreatingProject(true);
       setQuickStartError(null);
       setCreatedWorkspaceId(null);
-      socketRef.current.emit('createWorkspaceFromTemplate', { appName, templateNames, context, designName });
+      socketRef.current.emit('createWorkspaceFromTemplate', { appName, templateNames, context, designName, github });
     }
   }, []);
 

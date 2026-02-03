@@ -123,6 +123,7 @@ import { createUIServer } from './ui/server';
 import { SessionLogger } from './core/session-logger';
 import { TaskExecutor } from './core/task-executor';
 import { GitManager } from './core/git-manager';
+import { GitHubManager } from './core/github-manager';
 import { generateBranchName } from './utils/ask-agent';
 import { TEMPLATE_PERMISSIONS } from '@orchy/types';
 import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted, initializePlannerPermissionsIfNeeded } from './config/paths';
@@ -331,6 +332,7 @@ async function main() {
   const statusMonitor = new StatusMonitor();
   const logAggregator = new LogAggregator();
   const gitManager = new GitManager();
+  const githubManager = new GitHubManager();
 
   console.log(`  Workspaces: ${Object.keys(workspaceManager.getWorkspaces()).length}`);
   console.log('');
@@ -382,6 +384,14 @@ async function main() {
   });
 
   // ═══════════════════════════════════════════════════════════════
+  // Set up GitHub secret handler for MCP tool request_user_input
+  // ═══════════════════════════════════════════════════════════════
+
+  ui.setGitHubSecretHandler(async (repo: string, name: string, value: string) => {
+    return githubManager.setSecret(repo, name, value);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
   // Set up next prompt handler for planning stages
   // This generates the appropriate prompt when a stage is approved
   // ═══════════════════════════════════════════════════════════════
@@ -396,6 +406,92 @@ async function main() {
     }
     return undefined;
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // GitHub Integration REST API Endpoints
+  // ═══════════════════════════════════════════════════════════════
+
+  // GET /api/github/settings - Get GitHub global settings
+  ui.app.get('/api/github/settings', async (req, res) => {
+    try {
+      const settings = githubManager.getSettings();
+      const ghInstalled = await githubManager.isGhInstalled();
+      res.json({ ...settings, ghInstalled });
+    } catch (err) {
+      console.error('[Orchestrator] Failed to get GitHub settings:', err);
+      res.status(500).json({ error: 'Failed to get settings' });
+    }
+  });
+
+  // POST /api/github/settings - Update GitHub global settings
+  ui.app.post('/api/github/settings', (req, res) => {
+    try {
+      const updates = req.body;
+      const settings = githubManager.updateSettings(updates);
+      res.json(settings);
+    } catch (err) {
+      console.error('[Orchestrator] Failed to update GitHub settings:', err);
+      res.status(500).json({ error: 'Failed to update settings' });
+    }
+  });
+
+  // GET /api/github/auth - Check GitHub authentication status
+  ui.app.get('/api/github/auth', async (req, res) => {
+    try {
+      const authStatus = await githubManager.checkAuthStatus();
+      res.json(authStatus);
+    } catch (err) {
+      console.error('[Orchestrator] Failed to check GitHub auth:', err);
+      res.status(500).json({ error: 'Failed to check auth status' });
+    }
+  });
+
+  // GET /api/github/verify - Verify auth and repo access
+  ui.app.get('/api/github/verify', async (req, res) => {
+    try {
+      const repo = req.query.repo as string;
+      if (!repo) {
+        res.status(400).json({ error: 'Missing repo parameter' });
+        return;
+      }
+
+      // Check auth first
+      const authStatus = await githubManager.checkAuthStatus();
+      if (!authStatus.authenticated) {
+        res.json({
+          authenticated: false,
+          hasAccess: false,
+          error: 'Not authenticated. Run `gh auth login` to authenticate.',
+        });
+        return;
+      }
+
+      // Then check repo access
+      const repoAccess = await githubManager.verifyRepoAccess(repo);
+      res.json({
+        authenticated: true,
+        username: authStatus.username,
+        ...repoAccess,
+      });
+    } catch (err) {
+      console.error('[Orchestrator] Failed to verify GitHub access:', err);
+      res.status(500).json({ error: 'Failed to verify access' });
+    }
+  });
+
+  // GET /api/github/user - Get authenticated user info (username and orgs)
+  ui.app.get('/api/github/user', async (req, res) => {
+    try {
+      const userInfo = await githubManager.getAuthenticatedUser();
+      res.json(userInfo);
+    } catch (err) {
+      console.error('[Orchestrator] Failed to get GitHub user:', err);
+      res.status(500).json({ error: 'Failed to get user info' });
+    }
+  });
+
+  // Finalize UI server - registers SPA catch-all route (must be AFTER all API routes)
+  ui.finalize();
 
   // ═══════════════════════════════════════════════════════════════
   // Wire up Designer Agent events to Socket.io
@@ -1396,6 +1492,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Mark session as completed
     sessionManager.markSessionCompleted();
 
+    // Stop dev servers on completion - user can restart from workspace if needed
+    console.log('[Orchestrator] Stopping dev servers after session completion...');
+    await processManager.stopAllDevServers();
+    ui.io.emit('devServerStatus', { servers: [] });
+
     // Check if auto-merge is enabled for this workspace
     const session = sessionManager.getCurrentSession();
     if (session?.workspaceId) {
@@ -1760,29 +1861,47 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       try {
         console.log(`[Orchestrator] Orchy Managed: merging ${branchName} to main at workspace root...`);
 
-        // Emit progress
-        ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'pushing' });
+        // Check if remote exists
+        const hasRemote = await gitManager.hasRemote(workspaceRootPath);
 
-        // First push the branch to remote
-        const pushResult = await gitManager.pushBranch(workspaceRootPath, branchName);
-        if (!pushResult.success) {
-          results['_workspace'] = { success: false, message: `Push failed: ${pushResult.message}` };
-          allSucceeded = false;
-          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: pushResult.message });
-        } else {
-          // Emit progress
-          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'merging' });
-
-          // Then merge to main
-          const mergeResult = await gitManager.mergeBranch(workspaceRootPath, branchName, 'main');
-          if (mergeResult.success) {
-            results['_workspace'] = { success: true, message: 'Merged to main' };
-            ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'completed' });
-          } else {
-            results['_workspace'] = { success: false, message: mergeResult.message };
-            allSucceeded = false;
-            ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: mergeResult.message });
+        // Push branch to remote if remote exists
+        if (hasRemote) {
+          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'pushing' });
+          const pushResult = await gitManager.pushBranch(workspaceRootPath, branchName);
+          if (!pushResult.success) {
+            // Log warning but continue with merge - push failure shouldn't block local merge
+            console.warn(`[Orchestrator] Push failed (will continue with local merge): ${pushResult.message}`);
           }
+        } else {
+          console.log(`[Orchestrator] No remote configured - skipping push, will merge locally`);
+        }
+
+        // Merge to main (handles both local and remote repos)
+        ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'merging' });
+        const mergeResult = await gitManager.mergeBranch(workspaceRootPath, branchName, 'main');
+
+        if (mergeResult.success) {
+          results['_workspace'] = { success: true, message: mergeResult.message };
+          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'completed' });
+
+          // Auto-push main to remote if GitHub is enabled
+          const workspace = session.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : null;
+          if (workspace?.github?.enabled && workspace.github?.repo) {
+            console.log(`[Orchestrator] Auto-pushing main to GitHub remote: ${workspace.github.repo}`);
+            ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'pushing_main' });
+
+            const pushMainResult = await githubManager.pushToRemote(workspaceRootPath, 'main', workspace.github.repo);
+            if (pushMainResult.success) {
+              console.log(`[Orchestrator] Successfully pushed main to GitHub`);
+            } else {
+              console.warn(`[Orchestrator] Failed to push main to GitHub: ${pushMainResult.error}`);
+              // Don't fail the whole merge - just log the warning
+            }
+          }
+        } else {
+          results['_workspace'] = { success: false, message: mergeResult.message };
+          allSucceeded = false;
+          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: mergeResult.message });
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -1814,25 +1933,27 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         try {
           console.log(`[Orchestrator] Merging ${branchName} to ${mainBranch} for ${projectName}...`);
 
-          // Emit progress
-          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'pushing' });
+          // Check if remote exists
+          const hasRemote = await gitManager.hasRemote(projectPath);
 
-          // First push the branch to remote
-          const pushResult = await gitManager.pushBranch(projectPath, branchName);
-          if (!pushResult.success) {
-            results[projectName] = { success: false, message: `Push failed: ${pushResult.message}` };
-            allSucceeded = false;
-            ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: pushResult.message });
-            continue;
+          // Push branch to remote if remote exists
+          if (hasRemote) {
+            ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'pushing' });
+            const pushResult = await gitManager.pushBranch(projectPath, branchName);
+            if (!pushResult.success) {
+              // Log warning but continue with merge
+              console.warn(`[Orchestrator] Push failed for ${projectName} (will continue with local merge): ${pushResult.message}`);
+            }
+          } else {
+            console.log(`[Orchestrator] No remote configured for ${projectName} - will merge locally`);
           }
 
-          // Emit progress
+          // Merge to main (handles both local and remote repos)
           ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'merging' });
-
-          // Then merge to main
           const mergeResult = await gitManager.mergeBranch(projectPath, branchName, mainBranch);
+
           if (mergeResult.success) {
-            results[projectName] = { success: true, message: `Merged to ${mainBranch}` };
+            results[projectName] = { success: true, message: mergeResult.message };
             ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'completed' });
           } else {
             results[projectName] = { success: false, message: mergeResult.message };
@@ -1969,8 +2090,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // This is the simple fix: ProcessManager, SessionManager, TaskExecutor, etc. all use config.projects
             Object.assign(config.projects, workspaceProjectConfigs);
 
-            // Also update PlanningAgent's project config
+            // Also update PlanningAgent's project config and GitHub settings
             planningAgent.setProjectConfig(config.projects);
+            planningAgent.setWorkspaceGitHub(workspace?.github);
 
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
@@ -2021,10 +2143,23 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             try {
               console.log(`[Orchestrator] Orchy Managed: setting up git at workspace root: ${workspaceRootPath}`);
 
+              // Check for uncommitted changes and stash if needed
+              const uncommitted = await gitManager.hasUncommittedChanges(workspaceRootPath);
+              let didStash = false;
+              if (uncommitted.hasChanges) {
+                console.log(`[Orchestrator] Stashing uncommitted changes before branch switch (${uncommitted.staged} staged, ${uncommitted.unstaged} unstaged, ${uncommitted.untracked} untracked)`);
+                const stashResult = await gitManager.stashChanges(workspaceRootPath, 'orchy-session-start');
+                didStash = stashResult.success;
+                if (!didStash) {
+                  console.warn(`[Orchestrator] Failed to stash changes: ${stashResult.message}`);
+                }
+              }
+
               // Checkout main and pull latest
               const checkoutResult = await gitManager.createAndCheckoutBranch(workspaceRootPath, 'main');
               if (!checkoutResult.success) {
-                console.warn(`[Orchestrator] Failed to checkout main for workspace: ${checkoutResult.message}`);
+                console.error(`[Orchestrator] Failed to checkout main for workspace: ${checkoutResult.message}`);
+                chatHandler.systemMessage(`Git setup warning: Could not checkout main branch. ${checkoutResult.message}`);
               }
 
               // Pull latest (ignore errors for repos without remote)
@@ -2048,9 +2183,57 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
                 console.log(`[Orchestrator] Orchy Managed: git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} at workspace root`);
               } else {
                 console.error(`[Orchestrator] Failed to setup git branch for workspace: ${branchResult.message}`);
+                chatHandler.systemMessage(`Git setup warning: Could not create branch '${finalBranchName}'. ${branchResult.message}. Changes may not be tracked properly.`);
+              }
+
+              // Auto-create GitHub repo if enabled but not yet created
+              const workspace = workspaceManager.getWorkspace(workspaceId);
+              if (workspace?.github?.enabled && !workspace.github.repo) {
+                console.log(`[Orchestrator] Creating GitHub repo for workspace: ${workspace.name}`);
+                chatHandler.systemMessage(`Creating GitHub repository for ${workspace.name}...`);
+
+                const repoResult = await githubManager.createRepoOnly({
+                  name: workspace.name,
+                  visibility: workspace.github.visibility || 'private',
+                  ownerType: workspace.github.ownerType || 'user',
+                  owner: workspace.github.owner,
+                });
+
+                if (repoResult.success && repoResult.repo) {
+                  console.log(`[Orchestrator] GitHub repo created: ${repoResult.repo}`);
+                  chatHandler.systemMessage(`GitHub repository created: ${repoResult.repo}`);
+
+                  // Add remote to the workspace
+                  const addRemoteResult = await githubManager.addRemote(workspaceRootPath, repoResult.repo);
+                  if (addRemoteResult.success) {
+                    console.log(`[Orchestrator] Added GitHub remote to workspace`);
+                  } else {
+                    console.warn(`[Orchestrator] Failed to add GitHub remote: ${addRemoteResult.error}`);
+                  }
+
+                  // Update workspace config with the repo
+                  workspaceManager.updateWorkspace(workspaceId, {
+                    github: {
+                      ...workspace.github,
+                      repo: repoResult.repo,
+                    },
+                  });
+                  // Emit updated workspaces
+                  ui.io.emit('workspaces', workspaceManager.getWorkspaces());
+                } else {
+                  console.error(`[Orchestrator] Failed to create GitHub repo: ${repoResult.error}`);
+                  chatHandler.systemMessage(`Failed to create GitHub repository: ${repoResult.error}`);
+                }
+              }
+
+              // Note: We don't restore the stash here - the stashed changes are from a previous session
+              // and should be manually handled by the user if needed
+              if (didStash) {
+                console.log(`[Orchestrator] Previous session changes were stashed. Use 'git stash pop' in workspace to restore if needed.`);
               }
             } catch (err) {
               console.error(`[Orchestrator] Git setup failed for Orchy Managed workspace:`, err);
+              chatHandler.systemMessage(`Git setup error: ${err}. Session will continue but git features may not work.`);
             }
           }
         } else {
@@ -2577,6 +2760,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Merge workspace configs into config.projects
             Object.assign(config.projects, workspaceProjectConfigs);
             planningAgent.setProjectConfig(config.projects);
+            planningAgent.setWorkspaceGitHub(workspace?.github);
             // Check if Orchy Managed and get workspace root
             isOrchyManagedResume = workspace.orchyManaged === true;
             if (isOrchyManagedResume) {
@@ -3329,7 +3513,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const suffix = templateName.includes('frontend') ? 'frontend' :
                         templateName.includes('backend') ? 'backend' :
                         templateName.replace(/^(react|vite|vue|express|nestjs)-?/, '');
-          const projectName = `${appName}-${suffix}`;
+          const projectName = suffix;
 
           // Check if this project depends on others (frontend depends on backend for E2E)
           const dependsOn = templateName.includes('frontend') && createdProjectConfigs.some(p => p.name.includes('backend'))
@@ -3392,7 +3576,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const initResult = await gitManager.initRepo(expandedTargetPath, 'main');
           if (initResult.success) {
             // Create initial commit with all project files
-            const projectNames = createdProjectConfigs.map(p => p.name.replace(`${appName}-`, '')).join(', ');
+            const projectNames = createdProjectConfigs.map(p => p.name).join(', ');
             const commitResult = await gitManager.commit(expandedTargetPath, `Initial commit: ${appName} workspace (${projectNames})`);
             if (commitResult.success) {
               console.log(`[Orchestrator] Git initialized at workspace root with initial commit`);
@@ -3451,9 +3635,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               // Use _workspace key for Orchy Managed workspace-level branch
               gitBranches['_workspace'] = actualBranchName;
               console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} at workspace root`);
+            } else {
+              console.error(`[Orchestrator] Failed to create feature branch '${actualBranchName}': ${branchResult.message}`);
+              chatHandler.systemMessage(`Git warning: Could not create feature branch '${actualBranchName}'. ${branchResult.message}. Changes may not be tracked properly.`);
             }
           } catch (gitErr) {
             console.error(`[Orchestrator] Failed to initialize git branch at workspace root:`, gitErr);
+            chatHandler.systemMessage(`Git error: ${gitErr}. Session will continue but git features may not work.`);
           }
         }
 
@@ -3504,7 +3692,18 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Create workspace from templates (without starting a session)
-    socket.on('createWorkspaceFromTemplate', async ({ appName, templateNames, context, designName }: { appName: string; templateNames: string[]; context?: string; designName?: string }) => {
+    socket.on('createWorkspaceFromTemplate', async ({ appName, templateNames, context, designName, github }: {
+      appName: string;
+      templateNames: string[];
+      context?: string;
+      designName?: string;
+      github?: {
+        enabled: boolean;
+        visibility?: 'public' | 'private';
+        ownerType?: 'user' | 'org';
+        owner?: string;
+      };
+    }) => {
       const targetPath = `~/orchy/${appName}`;
       const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
       const createdProjectConfigs: WorkspaceProjectConfig[] = [];
@@ -3552,7 +3751,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const suffix = templateName.includes('frontend') ? 'frontend' :
                         templateName.includes('backend') ? 'backend' :
                         templateName.replace(/^(react|vite|vue|express|nestjs)-?/, '');
-          const projectName = `${appName}-${suffix}`;
+          const projectName = suffix;
 
           // Check if this project depends on others (frontend depends on backend for E2E)
           const dependsOn = templateName.includes('frontend') && createdProjectConfigs.some(p => p.name.includes('backend'))
@@ -3607,19 +3806,80 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           projects: createdProjectConfigs,
           context,
           orchyManaged: true,  // This is a template-created monorepo workspace
+          github: github?.enabled ? {
+            enabled: true,
+            visibility: github.visibility || 'private',
+            ownerType: github.ownerType || 'user',
+            owner: github.owner,
+          } : undefined,
         });
         createdWorkspaceId = workspace.id;
 
         // Initialize git at workspace root (Orchy Managed monorepo structure)
+        let githubRepoCreated = false;
+        let githubRepoName: string | undefined;
+
         try {
           console.log(`[Orchestrator] Initializing git at workspace root: ${expandedTargetPath}`);
           const initResult = await gitManager.initRepo(expandedTargetPath, 'main');
           if (initResult.success) {
             // Create initial commit with all project files
-            const projectNames = createdProjectConfigs.map(p => p.name.replace(`${appName}-`, '')).join(', ');
+            const projectNames = createdProjectConfigs.map(p => p.name).join(', ');
             const commitResult = await gitManager.commit(expandedTargetPath, `Initial commit: ${appName} workspace (${projectNames})`);
             if (commitResult.success) {
               console.log(`[Orchestrator] Git initialized at workspace root with initial commit`);
+
+              // Create GitHub repository if enabled
+              if (github?.enabled) {
+                try {
+                  console.log(`[Orchestrator] Creating GitHub repository for ${appName}...`);
+                  const repoResult = await githubManager.createRepoOnly({
+                    name: appName,
+                    visibility: github.visibility || 'private',
+                    ownerType: github.ownerType || 'user',
+                    owner: github.owner,
+                    description: `${appName} workspace created by Orchy`,
+                  });
+
+                  if (repoResult.success && repoResult.repo) {
+                    console.log(`[Orchestrator] GitHub repository created: ${repoResult.repo}`);
+                    githubRepoCreated = true;
+                    githubRepoName = repoResult.repo;
+
+                    // Add remote origin
+                    const remoteResult = await githubManager.addRemote(expandedTargetPath, repoResult.repo);
+                    if (remoteResult.success) {
+                      console.log(`[Orchestrator] Added remote origin: ${repoResult.repo}`);
+
+                      // Push initial commit
+                      const pushResult = await githubManager.pushToRemote(expandedTargetPath, 'main', repoResult.repo);
+                      if (pushResult.success) {
+                        console.log(`[Orchestrator] Pushed initial commit to GitHub`);
+                      } else {
+                        console.warn(`[Orchestrator] Failed to push initial commit: ${pushResult.error}`);
+                      }
+                    } else {
+                      console.warn(`[Orchestrator] Failed to add remote: ${remoteResult.error}`);
+                    }
+
+                    // Update workspace with actual repo name
+                    workspaceManager.updateWorkspace(workspace.id, {
+                      github: {
+                        enabled: true,
+                        repo: repoResult.repo,
+                        visibility: github.visibility || 'private',
+                        ownerType: github.ownerType || 'user',
+                        owner: github.owner,
+                      },
+                    });
+                  } else {
+                    console.warn(`[Orchestrator] Failed to create GitHub repo: ${repoResult.error}`);
+                  }
+                } catch (ghErr) {
+                  console.error(`[Orchestrator] GitHub repository creation error:`, ghErr);
+                  // Don't fail workspace creation - GitHub is optional
+                }
+              }
             } else {
               console.warn(`[Orchestrator] Git init succeeded but initial commit failed: ${commitResult.message}`);
             }
@@ -3633,7 +3893,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Emit updated workspaces and success with workspace ID
         socket.emit('workspaces', workspaceManager.getWorkspaces());
-        socket.emit('workspaceFromTemplateCreated', { workspaceId: workspace.id });
+        socket.emit('workspaceFromTemplateCreated', {
+          workspaceId: workspace.id,
+          githubRepoCreated,
+          githubRepo: githubRepoName,
+        });
 
         console.log(`[Orchestrator] Orchy Managed workspace created: ${workspace.id}`);
       } catch (err) {

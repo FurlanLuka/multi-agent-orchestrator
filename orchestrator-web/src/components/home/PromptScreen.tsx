@@ -15,6 +15,8 @@ import {
   Modal,
   ThemeIcon,
   Switch,
+  Alert,
+  Select,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -28,6 +30,7 @@ import {
   IconServer,
   IconAlertTriangle,
   IconGitMerge,
+  IconBrandGithub,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -36,6 +39,8 @@ import type {
   WorkspaceProjectConfig,
   ProjectTemplateConfig,
   ProjectTemplate,
+  GitHubConfig,
+  GitHubGlobalSettings,
 } from '@orchy/types';
 import {
   FormCard,
@@ -94,7 +99,7 @@ interface PromptScreenProps {
   onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
   onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
   onRemoveProjectFromWorkspace: (workspaceId: string, projectName: string) => void;
-  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string; managedGit?: boolean; autoMerge?: boolean }) => void;
+  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig }) => void;
   onCreateProjectFromTemplate: (options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
   createProjectError?: string | null;
   onClearCreateProjectError?: () => void;
@@ -130,6 +135,15 @@ export function PromptScreen({
 }: PromptScreenProps) {
   const { startDevServers, devServers, startingDevServers, stopAllDevServers } = useOrchestrator();
   const [branchName, setBranchName] = useState('');
+
+  // GitHub verification state
+  const [githubStatus, setGithubStatus] = useState<{
+    checking: boolean;
+    authenticated: boolean;
+    username?: string;
+    hasAccess: boolean;
+    error?: string;
+  }>({ checking: false, authenticated: true, hasAccess: true });
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
   // Check if workspace has projects (used to prevent exiting edit mode when empty)
   const hasProjects = workspace.projects.length > 0;
@@ -164,6 +178,15 @@ export function PromptScreen({
   const [autoMergeValue, setAutoMergeValue] = useState(workspace.autoMerge !== false);
   const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
 
+  // GitHub settings state for edit mode
+  const [githubGlobalSettings, setGithubGlobalSettings] = useState<(GitHubGlobalSettings & { ghInstalled?: boolean }) | null>(null);
+  const [githubEnabled, setGithubEnabled] = useState(workspace.github?.enabled || false);
+  const [githubVisibility, setGithubVisibility] = useState<'private' | 'public'>(workspace.github?.visibility || 'private');
+  const [githubOwnerType, setGithubOwnerType] = useState<'user' | 'org'>(workspace.github?.ownerType || 'user');
+  const [githubOrg, setGithubOrg] = useState(workspace.github?.owner || '');
+  const [githubUsername, setGithubUsername] = useState<string | null>(null);
+  const [githubOrgs, setGithubOrgs] = useState<string[]>([]);
+
   // Modal states
   const [addModalOpened, { open: openAddModal, close: closeAddModal }] = useDisclosure(false);
   const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
@@ -177,8 +200,10 @@ export function PromptScreen({
     includedConfigs: SessionProjectConfig[];
   } | null>(null);
 
+  const [editorContent, setEditorContent] = useState('');
   const editor = useGlassEditor({
     placeholder: 'Describe what to build...',
+    onUpdate: (text) => setEditorContent(text),
   });
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
@@ -192,6 +217,68 @@ export function PromptScreen({
       .then(data => setPermissionsConfig(data))
       .catch(err => console.error('Failed to fetch permissions config:', err));
   }, [effectivePort]);
+
+  // Fetch GitHub global settings and user info for edit mode (Orchy managed workspaces)
+  useEffect(() => {
+    if (!workspace.orchyManaged || effectivePort === null) return;
+
+    // Fetch GitHub global settings
+    fetch(`http://localhost:${effectivePort}/api/github/settings`)
+      .then(res => res.json())
+      .then(data => {
+        setGithubGlobalSettings(data);
+        // Set defaults from global settings if workspace doesn't have GitHub config yet
+        if (!workspace.github) {
+          if (data.defaultVisibility) setGithubVisibility(data.defaultVisibility);
+          if (data.defaultOwnerType) setGithubOwnerType(data.defaultOwnerType);
+          if (data.defaultOwner) setGithubOrg(data.defaultOwner);
+        }
+      })
+      .catch(err => console.error('Failed to fetch GitHub settings:', err));
+
+    // Fetch authenticated user info
+    fetch(`http://localhost:${effectivePort}/api/github/user`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.username) {
+          setGithubUsername(data.username);
+        }
+        if (data.orgs) {
+          setGithubOrgs(data.orgs);
+        }
+      })
+      .catch(err => console.error('Failed to fetch GitHub user:', err));
+  }, [workspace.orchyManaged, workspace.github, effectivePort]);
+
+  // Verify GitHub access for workspaces with GitHub enabled
+  useEffect(() => {
+    if (!workspace.orchyManaged || !workspace.github?.enabled || !workspace.github?.repo) {
+      return;
+    }
+
+    setGithubStatus(prev => ({ ...prev, checking: true }));
+
+    fetch(`http://localhost:${effectivePort}/api/github/verify?repo=${encodeURIComponent(workspace.github.repo)}`)
+      .then(res => res.json())
+      .then(data => {
+        setGithubStatus({
+          checking: false,
+          authenticated: data.authenticated,
+          username: data.username,
+          hasAccess: data.hasAccess,
+          error: data.error,
+        });
+      })
+      .catch(err => {
+        console.error('Failed to verify GitHub access:', err);
+        setGithubStatus({
+          checking: false,
+          authenticated: false,
+          hasAccess: false,
+          error: 'Failed to verify GitHub access',
+        });
+      });
+  }, [workspace.orchyManaged, workspace.github, effectivePort]);
 
   // Build project configs from workspace inline projects
   const workspaceProjectConfigs: Record<string, ProjectConfig> = {};
@@ -224,7 +311,7 @@ export function PromptScreen({
   // Check if managed git is enabled (default: true for new workspaces)
   const isManagedGit = workspace.managedGit !== false;
 
-  const hasContent = editor ? editor.getText().trim().length > 0 : false;
+  const hasContent = editorContent.trim().length > 0;
 
   // Get list of included git-enabled projects
   const getIncludedGitProjects = useCallback(() => {
@@ -349,7 +436,7 @@ export function PromptScreen({
         return;
       }
       // Exiting edit mode - save changes if any
-      const updates: { context?: string; managedGit?: boolean; autoMerge?: boolean } = {};
+      const updates: { context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig } = {};
       if (contextValue !== workspace.context) {
         updates.context = contextValue;
       }
@@ -358,6 +445,27 @@ export function PromptScreen({
       }
       if (autoMergeValue !== (workspace.autoMerge !== false)) {
         updates.autoMerge = autoMergeValue;
+      }
+      // Save GitHub settings for Orchy managed workspaces
+      if (workspace.orchyManaged) {
+        const currentGithub = workspace.github;
+        const newGithubEnabled = githubEnabled;
+        const newGithubVisibility = githubVisibility;
+        const newGithubOwnerType = githubOwnerType;
+        const newGithubOwner = githubOwnerType === 'org' ? githubOrg : githubUsername || undefined;
+
+        // Check if GitHub config changed
+        if (newGithubEnabled !== (currentGithub?.enabled || false) ||
+            newGithubVisibility !== (currentGithub?.visibility || 'private') ||
+            newGithubOwnerType !== (currentGithub?.ownerType || 'user') ||
+            newGithubOwner !== currentGithub?.owner) {
+          updates.github = {
+            enabled: newGithubEnabled,
+            visibility: newGithubVisibility,
+            ownerType: newGithubOwnerType,
+            owner: newGithubOwner,
+          };
+        }
       }
       if (Object.keys(updates).length > 0) {
         onUpdateWorkspace(workspace.id, updates);
@@ -603,6 +711,132 @@ export function PromptScreen({
               </GlassCard>
             </Stack>
           )}
+
+          {/* GitHub Integration section - only for Orchy managed workspaces */}
+          {workspace.orchyManaged && githubGlobalSettings?.enabled && githubGlobalSettings?.ghInstalled && (
+            <Stack gap="sm">
+              <Group gap="xs" align="center">
+                <IconBrandGithub size={18} style={{ color: 'var(--mantine-color-dark-6)' }} />
+                <Title order={4}>GitHub Integration</Title>
+              </Group>
+              <GlassCard p="md">
+                <Stack gap="md">
+                  {/* Already connected info */}
+                  {workspace.github?.repo ? (
+                    <Box
+                      p="sm"
+                      style={{
+                        background: 'rgba(74, 145, 73, 0.1)',
+                        borderRadius: 8,
+                        border: '1px solid rgba(74, 145, 73, 0.2)',
+                      }}
+                    >
+                      <Group gap="xs" mb={4}>
+                        <Badge size="xs" variant="light" color="sage">Connected</Badge>
+                        <Badge size="sm" variant="light" color="dark">
+                          {workspace.github.repo}
+                        </Badge>
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        This workspace is connected to a GitHub repository. Changes will be pushed automatically.
+                      </Text>
+                    </Box>
+                  ) : (
+                    <>
+                      {/* Enable GitHub toggle */}
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2} style={{ flex: 1 }}>
+                          <Text size="sm" fw={500}>Create GitHub Repository</Text>
+                          <Text size="xs" c="dimmed">
+                            Create a GitHub repo for this workspace. A repository will be created when you start your next session.
+                          </Text>
+                        </Stack>
+                        <Switch
+                          checked={githubEnabled}
+                          onChange={(e) => setGithubEnabled(e.currentTarget.checked)}
+                          color="dark"
+                        />
+                      </Group>
+
+                      {githubEnabled && (
+                        <Stack gap="sm" pl="md">
+                          {/* Repo preview */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed">Repository:</Text>
+                            <Badge size="sm" variant="light" color="dark">
+                              {githubOwnerType === 'org' && githubOrg
+                                ? `${githubOrg}/${workspace.name}`
+                                : githubUsername
+                                  ? `${githubUsername}/${workspace.name}`
+                                  : workspace.name}
+                            </Badge>
+                          </Group>
+
+                          {/* Visibility */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed" w={70}>Visibility:</Text>
+                            <Button
+                              size="xs"
+                              variant={githubVisibility === 'private' ? 'filled' : 'light'}
+                              color={githubVisibility === 'private' ? 'dark' : 'gray'}
+                              onClick={() => setGithubVisibility('private')}
+                            >
+                              Private
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant={githubVisibility === 'public' ? 'filled' : 'light'}
+                              color={githubVisibility === 'public' ? 'dark' : 'gray'}
+                              onClick={() => setGithubVisibility('public')}
+                            >
+                              Public
+                            </Button>
+                          </Group>
+
+                          {/* Owner type */}
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed" w={70}>Owner:</Text>
+                            <Button
+                              size="xs"
+                              variant={githubOwnerType === 'user' ? 'filled' : 'light'}
+                              color={githubOwnerType === 'user' ? 'dark' : 'gray'}
+                              onClick={() => setGithubOwnerType('user')}
+                            >
+                              Personal
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant={githubOwnerType === 'org' ? 'filled' : 'light'}
+                              color={githubOwnerType === 'org' ? 'dark' : 'gray'}
+                              onClick={() => setGithubOwnerType('org')}
+                              disabled={githubOrgs.length === 0}
+                            >
+                              Organization
+                            </Button>
+                          </Group>
+
+                          {/* Organization select */}
+                          {githubOwnerType === 'org' && githubOrgs.length > 0 && (
+                            <Group gap="xs">
+                              <Text size="xs" c="dimmed" w={70}>Org:</Text>
+                              <Select
+                                size="xs"
+                                placeholder="Select organization"
+                                data={githubOrgs.map(org => ({ value: org, label: org }))}
+                                value={githubOrg}
+                                onChange={(val) => setGithubOrg(val || '')}
+                                style={{ flex: 1, maxWidth: 200 }}
+                              />
+                            </Group>
+                          )}
+                        </Stack>
+                      )}
+                    </>
+                  )}
+                </Stack>
+              </GlassCard>
+            </Stack>
+          )}
         </Stack>
 
         {/* Add Project Modal */}
@@ -745,6 +979,50 @@ export function PromptScreen({
             </HelpOverlay>
           </Group>
         </Stack>
+
+        {/* GitHub access warning */}
+        {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
+          !githubStatus.authenticated ? (
+            <Alert
+              variant="light"
+              color="orange"
+              icon={<IconBrandGithub size={18} />}
+              title="GitHub Authentication Required"
+            >
+              <Text size="sm">
+                You are not authenticated with GitHub. Run{' '}
+                <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
+                in your terminal to authenticate.
+              </Text>
+            </Alert>
+          ) : !githubStatus.hasAccess ? (
+            <Alert
+              variant="light"
+              color="orange"
+              icon={<IconBrandGithub size={18} />}
+              title="GitHub Access Issue"
+            >
+              <Text size="sm">
+                {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
+              </Text>
+            </Alert>
+          ) : null
+        )}
+
+        {/* GitHub connected badge */}
+        {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
+          <Group gap="xs">
+            <Badge
+              size="sm"
+              variant="light"
+              color="dark"
+              leftSection={<IconBrandGithub size={12} />}
+            >
+              {workspace.github.repo}
+            </Badge>
+            <Text size="xs" c="dimmed">Connected</Text>
+          </Group>
+        )}
 
         {/* Two-column layout */}
         <Grid gutter="lg" align="stretch">

@@ -165,14 +165,17 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
             </Title>
             <Group gap="xs">
               <NotificationSettingsPopover />
-              <Button
-                variant="subtle"
-                color="rose"
-                leftSection={<IconPlayerStop size={16} />}
-                onClick={() => setStopModalOpen(true)}
-              >
-                Stop Session
-              </Button>
+              {/* Hide Stop button when session is complete - use CompletionPanel actions instead */}
+              {!allComplete && (
+                <Button
+                  variant="subtle"
+                  color="rose"
+                  leftSection={<IconPlayerStop size={16} />}
+                  onClick={() => setStopModalOpen(true)}
+                >
+                  Stop Session
+                </Button>
+              )}
             </Group>
           </Group>
 

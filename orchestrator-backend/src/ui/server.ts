@@ -30,6 +30,8 @@ export interface UIServerDependencies {
   onPlanApproval?: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>;
   // Callback to kill planning agent when plan is approved (prevents duplicate submissions)
   onKillPlanningAgent?: () => void;
+  // Callback to set GitHub secret (set when GitHubManager is available)
+  onSetGitHubSecret?: (repo: string, name: string, value: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 // Handler type for generating next-stage prompts
@@ -48,6 +50,8 @@ export interface UIServer {
   io: SocketServer;
   start: () => void;
   stop: () => void;
+  finalize: () => void; // Call after all API routes are registered to add the SPA catch-all
+  setGitHubSecretHandler: (handler: (repo: string, name: string, value: string) => Promise<{ success: boolean; error?: string }>) => void;
   setTaskCompleteHandler: (handler: (request: TaskCompleteRequest) => Promise<TaskCompleteResponse>) => void;
   setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
   setKillPlanningAgentHandler: (handler: () => void) => void;
@@ -345,7 +349,11 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Check if this is a confirmation dialog (first input has type: "confirmation")
     const isConfirmation = inputs.length > 0 && inputs[0].type === 'confirmation';
 
-    console.log(`[UIServer] User input requested for ${project}: ${isConfirmation ? 'confirmation dialog' : `${inputs.length} field(s)`}`);
+    // Check if this is a GitHub secret request (first input has type: "github_secret")
+    const isGitHubSecret = inputs.length > 0 && inputs[0].type === 'github_secret';
+    const githubSecretInput = isGitHubSecret ? inputs[0] : null;
+
+    console.log(`[UIServer] User input requested for ${project}: ${isConfirmation ? 'confirmation dialog' : isGitHubSecret ? 'github_secret' : `${inputs.length} field(s)`}`);
 
     // Build the request object
     const request: UserInputRequest = {
@@ -364,6 +372,28 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
     // Clean up
     pendingUserInputs.delete(requestId);
+
+    // Handle GitHub secret type
+    if (isGitHubSecret && githubSecretInput && deps.onSetGitHubSecret) {
+      const secretName = githubSecretInput.name;
+      const repo = githubSecretInput.repo;
+      const secretValue = response.values[secretName];
+
+      if (secretName && repo && secretValue) {
+        console.log(`[UIServer] Setting GitHub secret ${secretName} on ${repo}`);
+        const result = await deps.onSetGitHubSecret(repo, secretName, secretValue);
+        if (result.success) {
+          console.log(`[UIServer] GitHub secret ${secretName} set successfully`);
+          res.json({ success: true, secretName, repo });
+        } else {
+          console.error(`[UIServer] Failed to set GitHub secret: ${result.error}`);
+          res.json({ success: false, error: result.error });
+        }
+      } else {
+        res.json({ error: 'Missing secret name, repo, or value' });
+      }
+      return;
+    }
 
     // Return appropriate response format
     if (isConfirmation) {
@@ -2420,10 +2450,14 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
   (io as any).designSessionPhases = designSessionPhases;
   (io as any).transitionPhase = transitionPhase;
 
-  // Fallback to index.html for SPA routing (must be AFTER all API routes)
-  app.get('*', (req: Request, res: Response) => {
-    res.sendFile(path.join(webDistPath, 'index.html'));
-  });
+  // Finalize function - registers the SPA catch-all route
+  // Must be called AFTER all API routes are registered in index.ts
+  const finalize = () => {
+    app.get('*', (req: Request, res: Response) => {
+      res.sendFile(path.join(webDistPath, 'index.html'));
+    });
+    console.log('[UIServer] SPA catch-all route registered');
+  };
 
   // Attach emit helpers to io for external use
   (io as any).emitStatus = emitStatus;
@@ -2468,6 +2502,10 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     },
     setGetNextPromptHandler: (handler: GetNextPromptHandler) => {
       getNextPromptHandler = handler;
-    }
+    },
+    setGitHubSecretHandler: (handler: (repo: string, name: string, value: string) => Promise<{ success: boolean; error?: string }>) => {
+      deps.onSetGitHubSecret = handler;
+    },
+    finalize,
   };
 }

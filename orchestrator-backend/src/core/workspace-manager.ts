@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig } from '@orchy/types';
+import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig, GitHubConfig } from '@orchy/types';
 
 /**
  * Manages workspace configuration (stored in workspaces.json)
@@ -55,7 +55,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.workspaces[id];
   }
 
-  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; orchyManaged?: boolean }): WorkspaceConfig {
+  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; orchyManaged?: boolean; github?: GitHubConfig }): WorkspaceConfig {
     const id = this.generateId(opts.name);
 
     const now = Date.now();
@@ -67,6 +67,7 @@ export class WorkspaceManager extends EventEmitter {
       managedGit: opts.managedGit ?? true,   // Default: true for new workspaces
       autoMerge: opts.autoMerge ?? true,     // Default: true for new workspaces
       orchyManaged: opts.orchyManaged,       // True for template-created monorepo workspaces
+      github: opts.github,                   // GitHub integration config
       createdAt: now,
       updatedAt: now,
     };
@@ -78,7 +79,7 @@ export class WorkspaceManager extends EventEmitter {
     return workspace;
   }
 
-  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }): WorkspaceConfig {
+  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig }): WorkspaceConfig {
     const workspace = this.workspaces[id];
     if (!workspace) {
       throw new Error(`Workspace "${id}" does not exist`);
@@ -89,6 +90,7 @@ export class WorkspaceManager extends EventEmitter {
     if (updates.context !== undefined) workspace.context = updates.context;
     if (updates.managedGit !== undefined) workspace.managedGit = updates.managedGit;
     if (updates.autoMerge !== undefined) workspace.autoMerge = updates.autoMerge;
+    if (updates.github !== undefined) workspace.github = updates.github;
     workspace.updatedAt = Date.now();
 
     this.saveConfig();

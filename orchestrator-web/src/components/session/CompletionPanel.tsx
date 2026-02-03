@@ -20,6 +20,8 @@ import {
   IconGitPullRequest,
   IconCircleCheck,
   IconInfoCircle,
+  IconX,
+  IconHome,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { GlassCard, GlassSelect } from '../../theme';
@@ -85,53 +87,17 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   // Selected base branch for PR creation per project
   const [prBaseBranch, setPrBaseBranch] = useState<Record<string, string>>({});
 
+  const handleEndSession = () => {
+    stopSession();
+    startNewSession();
+    if (onBackToHome) {
+      onBackToHome();
+    }
+  };
+
   return (
     <Stack gap="md" mb="md">
-      {/* Card 1: Feature Complete + Start New Session */}
-      <GlassCard
-        p="md"
-        style={{
-          borderColor: 'rgba(74, 145, 73, 0.3)',
-          backgroundColor: 'rgba(74, 145, 73, 0.08)',
-        }}
-      >
-        <Group justify="space-between" align="center">
-          <Group gap="sm">
-            <ThemeIcon size="lg" radius="md" color="sage" variant="light">
-              <IconCheck size={20} />
-            </ThemeIcon>
-            <div>
-              <Text fw={600} size="md" style={{ color: 'var(--text-heading)' }}>Feature Complete!</Text>
-              <Text size="sm" c="dimmed">All projects have completed their tasks successfully.</Text>
-            </div>
-          </Group>
-          <Group gap="sm">
-            {onBackToHome && (
-              <Button
-                variant="light"
-                color="gray"
-                leftSection={<IconRefresh size={16} />}
-                onClick={() => {
-                  startNewSession();  // Clear session before navigating
-                  onBackToHome();
-                }}
-              >
-                Back to Home
-              </Button>
-            )}
-            <Button
-              variant="filled"
-              color="peach"
-              leftSection={<IconRefresh size={16} />}
-              onClick={startNewSession}
-            >
-              Start New Session
-            </Button>
-          </Group>
-        </Group>
-      </GlassCard>
-
-      {/* Card 2: Approve Changes (Managed Git) */}
+      {/* Card 1: Approve Changes (Managed Git) */}
       {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && isManagedGit && (
         <GlassCard p="md">
           <Stack gap="md">
@@ -217,15 +183,25 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                   })}
                 </Stack>
 
-                {/* Approve button */}
+                {/* Approve/Reject buttons */}
                 {!allChangesApproved && (
-                  <Button
-                    color="sage"
-                    leftSection={<IconCircleCheck size={16} />}
-                    onClick={() => session?.id && approveChanges(session.id)}
-                  >
-                    Approve Changes
-                  </Button>
+                  <Group gap="sm">
+                    <Button
+                      color="sage"
+                      leftSection={<IconCircleCheck size={16} />}
+                      onClick={() => session?.id && approveChanges(session.id)}
+                    >
+                      Approve Changes
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="gray"
+                      leftSection={<IconX size={16} />}
+                      onClick={handleEndSession}
+                    >
+                      Reject Changes
+                    </Button>
+                  </Group>
                 )}
 
                 {/* Error display */}
@@ -462,6 +438,45 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
           </Stack>
         </GlassCard>
       )}
+
+      {/* Card: End Session */}
+      <GlassCard p="md">
+        <Group justify="space-between" align="center">
+          <Group gap="sm">
+            <ThemeIcon size="lg" radius="md" color="sage" variant="light">
+              <IconCheck size={20} />
+            </ThemeIcon>
+            <div>
+              <Text fw={600} size="md" style={{ color: 'var(--text-heading)' }}>
+                {allChangesApproved ? 'All Done!' : 'Session Complete'}
+              </Text>
+              <Text size="sm" c="dimmed">
+                {allChangesApproved
+                  ? 'Changes have been merged. You can start a new session.'
+                  : 'End this session and return to workspace.'}
+              </Text>
+            </div>
+          </Group>
+          <Group gap="sm">
+            <Button
+              variant="light"
+              color="gray"
+              leftSection={<IconHome size={16} />}
+              onClick={handleEndSession}
+            >
+              End Session
+            </Button>
+            <Button
+              variant="filled"
+              color="peach"
+              leftSection={<IconRefresh size={16} />}
+              onClick={startNewSession}
+            >
+              New Session
+            </Button>
+          </Group>
+        </Group>
+      </GlassCard>
     </Stack>
   );
 }

@@ -10,7 +10,7 @@ import {
   Paper,
   ThemeIcon,
 } from '@mantine/core';
-import { IconKey, IconCheck, IconX, IconAlertCircle } from '@tabler/icons-react';
+import { IconKey, IconCheck, IconX, IconAlertCircle, IconBrandGithub, IconShield } from '@tabler/icons-react';
 import type { UserInputRequest } from '@orchy/types';
 
 interface UserInputOverlayProps {
@@ -23,6 +23,10 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
   // Check if this is a confirmation dialog
   const isConfirmation = request.inputs.length > 0 && request.inputs[0].type === 'confirmation';
   const confirmationInput = isConfirmation ? request.inputs[0] : null;
+
+  // Check if this is a GitHub secret input
+  const isGitHubSecret = request.inputs.length > 0 && request.inputs[0].type === 'github_secret';
+  const githubSecretInput = isGitHubSecret ? request.inputs[0] : null;
 
   const [values, setValues] = useState<Record<string, string>>(() => {
     if (isConfirmation) {
@@ -157,6 +161,137 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
                 onClick={handleConfirm}
               >
                 Confirm
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
+
+  // Render GitHub secret dialog
+  if (isGitHubSecret && githubSecretInput) {
+    const secretName = githubSecretInput.name || 'SECRET';
+    const repo = githubSecretInput.repo || 'owner/repo';
+    const command = `gh secret set ${secretName} --repo ${repo}`;
+
+    return (
+      <Box
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.92)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          borderRadius: 'inherit',
+          padding: '16px',
+        }}
+      >
+        <Paper
+          p="lg"
+          radius="md"
+          style={{
+            backgroundColor: 'var(--mantine-color-dark-7)',
+            border: '1px solid var(--mantine-color-dark-4)',
+            maxWidth: 500,
+            width: '100%',
+          }}
+        >
+          <Stack gap="md">
+            {/* Header */}
+            <Group gap="sm">
+              <ThemeIcon size="lg" radius="md" color="dark" variant="light">
+                <IconBrandGithub size={20} />
+              </ThemeIcon>
+              <div>
+                <Text fw={600} c="white" size="md">
+                  Set GitHub Secret
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {request.project}
+                </Text>
+              </div>
+            </Group>
+
+            {/* Command preview */}
+            <Box
+              style={{
+                backgroundColor: 'var(--mantine-color-dark-8)',
+                borderRadius: '8px',
+                padding: '12px',
+                border: '1px solid var(--mantine-color-dark-5)',
+                fontFamily: 'monospace',
+              }}
+            >
+              <Text size="sm" c="gray.4">
+                {command}
+              </Text>
+            </Box>
+
+            {/* Security notice */}
+            <Group gap="xs" align="flex-start">
+              <ThemeIcon size="sm" radius="md" color="green" variant="light">
+                <IconShield size={14} />
+              </ThemeIcon>
+              <Text size="xs" c="dimmed" style={{ flex: 1 }}>
+                The secret value will be securely transmitted to GitHub. It will not be stored locally or logged.
+              </Text>
+            </Group>
+
+            {/* Description */}
+            {githubSecretInput.description && (
+              <Text size="sm" c="gray.3">
+                {githubSecretInput.description}
+              </Text>
+            )}
+
+            {/* Secret input */}
+            <Stack gap="xs">
+              <Text size="sm" fw={500} c="white">
+                {githubSecretInput.label}
+                <Text span c="red" ml={4}>*</Text>
+              </Text>
+              <PasswordInput
+                value={values[secretName] || ''}
+                onChange={(e) => handleValueChange(secretName, e.target.value)}
+                placeholder="Enter secret value"
+                autoFocus
+                styles={{
+                  input: {
+                    backgroundColor: 'var(--mantine-color-dark-6)',
+                    borderColor: 'var(--mantine-color-dark-4)',
+                    color: 'white',
+                  },
+                }}
+              />
+            </Stack>
+
+            {/* Buttons */}
+            <Group justify="flex-end" mt="sm">
+              {onCancel && (
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<IconX size={14} />}
+                  onClick={onCancel}
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                color="dark"
+                size="sm"
+                leftSection={<IconBrandGithub size={14} />}
+                onClick={() => onSubmit(request.requestId, values)}
+                disabled={!values[secretName]?.trim()}
+              >
+                Set Secret
               </Button>
             </Group>
           </Stack>

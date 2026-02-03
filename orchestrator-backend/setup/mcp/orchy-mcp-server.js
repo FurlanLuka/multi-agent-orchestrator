@@ -127,7 +127,7 @@ async function handleMessage(msg) {
         },
         {
           name: 'request_user_input',
-          description: 'Request input from user OR show a confirmation dialog. Use for: (1) collecting credentials, API keys, env vars (type: "input"), or (2) informing user about manual steps needed and getting confirmation (type: "confirmation").',
+          description: 'Request input from user, show a confirmation dialog, or set a GitHub Actions secret. Use for: (1) collecting credentials, API keys, env vars (type: "input"), (2) informing user about manual steps needed and getting confirmation (type: "confirmation"), or (3) setting GitHub repository secrets (type: "github_secret" - only for workspaces with GitHub integration enabled).',
           inputSchema: {
             type: 'object',
             properties: {
@@ -139,14 +139,15 @@ async function handleMessage(msg) {
                   properties: {
                     type: {
                       type: 'string',
-                      enum: ['input', 'confirmation'],
-                      description: 'Type of input: "input" for text fields (default), "confirmation" for yes/no dialog'
+                      enum: ['input', 'confirmation', 'github_secret'],
+                      description: 'Type of input: "input" for text fields (default), "confirmation" for yes/no dialog, "github_secret" for GitHub Actions secrets'
                     },
-                    name: { type: 'string', description: 'Variable name for input type (e.g., GOOGLE_CLIENT_ID)' },
+                    name: { type: 'string', description: 'Variable name for input type (e.g., GOOGLE_CLIENT_ID) or secret name for github_secret' },
                     label: { type: 'string', description: 'Display label for input field OR title for confirmation dialog' },
                     description: { type: 'string', description: 'Help text for input OR detailed message for confirmation (supports markdown)' },
                     sensitive: { type: 'boolean', description: 'If true, mask input (for passwords/secrets). Only for type: "input"' },
-                    required: { type: 'boolean', description: 'If true, user must provide a value. Only for type: "input"' }
+                    required: { type: 'boolean', description: 'If true, user must provide a value. Only for type: "input"' },
+                    repo: { type: 'string', description: 'Repository in "owner/repo" format. Required for type: "github_secret"' }
                   },
                   required: ['label']
                 }
