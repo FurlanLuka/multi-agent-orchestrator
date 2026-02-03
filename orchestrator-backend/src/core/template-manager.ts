@@ -16,6 +16,8 @@ export interface CreateFromTemplateOptions {
     dangerouslyAllowAll?: boolean;
     allow: string[];
   };
+  skipGitInit?: boolean;  // Skip per-project git init (for Orchy Managed monorepo workspaces)
+  directoryName?: string;  // If provided, use this for the directory name instead of 'name' (useful for monorepos)
 }
 
 // Template configurations - full ProjectConfig (minus path)
@@ -261,7 +263,7 @@ ${fullCommand}
    * Returns the project config (does NOT save to any config file)
    */
   async createFromTemplate(options: CreateFromTemplateOptions): Promise<ProjectConfig> {
-    const { name, targetPath, template, dependsOn, permissions } = options;
+    const { name, targetPath, template, dependsOn, permissions, skipGitInit, directoryName } = options;
 
     // Validate template exists
     const templateConfig = TEMPLATES[template];
@@ -269,7 +271,9 @@ ${fullCommand}
       throw new Error(`Template "${template}" does not exist`);
     }
 
-    // Expand target path and append project name to create final destination
+    // Expand target path and append directory name to create final destination
+    // Use directoryName if provided, otherwise fall back to name
+    const dirName = directoryName || name;
     const expandedBasePath = this.expandPath(targetPath);
 
     // Validate base path exists (it should be the parent directory where we create the project)
@@ -277,8 +281,8 @@ ${fullCommand}
       throw new Error(`Target directory does not exist: ${expandedBasePath}`);
     }
 
-    // Create final path by appending project name
-    const expandedPath = path.join(expandedBasePath, name);
+    // Create final path by appending directory name (not display name)
+    const expandedPath = path.join(expandedBasePath, dirName);
 
     // Check final destination doesn't already exist
     if (fs.existsSync(expandedPath)) {
@@ -323,7 +327,8 @@ ${fullCommand}
     }
 
     // Initialize git repo and commit all files (template + hooks) if git is enabled
-    if (projectConfig.gitEnabled) {
+    // Skip if skipGitInit is true (for Orchy Managed monorepo workspaces - git is handled at workspace level)
+    if (projectConfig.gitEnabled && !skipGitInit) {
       const gitManager = new GitManager();
       const mainBranch = projectConfig.mainBranch || 'main';
       console.log(`[TemplateManager] Initializing git repository for ${name}...`);
@@ -341,6 +346,8 @@ ${fullCommand}
       } else {
         console.warn(`[TemplateManager] Failed to initialize git for ${name}: ${initResult.message}`);
       }
+    } else if (skipGitInit && projectConfig.gitEnabled) {
+      console.log(`[TemplateManager] Skipping git init for ${name} (Orchy Managed workspace)`);
     }
 
     return projectConfig;

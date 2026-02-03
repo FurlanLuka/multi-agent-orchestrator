@@ -55,7 +55,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.workspaces[id];
   }
 
-  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }): WorkspaceConfig {
+  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; orchyManaged?: boolean }): WorkspaceConfig {
     const id = this.generateId(opts.name);
 
     const now = Date.now();
@@ -66,6 +66,7 @@ export class WorkspaceManager extends EventEmitter {
       context: opts.context,
       managedGit: opts.managedGit ?? true,   // Default: true for new workspaces
       autoMerge: opts.autoMerge ?? true,     // Default: true for new workspaces
+      orchyManaged: opts.orchyManaged,       // True for template-created monorepo workspaces
       createdAt: now,
       updatedAt: now,
     };

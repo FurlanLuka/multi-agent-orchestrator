@@ -56,10 +56,11 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   } = useOrchestrator();
 
   // Derive project configs and workspace settings
-  const { projectConfigs, isManagedGit, isAutoMerge } = useMemo(() => {
+  const { projectConfigs, isManagedGit, isAutoMerge, isOrchyManaged } = useMemo(() => {
     const configs: Record<string, ProjectConfig> = {};
     let managedGit = false;
     let autoMerge = false;
+    let orchyManaged = false;
 
     if (session?.workspaceId && workspaces[session.workspaceId]) {
       const workspace = workspaces[session.workspaceId];
@@ -70,8 +71,9 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
       // Check if managed git is enabled (default: true for new workspaces)
       managedGit = workspace.managedGit !== false;
       autoMerge = workspace.autoMerge !== false;
+      orchyManaged = workspace.orchyManaged === true;
     }
-    return { projectConfigs: configs, isManagedGit: managedGit, isAutoMerge: autoMerge };
+    return { projectConfigs: configs, isManagedGit: managedGit, isAutoMerge: autoMerge, isOrchyManaged: orchyManaged };
   }, [session?.workspaceId, workspaces]);
 
   // Check if all changes have been approved/merged
@@ -171,7 +173,9 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                     <Text size="xs" fw={500}>What happens when you approve?</Text>
                   </Group>
                   <Text size="xs" c="dimmed">
-                    Your feature branches will be pushed to remote and merged into the main branch across all projects.
+                    {isOrchyManaged
+                      ? 'Your feature branch will be pushed to remote and merged into main. All project changes are committed to a single repository.'
+                      : 'Your feature branches will be pushed to remote and merged into the main branch across all projects.'}
                   </Text>
                   <Text size="xs" c="dimmed" mt={4}>
                     <strong>Not ready yet?</strong> You can close this and approve later from the session history.
@@ -181,15 +185,23 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                 {/* Branch list */}
                 <Stack gap="xs">
                   {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
-                    const mainBranch = projectConfigs[projectName]?.mainBranch || 'main';
+                    // Handle _workspace key for Orchy Managed workspaces
+                    const isWorkspaceBranch = projectName === '_workspace';
+                    const displayName = isWorkspaceBranch ? 'Workspace' : projectName;
+                    const mainBranch = isWorkspaceBranch ? 'main' : (projectConfigs[projectName]?.mainBranch || 'main');
                     const result = approveChangesResults?.[projectName];
 
                     return (
                       <Group key={projectName} gap="xs" wrap="wrap">
                         <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
-                          {projectName}: {branchName}
+                          {isWorkspaceBranch ? branchName : `${displayName}: ${branchName}`}
                         </Badge>
                         <Text size="xs" c="dimmed">→ {mainBranch}</Text>
+                        {isWorkspaceBranch && (
+                          <Badge size="xs" variant="light" color="peach">
+                            All projects
+                          </Badge>
+                        )}
                         {result?.success && (
                           <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>
                             Merged
@@ -229,15 +241,22 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
             {approvingChanges && (
               <Stack gap="sm" align="center" py="md">
                 <Loader size="sm" />
-                <Text size="sm" c="dimmed">Pushing and merging branches...</Text>
+                <Text size="sm" c="dimmed">
+                  {isOrchyManaged ? 'Pushing and merging workspace branch...' : 'Pushing and merging branches...'}
+                </Text>
                 <Stack gap="xs" w="100%">
                   {Object.entries(session.gitBranches).map(([projectName]) => {
                     const status = mergeSessionStatus[projectName];
+                    const isWorkspaceBranch = projectName === '_workspace';
+                    const displayName = isWorkspaceBranch ? 'Workspace' : projectName;
                     return (
                       <Group key={projectName} gap="xs" wrap="wrap">
                         <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
-                          {projectName}
+                          {displayName}
                         </Badge>
+                        {isWorkspaceBranch && (
+                          <Badge size="xs" variant="light" color="peach">All projects</Badge>
+                        )}
                         {status === 'pushing' && <Badge color="peach" variant="light" size="xs">Pushing...</Badge>}
                         {status === 'merging' && <Badge color="honey" variant="light" size="xs">Merging...</Badge>}
                         {status === 'completed' && <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>Done</Badge>}

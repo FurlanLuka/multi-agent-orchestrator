@@ -1726,66 +1726,125 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     // Get workspace config for project configs
     let projectConfigs: Record<string, ProjectConfig> = {};
+    let isOrchyManaged = false;
     if (session.workspaceId) {
       projectConfigs = workspaceManager.getWorkspaceProjectConfigs(session.workspaceId);
+      const workspace = workspaceManager.getWorkspace(session.workspaceId);
+      isOrchyManaged = workspace?.orchyManaged === true;
     }
 
     const results: Record<string, { success: boolean; message: string }> = {};
     let allSucceeded = true;
 
-    // Emit merge session started
-    ui.io.emit('mergeSessionStarted', { sessionId, projects: Object.keys(session.gitBranches) });
-
     const gitBranches = session.gitBranches as Record<string, string>;
-    for (const [projectName, branchName] of Object.entries(gitBranches)) {
-      const projectConfig = projectConfigs[projectName] || config.projects[projectName];
-      if (!projectConfig) {
-        results[projectName] = { success: false, message: 'Project config not found' };
-        allSucceeded = false;
-        continue;
+
+    // Orchy Managed workspaces: single merge operation at workspace root
+    if (isOrchyManaged && gitBranches['_workspace']) {
+      const branchName = gitBranches['_workspace'];
+
+      // Get workspace root path from first project
+      const firstProjectConfig = Object.values(projectConfigs)[0];
+      if (!firstProjectConfig) {
+        return { success: false, error: 'No project configs found for workspace' };
       }
 
-      // Expand path
-      let projectPath = projectConfig.path;
-      if (projectPath.startsWith('~')) {
-        projectPath = projectPath.replace('~', process.env.HOME || '');
+      let workspaceRootPath = firstProjectConfig.path;
+      if (workspaceRootPath.startsWith('~')) {
+        workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
       }
+      workspaceRootPath = path.dirname(workspaceRootPath);
 
-      const mainBranch = projectConfig.mainBranch || 'main';
+      // Emit merge session started
+      ui.io.emit('mergeSessionStarted', { sessionId, projects: ['_workspace'] });
 
       try {
-        console.log(`[Orchestrator] Merging ${branchName} to ${mainBranch} for ${projectName}...`);
+        console.log(`[Orchestrator] Orchy Managed: merging ${branchName} to main at workspace root...`);
 
         // Emit progress
-        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'pushing' });
+        ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'pushing' });
 
         // First push the branch to remote
-        const pushResult = await gitManager.pushBranch(projectPath, branchName);
+        const pushResult = await gitManager.pushBranch(workspaceRootPath, branchName);
         if (!pushResult.success) {
-          results[projectName] = { success: false, message: `Push failed: ${pushResult.message}` };
+          results['_workspace'] = { success: false, message: `Push failed: ${pushResult.message}` };
           allSucceeded = false;
-          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: pushResult.message });
-          continue;
-        }
-
-        // Emit progress
-        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'merging' });
-
-        // Then merge to main
-        const mergeResult = await gitManager.mergeBranch(projectPath, branchName, mainBranch);
-        if (mergeResult.success) {
-          results[projectName] = { success: true, message: `Merged to ${mainBranch}` };
-          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'completed' });
+          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: pushResult.message });
         } else {
-          results[projectName] = { success: false, message: mergeResult.message };
-          allSucceeded = false;
-          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: mergeResult.message });
+          // Emit progress
+          ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'merging' });
+
+          // Then merge to main
+          const mergeResult = await gitManager.mergeBranch(workspaceRootPath, branchName, 'main');
+          if (mergeResult.success) {
+            results['_workspace'] = { success: true, message: 'Merged to main' };
+            ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'completed' });
+          } else {
+            results['_workspace'] = { success: false, message: mergeResult.message };
+            allSucceeded = false;
+            ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: mergeResult.message });
+          }
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        results[projectName] = { success: false, message: errorMsg };
+        results['_workspace'] = { success: false, message: errorMsg };
         allSucceeded = false;
-        ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: errorMsg });
+        ui.io.emit('mergeProgress', { sessionId, project: '_workspace', status: 'failed', message: errorMsg });
+      }
+    } else {
+      // Regular workspaces: per-project merge operations
+      // Emit merge session started
+      ui.io.emit('mergeSessionStarted', { sessionId, projects: Object.keys(gitBranches) });
+
+      for (const [projectName, branchName] of Object.entries(gitBranches)) {
+        const projectConfig = projectConfigs[projectName] || config.projects[projectName];
+        if (!projectConfig) {
+          results[projectName] = { success: false, message: 'Project config not found' };
+          allSucceeded = false;
+          continue;
+        }
+
+        // Expand path
+        let projectPath = projectConfig.path;
+        if (projectPath.startsWith('~')) {
+          projectPath = projectPath.replace('~', process.env.HOME || '');
+        }
+
+        const mainBranch = projectConfig.mainBranch || 'main';
+
+        try {
+          console.log(`[Orchestrator] Merging ${branchName} to ${mainBranch} for ${projectName}...`);
+
+          // Emit progress
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'pushing' });
+
+          // First push the branch to remote
+          const pushResult = await gitManager.pushBranch(projectPath, branchName);
+          if (!pushResult.success) {
+            results[projectName] = { success: false, message: `Push failed: ${pushResult.message}` };
+            allSucceeded = false;
+            ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: pushResult.message });
+            continue;
+          }
+
+          // Emit progress
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'merging' });
+
+          // Then merge to main
+          const mergeResult = await gitManager.mergeBranch(projectPath, branchName, mainBranch);
+          if (mergeResult.success) {
+            results[projectName] = { success: true, message: `Merged to ${mainBranch}` };
+            ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'completed' });
+          } else {
+            results[projectName] = { success: false, message: mergeResult.message };
+            allSucceeded = false;
+            ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: mergeResult.message });
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          results[projectName] = { success: false, message: errorMsg };
+          allSucceeded = false;
+          ui.io.emit('mergeProgress', { sessionId, project: projectName, status: 'failed', message: errorMsg });
+        }
       }
     }
 
@@ -1892,6 +1951,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         let resolvedProjects = projects;
         let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
         let isManagedGit = false;
+        let isOrchyManaged = false;
 
         if (workspaceId) {
           const workspace = workspaceManager.getWorkspace(workspaceId);
@@ -1901,6 +1961,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
             // Check if managed git is enabled (default: true for new workspaces)
             isManagedGit = workspace.managedGit !== false;
+
+            // Check if this is an Orchy Managed workspace (monorepo)
+            isOrchyManaged = workspace.orchyManaged === true;
 
             // MERGE workspace configs into config.projects so all managers have access
             // This is the simple fix: ProcessManager, SessionManager, TaskExecutor, etc. all use config.projects
@@ -1944,53 +2007,102 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        for (const project of resolvedProjects) {
-          const projectConfig = getProjectConfig(project);
-          if (projectConfig?.gitEnabled) {
+        // Orchy Managed workspaces: single git repo at workspace root
+        if (isOrchyManaged && workspaceId) {
+          // Get workspace root path from first project's parent directory
+          const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
+          if (firstProjectConfig) {
+            let workspaceRootPath = firstProjectConfig.path;
+            if (workspaceRootPath.startsWith('~')) {
+              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
+            }
+            workspaceRootPath = path.dirname(workspaceRootPath);
+
             try {
-              // Expand path
-              let projectPath = projectConfig.path;
-              if (projectPath.startsWith('~')) {
-                projectPath = projectPath.replace('~', process.env.HOME || '');
+              console.log(`[Orchestrator] Orchy Managed: setting up git at workspace root: ${workspaceRootPath}`);
+
+              // Checkout main and pull latest
+              const checkoutResult = await gitManager.createAndCheckoutBranch(workspaceRootPath, 'main');
+              if (!checkoutResult.success) {
+                console.warn(`[Orchestrator] Failed to checkout main for workspace: ${checkoutResult.message}`);
               }
 
-              // Initialize git repo (non-destructive, ensures main branch exists)
-              const mainBranchForProject = projectConfig.mainBranch || 'main';
-              await gitManager.initRepo(projectPath, mainBranchForProject);
-
-              // For managed git: checkout main and pull latest before creating feature branch
-              if (isManagedGit) {
-                console.log(`[Orchestrator] Managed git: checking out ${mainBranchForProject} and pulling latest for ${project}...`);
-                // Checkout main branch
-                const checkoutResult = await gitManager.createAndCheckoutBranch(projectPath, mainBranchForProject);
-                if (!checkoutResult.success) {
-                  console.warn(`[Orchestrator] Failed to checkout ${mainBranchForProject} for ${project}: ${checkoutResult.message}`);
+              // Pull latest (ignore errors for repos without remote)
+              try {
+                const pullResult = await gitManager.pullBranch(workspaceRootPath, 'main');
+                if (pullResult.success) {
+                  console.log(`[Orchestrator] Pulled latest main for workspace`);
                 }
-                // Pull latest (ignore errors for repos without remote)
-                try {
-                  const pullResult = await gitManager.pullBranch(projectPath, mainBranchForProject);
-                  if (pullResult.success) {
-                    console.log(`[Orchestrator] Pulled latest ${mainBranchForProject} for ${project}`);
-                  }
-                } catch (pullErr) {
-                  // Pull may fail if no remote configured, which is fine
-                  console.log(`[Orchestrator] Pull skipped for ${project} (no remote or error): ${pullErr}`);
-                }
+              } catch (pullErr) {
+                console.log(`[Orchestrator] Pull skipped for workspace (no remote or error): ${pullErr}`);
               }
 
-              // Use branch name from: 1) user input, 2) AI-generated (managed git), 3) fallback
+              // Use branch name from: 1) user input, 2) AI-generated, 3) fallback
               const finalBranchName = branchName?.trim() || actualBranchName || gitManager.generateBranchName(resolvedFeature);
 
-              // Create and checkout branch
-              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, finalBranchName);
+              // Create and checkout branch at workspace root
+              const branchResult = await gitManager.createAndCheckoutBranch(workspaceRootPath, finalBranchName);
               if (branchResult.success) {
-                gitBranches[project] = finalBranchName;
-                console.log(`[Orchestrator] Git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+                // Store with special '_workspace' key to indicate workspace-level branch
+                gitBranches['_workspace'] = finalBranchName;
+                console.log(`[Orchestrator] Orchy Managed: git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} at workspace root`);
               } else {
-                console.error(`[Orchestrator] Failed to setup git branch for ${project}: ${branchResult.message}`);
+                console.error(`[Orchestrator] Failed to setup git branch for workspace: ${branchResult.message}`);
               }
             } catch (err) {
-              console.error(`[Orchestrator] Git setup failed for ${project}:`, err);
+              console.error(`[Orchestrator] Git setup failed for Orchy Managed workspace:`, err);
+            }
+          }
+        } else {
+          // Regular workspaces: per-project git repos
+          for (const project of resolvedProjects) {
+            const projectConfig = getProjectConfig(project);
+            if (projectConfig?.gitEnabled) {
+              try {
+                // Expand path
+                let projectPath = projectConfig.path;
+                if (projectPath.startsWith('~')) {
+                  projectPath = projectPath.replace('~', process.env.HOME || '');
+                }
+
+                // Initialize git repo (non-destructive, ensures main branch exists)
+                const mainBranchForProject = projectConfig.mainBranch || 'main';
+                await gitManager.initRepo(projectPath, mainBranchForProject);
+
+                // For managed git: checkout main and pull latest before creating feature branch
+                if (isManagedGit) {
+                  console.log(`[Orchestrator] Managed git: checking out ${mainBranchForProject} and pulling latest for ${project}...`);
+                  // Checkout main branch
+                  const checkoutResult = await gitManager.createAndCheckoutBranch(projectPath, mainBranchForProject);
+                  if (!checkoutResult.success) {
+                    console.warn(`[Orchestrator] Failed to checkout ${mainBranchForProject} for ${project}: ${checkoutResult.message}`);
+                  }
+                  // Pull latest (ignore errors for repos without remote)
+                  try {
+                    const pullResult = await gitManager.pullBranch(projectPath, mainBranchForProject);
+                    if (pullResult.success) {
+                      console.log(`[Orchestrator] Pulled latest ${mainBranchForProject} for ${project}`);
+                    }
+                  } catch (pullErr) {
+                    // Pull may fail if no remote configured, which is fine
+                    console.log(`[Orchestrator] Pull skipped for ${project} (no remote or error): ${pullErr}`);
+                  }
+                }
+
+                // Use branch name from: 1) user input, 2) AI-generated (managed git), 3) fallback
+                const finalBranchName = branchName?.trim() || actualBranchName || gitManager.generateBranchName(resolvedFeature);
+
+                // Create and checkout branch
+                const branchResult = await gitManager.createAndCheckoutBranch(projectPath, finalBranchName);
+                if (branchResult.success) {
+                  gitBranches[project] = finalBranchName;
+                  console.log(`[Orchestrator] Git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
+                } else {
+                  console.error(`[Orchestrator] Failed to setup git branch for ${project}: ${branchResult.message}`);
+                }
+              } catch (err) {
+                console.error(`[Orchestrator] Git setup failed for ${project}:`, err);
+              }
             }
           }
         }
@@ -2125,6 +2237,25 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       });
 
       // Create TaskExecutor instance for this execution
+      // Check if this is an Orchy Managed workspace and calculate workspace root
+      let isOrchyManagedExecution = false;
+      let workspaceRootPath: string | null = null;
+      if (session.workspaceId) {
+        const workspace = workspaceManager.getWorkspace(session.workspaceId);
+        if (workspace?.orchyManaged) {
+          isOrchyManagedExecution = true;
+          const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(session.workspaceId);
+          const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
+          if (firstProjectConfig) {
+            workspaceRootPath = firstProjectConfig.path;
+            if (workspaceRootPath.startsWith('~')) {
+              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
+            }
+            workspaceRootPath = path.dirname(workspaceRootPath);
+          }
+        }
+      }
+
       taskExecutor = new TaskExecutor({
         processManager,
         statusMonitor,
@@ -2139,6 +2270,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         getGitBranch: (project: string) => session?.gitBranches?.[project],
         io: ui.io,  // For flow events during task verification
         sessionLogger: sessionLogger || undefined,  // Pass session logger for debugging
+        // Orchy Managed workspace support
+        isOrchyManaged: () => isOrchyManagedExecution,
+        getWorkspaceRoot: () => workspaceRootPath,
       });
 
       // Clear task summaries from any previous session
@@ -2434,6 +2568,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Load workspace configs if session has workspaceId
         let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
+        let isOrchyManagedResume = false;
+        let workspaceRootPathResume: string | null = null;
         if (fullData.session.workspaceId) {
           const workspace = workspaceManager.getWorkspace(fullData.session.workspaceId);
           if (workspace) {
@@ -2441,6 +2577,18 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Merge workspace configs into config.projects
             Object.assign(config.projects, workspaceProjectConfigs);
             planningAgent.setProjectConfig(config.projects);
+            // Check if Orchy Managed and get workspace root
+            isOrchyManagedResume = workspace.orchyManaged === true;
+            if (isOrchyManagedResume) {
+              const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
+              if (firstProjectConfig) {
+                workspaceRootPathResume = firstProjectConfig.path;
+                if (workspaceRootPathResume.startsWith('~')) {
+                  workspaceRootPathResume = workspaceRootPathResume.replace('~', process.env.HOME || '');
+                }
+                workspaceRootPathResume = path.dirname(workspaceRootPathResume);
+              }
+            }
           }
         }
 
@@ -2554,6 +2702,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             getGitBranch: (project: string) => restoredSession?.gitBranches?.[project],
             io: ui.io,
             sessionLogger: sessionLogger || undefined,
+            // Orchy Managed workspace support
+            isOrchyManaged: () => isOrchyManagedResume,
+            getWorkspaceRoot: () => workspaceRootPathResume,
           });
 
           taskExecutor.clearTaskSummaries();
@@ -3056,6 +3207,10 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     }) => {
       console.log(`[Orchestrator] createProjectFromTemplateForWorkspace received:`, { workspaceId, name, targetPath, template });
       try {
+        // Check if workspace is Orchy Managed
+        const workspace = workspaceManager.getWorkspace(workspaceId);
+        const isOrchyManaged = workspace?.orchyManaged === true;
+
         // Create the project from template
         const projectConfig = await templateManager.createFromTemplate({
           name,
@@ -3064,14 +3219,55 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           permissions: permissions || {
             allow: TEMPLATE_PERMISSIONS[template] || [],
           },
+          skipGitInit: isOrchyManaged,  // Skip per-project git for Orchy Managed workspaces
         });
 
-        // Add to workspace
+        // Add to workspace (this bypasses the orchyManaged check since it's template-based)
         const workspaceProject: WorkspaceProjectConfig = {
           name,
           ...projectConfig,
         };
-        workspaceManager.addProjectToWorkspace(workspaceId, workspaceProject);
+
+        // Directly add to workspace projects (bypassing the socket handler check)
+        const existingWorkspace = workspaceManager.getWorkspace(workspaceId);
+        if (existingWorkspace?.projects.some(p => p.name === name)) {
+          throw new Error(`Project "${name}" already exists in workspace`);
+        }
+        existingWorkspace?.projects.push(workspaceProject);
+        if (existingWorkspace) {
+          existingWorkspace.updatedAt = Date.now();
+          workspaceManager.updateWorkspace(workspaceId, { projects: existingWorkspace.projects });
+        }
+
+        // For Orchy Managed workspaces, commit the new project to main at workspace root
+        if (isOrchyManaged && workspace) {
+          try {
+            // Find workspace root path (parent of any project)
+            const firstProject = workspace.projects[0];
+            if (firstProject) {
+              let workspaceRootPath = firstProject.path;
+              if (workspaceRootPath.startsWith('~')) {
+                workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
+              }
+              // Go up one directory level from project path to get workspace root
+              workspaceRootPath = path.dirname(workspaceRootPath);
+
+              // Commit the new project
+              const commitResult = await gitManager.commit(
+                workspaceRootPath,
+                `Add ${name} from ${template} template`
+              );
+              if (commitResult.success) {
+                console.log(`[Orchestrator] Auto-committed new project ${name} to workspace git`);
+              } else {
+                console.warn(`[Orchestrator] Failed to auto-commit new project: ${commitResult.message}`);
+              }
+            }
+          } catch (gitErr) {
+            console.error(`[Orchestrator] Git commit error for new project:`, gitErr);
+            // Don't fail - the project was still created successfully
+          }
+        }
 
         // Emit success
         socket.emit('workspaces', workspaceManager.getWorkspaces());
@@ -3140,20 +3336,18 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
             : undefined;
 
-          // Create the subdirectory for this project (e.g., ~/orchy/blog2/frontend)
-          const projectSubdir = path.join(expandedTargetPath, suffix);
-          if (!fs.existsSync(projectSubdir)) {
-            fs.mkdirSync(projectSubdir, { recursive: true });
-          }
-
+          // Create project in workspace root with suffix as directory name (e.g., ~/orchy/blog2/frontend)
+          // Use directoryName to avoid nesting: ~/orchy/blog2/frontend instead of ~/orchy/blog2/frontend/blog2-frontend
           const projectConfig = await templateManager.createFromTemplate({
             name: projectName,
-            targetPath: `${targetPath}/${suffix}`,
+            targetPath: targetPath,  // Workspace root (e.g., ~/orchy/blog2)
+            directoryName: suffix,   // Directory name (e.g., 'frontend')
             template: templateName as any,
             dependsOn,
             permissions: {
               allow: TEMPLATE_PERMISSIONS[templateName] || [],
             },
+            skipGitInit: true,  // Orchy Managed: git is handled at workspace root level
           });
 
           createdProjectConfigs.push({
@@ -3184,12 +3378,33 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Create workspace with the newly created projects (inline storage)
+        // Create workspace with the newly created projects (Orchy Managed monorepo)
         const workspace = workspaceManager.createWorkspace({
           name: appName,
           projects: createdProjectConfigs,
+          orchyManaged: true,  // This is a template-created monorepo workspace
         });
         createdWorkspaceId = workspace.id;
+
+        // Initialize git at workspace root (Orchy Managed monorepo structure)
+        try {
+          console.log(`[Orchestrator] Initializing git at workspace root: ${expandedTargetPath}`);
+          const initResult = await gitManager.initRepo(expandedTargetPath, 'main');
+          if (initResult.success) {
+            // Create initial commit with all project files
+            const projectNames = createdProjectConfigs.map(p => p.name.replace(`${appName}-`, '')).join(', ');
+            const commitResult = await gitManager.commit(expandedTargetPath, `Initial commit: ${appName} workspace (${projectNames})`);
+            if (commitResult.success) {
+              console.log(`[Orchestrator] Git initialized at workspace root with initial commit`);
+            } else {
+              console.warn(`[Orchestrator] Git init succeeded but initial commit failed: ${commitResult.message}`);
+            }
+          } else {
+            console.warn(`[Orchestrator] Failed to initialize git at workspace root: ${initResult.message}`);
+          }
+        } catch (gitErr) {
+          console.error(`[Orchestrator] Git initialization error at workspace root:`, gitErr);
+        }
 
         // Emit updated workspaces
         socket.emit('workspaces', workspaceManager.getWorkspaces());
@@ -3198,28 +3413,47 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         const createdProjectNames = createdProjectConfigs.map(p => p.name);
         const session = sessionManager.createSession(feature, createdProjectNames, workspace.id);
 
-        // Initialize git branches for git-enabled projects
+        // Initialize git branch at workspace root (Orchy Managed monorepo)
         const gitBranches: Record<string, string> = {};
-        for (const projectConf of createdProjectConfigs) {
-          if (projectConf.gitEnabled) {
+        const hasGitEnabledProject = createdProjectConfigs.some(p => p.gitEnabled);
+        if (hasGitEnabledProject) {
+          try {
+            // Generate branch name with AI
+            let actualBranchName: string;
             try {
-              let projectPath = projectConf.path;
-              if (projectPath.startsWith('~')) {
-                projectPath = projectPath.replace('~', process.env.HOME || '');
-              }
-
-              const mainBranchForProject = projectConf.mainBranch || 'main';
-              await gitManager.initRepo(projectPath, mainBranchForProject);
-
-              const actualBranchName = gitManager.generateBranchName(feature);
-              const branchResult = await gitManager.createAndCheckoutBranch(projectPath, actualBranchName);
-              if (branchResult.success) {
-                gitBranches[projectConf.name] = actualBranchName;
-                console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${projectConf.name}`);
-              }
-            } catch (gitErr) {
-              console.error(`[Orchestrator] Failed to initialize git for ${projectConf.name}:`, gitErr);
+              console.log('[Orchestrator] Quick start: generating branch name with AI...');
+              actualBranchName = await generateBranchName(feature);
+              console.log(`[Orchestrator] Generated branch name: ${actualBranchName}`);
+            } catch (err) {
+              console.warn('[Orchestrator] Failed to generate branch name with AI, using fallback:', err);
+              actualBranchName = gitManager.generateBranchName(feature);
             }
+
+            // Checkout main and pull latest at workspace root
+            const checkoutResult = await gitManager.createAndCheckoutBranch(expandedTargetPath, 'main');
+            if (!checkoutResult.success) {
+              console.warn(`[Orchestrator] Failed to checkout main at workspace root: ${checkoutResult.message}`);
+            }
+
+            // Pull latest (ignore errors for repos without remote)
+            try {
+              const pullResult = await gitManager.pullBranch(expandedTargetPath, 'main');
+              if (pullResult.success) {
+                console.log(`[Orchestrator] Pulled latest main at workspace root`);
+              }
+            } catch (pullErr) {
+              console.log(`[Orchestrator] Pull skipped for workspace (no remote or error): ${pullErr}`);
+            }
+
+            // Create feature branch at workspace root
+            const branchResult = await gitManager.createAndCheckoutBranch(expandedTargetPath, actualBranchName);
+            if (branchResult.success) {
+              // Use _workspace key for Orchy Managed workspace-level branch
+              gitBranches['_workspace'] = actualBranchName;
+              console.log(`[Orchestrator] Git branch '${actualBranchName}' ${branchResult.created ? 'created' : 'checked out'} at workspace root`);
+            }
+          } catch (gitErr) {
+            console.error(`[Orchestrator] Failed to initialize git branch at workspace root:`, gitErr);
           }
         }
 
@@ -3325,20 +3559,18 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             ? [createdProjectConfigs.find(p => p.name.includes('backend'))!.name]
             : undefined;
 
-          // Create the subdirectory for this project (e.g., ~/orchy/blog2/frontend)
-          const projectSubdir = path.join(expandedTargetPath, suffix);
-          if (!fs.existsSync(projectSubdir)) {
-            fs.mkdirSync(projectSubdir, { recursive: true });
-          }
-
+          // Create project in workspace root with suffix as directory name (e.g., ~/orchy/blog2/frontend)
+          // Use directoryName to avoid nesting: ~/orchy/blog2/frontend instead of ~/orchy/blog2/frontend/blog2-frontend
           const projectConfig = await templateManager.createFromTemplate({
             name: projectName,
-            targetPath: `${targetPath}/${suffix}`,
+            targetPath: targetPath,  // Workspace root (e.g., ~/orchy/blog2)
+            directoryName: suffix,   // Directory name (e.g., 'frontend')
             template: templateName as any,
             dependsOn,
             permissions: {
               allow: TEMPLATE_PERMISSIONS[templateName] || [],
             },
+            skipGitInit: true,  // Orchy Managed: git is handled at workspace root level
           });
 
           createdProjectConfigs.push({
@@ -3369,19 +3601,41 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           }
         }
 
-        // Create workspace with the newly created projects
+        // Create workspace with the newly created projects (Orchy Managed monorepo)
         const workspace = workspaceManager.createWorkspace({
           name: appName,
           projects: createdProjectConfigs,
           context,
+          orchyManaged: true,  // This is a template-created monorepo workspace
         });
         createdWorkspaceId = workspace.id;
+
+        // Initialize git at workspace root (Orchy Managed monorepo structure)
+        try {
+          console.log(`[Orchestrator] Initializing git at workspace root: ${expandedTargetPath}`);
+          const initResult = await gitManager.initRepo(expandedTargetPath, 'main');
+          if (initResult.success) {
+            // Create initial commit with all project files
+            const projectNames = createdProjectConfigs.map(p => p.name.replace(`${appName}-`, '')).join(', ');
+            const commitResult = await gitManager.commit(expandedTargetPath, `Initial commit: ${appName} workspace (${projectNames})`);
+            if (commitResult.success) {
+              console.log(`[Orchestrator] Git initialized at workspace root with initial commit`);
+            } else {
+              console.warn(`[Orchestrator] Git init succeeded but initial commit failed: ${commitResult.message}`);
+            }
+          } else {
+            console.warn(`[Orchestrator] Failed to initialize git at workspace root: ${initResult.message}`);
+          }
+        } catch (gitErr) {
+          console.error(`[Orchestrator] Git initialization error at workspace root:`, gitErr);
+          // Don't fail the workspace creation - git is optional
+        }
 
         // Emit updated workspaces and success with workspace ID
         socket.emit('workspaces', workspaceManager.getWorkspaces());
         socket.emit('workspaceFromTemplateCreated', { workspaceId: workspace.id });
 
-        console.log(`[Orchestrator] Workspace from template created: ${workspace.id}`);
+        console.log(`[Orchestrator] Orchy Managed workspace created: ${workspace.id}`);
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Create workspace from template failed:', error);
@@ -3426,6 +3680,16 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     socket.on('addProjectToWorkspace', ({ workspaceId, project }: { workspaceId: string; project: WorkspaceProjectConfig }) => {
       try {
+        // Check if workspace is Orchy Managed
+        const workspace = workspaceManager.getWorkspace(workspaceId);
+        if (workspace?.orchyManaged) {
+          // Orchy Managed workspaces only allow template-based projects
+          // This handler is for adding existing projects, so reject
+          socket.emit('workspaceError', {
+            error: 'Orchy Managed workspaces only allow adding projects from templates to maintain the unified repository structure.'
+          });
+          return;
+        }
         workspaceManager.addProjectToWorkspace(workspaceId, project);
         socket.emit('workspaces', workspaceManager.getWorkspaces());
       } catch (err) {

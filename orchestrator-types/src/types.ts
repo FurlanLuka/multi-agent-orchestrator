@@ -64,6 +64,7 @@ export interface WorkspaceConfig {
   context?: string;        // planning context/rules (markdown)
   managedGit?: boolean;    // Auto-generate branches, hide branch input. Default: true
   autoMerge?: boolean;     // Auto-merge on completion. Default: true
+  orchyManaged?: boolean;  // True for template-created monorepo workspaces (single git repo at workspace root)
   createdAt: number;
   updatedAt: number;
 }

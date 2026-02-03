@@ -549,19 +549,43 @@ export function PromptScreen({
               </Group>
               <GlassCard p="md">
                 <Stack gap="md">
-                  <Group justify="space-between" align="flex-start">
-                    <Stack gap={2} style={{ flex: 1 }}>
-                      <Text size="sm" fw={500}>Managed Git</Text>
+                  {/* Orchy Managed info - show when orchyManaged is true */}
+                  {workspace.orchyManaged && (
+                    <Box
+                      p="sm"
+                      style={{
+                        background: 'rgba(183, 166, 234, 0.1)',
+                        borderRadius: 8,
+                        border: '1px solid rgba(183, 166, 234, 0.2)',
+                      }}
+                    >
+                      <Group gap="xs" mb={4}>
+                        <Badge size="xs" variant="light" color="lavender">Orchy Managed</Badge>
+                      </Group>
                       <Text size="xs" c="dimmed">
-                        Automatically generate branch names from feature descriptions. When disabled, you can manually enter branch names.
+                        All projects share a single git repository at the workspace root. Git settings are managed automatically.
                       </Text>
-                    </Stack>
-                    <Switch
-                      checked={managedGitValue}
-                      onChange={(e) => setManagedGitValue(e.currentTarget.checked)}
-                      color="lavender"
-                    />
-                  </Group>
+                    </Box>
+                  )}
+
+                  {/* Managed Git toggle - hidden for Orchy Managed workspaces */}
+                  {!workspace.orchyManaged && (
+                    <Group justify="space-between" align="flex-start">
+                      <Stack gap={2} style={{ flex: 1 }}>
+                        <Text size="sm" fw={500}>Managed Git</Text>
+                        <Text size="xs" c="dimmed">
+                          Automatically generate branch names from feature descriptions. When disabled, you can manually enter branch names.
+                        </Text>
+                      </Stack>
+                      <Switch
+                        checked={managedGitValue}
+                        onChange={(e) => setManagedGitValue(e.currentTarget.checked)}
+                        color="lavender"
+                      />
+                    </Group>
+                  )}
+
+                  {/* Auto Merge toggle */}
                   <Group justify="space-between" align="flex-start">
                     <Stack gap={2} style={{ flex: 1 }}>
                       <Text size="sm" fw={500}>Auto Merge</Text>
@@ -596,6 +620,7 @@ export function PromptScreen({
           onClearCreateProjectError={onClearCreateProjectError}
           onCreateProject={handleCreateProject}
           onAddProject={handleAddProject}
+          orchyManaged={workspace.orchyManaged}
         />
 
         {/* Edit Project Modal */}

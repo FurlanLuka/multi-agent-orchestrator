@@ -10,7 +10,6 @@ import {
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
-import { GitManager } from './git-manager';
 
 // Patterns that indicate dev server issues in agent responses
 const DEV_SERVER_ISSUE_PATTERNS = [
@@ -311,64 +310,6 @@ export class ActionExecutor extends EventEmitter {
     } catch (err) {
       console.error(`[ActionExecutor] Failed to send E2E prompt to ${action.project}:`, err);
       this.emit('error', { action, error: 'Failed to send E2E prompt' });
-    }
-  }
-
-  /**
-   * Sends a fix prompt to an agent after E2E failure
-   */
-  async sendE2EFix(project: string, fixPrompt: string): Promise<string> {
-    console.log(`[ActionExecutor] Sending E2E fix prompt to project: "${project}"`);
-
-    // Validate project exists in config
-    const config = (this.processManager as any).config;
-    if (config?.projects && !config.projects[project]) {
-      const availableProjects = Object.keys(config.projects || {}).join(', ');
-      const error = `Project "${project}" not found in config. Available: ${availableProjects}`;
-      console.error(`[ActionExecutor] ${error}`);
-      throw new Error(error);
-    }
-
-    // Log the project path for debugging
-    if (config?.projects?.[project]?.path) {
-      console.log(`[ActionExecutor] Project "${project}" path: ${config.projects[project].path}`);
-    }
-
-    try {
-      this.statusMonitor.updateStatus(project, 'E2E_FIXING', 'Fixing E2E test failures');
-      this.stateMachine.markAgentActive(project);
-      this.emit('e2eFixPromptSent', { project });
-
-      const result = await this.processManager.sendToAgent(project, fixPrompt);
-      console.log(`[ActionExecutor] Agent ${project} completed E2E fix (${result.length} chars)`);
-
-      // Commit the E2E fix if git is enabled
-      const projectConfig = config?.projects?.[project];
-      if (projectConfig?.gitEnabled) {
-        const gitManager = new GitManager();
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
-        const commitResult = await gitManager.commit(projectPath, `fix: E2E test fix for ${project}`);
-        if (commitResult.success) {
-          console.log(`[ActionExecutor] Git commit created for E2E fix: ${commitResult.commitHash}`);
-          this.emit('e2eFixCommit', { project, commitHash: commitResult.commitHash });
-        } else {
-          console.warn(`[ActionExecutor] Failed to commit E2E fix: ${commitResult.message}`);
-        }
-      }
-
-      // Update status to READY - fix is complete, waiting for E2E re-run to verify
-      this.statusMonitor.updateStatus(project, 'READY', 'Fix applied, awaiting E2E verification');
-      this.stateMachine.markAgentIdle(project);
-      this.emit('e2eFixComplete', { project, result });
-
-      return result;
-    } catch (err) {
-      console.error(`[ActionExecutor] Failed to send E2E fix prompt to ${project}:`, err);
-      this.emit('error', { project, error: 'Failed to send E2E fix prompt' });
-      throw err;
     }
   }
 

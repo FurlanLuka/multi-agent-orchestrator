@@ -1,5 +1,5 @@
-import { Text, ActionIcon, Stack, Group, Badge } from '@mantine/core';
-import { IconTrash, IconFolder } from '@tabler/icons-react';
+import { Text, ActionIcon, Stack, Group, Badge, Tooltip } from '@mantine/core';
+import { IconTrash, IconFolder, IconGitMerge } from '@tabler/icons-react';
 import type { WorkspaceConfig } from '@orchy/types';
 import { GlassCard } from '../../theme';
 
@@ -47,6 +47,19 @@ export function WorkspaceCard({ workspace, onClick, onDelete }: WorkspaceCardPro
         </Stack>
 
         <Group gap="xs" mt="auto">
+          {workspace.orchyManaged && (
+            <Tooltip
+              label="All projects share a single git repository for simplified version control"
+              multiline
+              w={220}
+              position="bottom"
+              withArrow
+            >
+              <Badge size="xs" variant="light" color="lavender" leftSection={<IconGitMerge size={10} />}>
+                Orchy Managed
+              </Badge>
+            </Tooltip>
+          )}
           {projectCount > 0 && (
             <Badge size="xs" variant="light" color="peach" leftSection={<IconFolder size={10} />}>
               {projectCount} {projectCount === 1 ? 'project' : 'projects'}

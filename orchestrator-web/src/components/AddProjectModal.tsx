@@ -122,6 +122,7 @@ interface AddProjectModalProps {
   onClearCreateProjectError?: () => void;
   onCreateProject: (options: CreateProjectOptions) => void;
   onAddProject: (options: AddProjectOptions) => void;
+  orchyManaged?: boolean;  // If true, only allow template-based projects
 }
 
 export function AddProjectModal({
@@ -138,8 +139,10 @@ export function AddProjectModal({
   onClearCreateProjectError,
   onCreateProject,
   onAddProject,
+  orchyManaged = false,
 }: AddProjectModalProps) {
-  const [formMode, setFormMode] = useState<'template' | 'existing'>('existing');
+  // For Orchy Managed workspaces, only allow template mode
+  const [formMode, setFormMode] = useState<'template' | 'existing'>(orchyManaged ? 'template' : 'existing');
   const [addPermissionsExpanded, setAddPermissionsExpanded] = useState(false);
   const [creatingName, setCreatingName] = useState<string | null>(null);
 
@@ -327,15 +330,25 @@ export function AddProjectModal({
           </Card>
         )}
 
-        <GlassSegmentedControl
-          value={formMode}
-          onChange={(v) => setFormMode(v as 'template' | 'existing')}
-          data={[
-            { label: 'Add Existing', value: 'existing' },
-            { label: 'From Template', value: 'template' },
-          ]}
-          fullWidth
-        />
+        {/* Mode toggle - hidden for Orchy Managed workspaces */}
+        {!orchyManaged && (
+          <GlassSegmentedControl
+            value={formMode}
+            onChange={(v) => setFormMode(v as 'template' | 'existing')}
+            data={[
+              { label: 'Add Existing', value: 'existing' },
+              { label: 'From Template', value: 'template' },
+            ]}
+            fullWidth
+          />
+        )}
+
+        {/* Orchy Managed info */}
+        {orchyManaged && (
+          <Alert icon={<IconAlertTriangle size={16} />} color="lavender" variant="light" radius="md">
+            This is an Orchy Managed workspace. New projects can only be added from templates to maintain the unified repository structure.
+          </Alert>
+        )}
 
         {/* Add Existing Project Form */}
         {formMode === 'existing' && (

@@ -26,6 +26,9 @@ export interface TaskExecutorConfig {
   getGitBranch?: (project: string) => string | undefined;
   io?: any;  // Socket.io instance for flow events
   sessionLogger?: SessionLogger;  // Optional session logger for debugging
+  // Orchy Managed workspace support
+  isOrchyManaged?: () => boolean;
+  getWorkspaceRoot?: () => string | null;
 }
 
 /**
@@ -49,6 +52,9 @@ export class TaskExecutor extends EventEmitter {
   private io?: any;  // Socket.io instance for flow events
   private sessionLogger?: SessionLogger;  // Optional session logger for debugging
   private activeTaskFlows: Map<number, string> = new Map(); // taskIndex -> flowId
+  // Orchy Managed workspace support
+  private isOrchyManaged?: () => boolean;
+  private getWorkspaceRoot?: () => string | null;
 
   // Persistent session state - tracks fix attempts per task
   private fixAttemptsPerTask: Map<number, number> = new Map();
@@ -100,6 +106,8 @@ export class TaskExecutor extends EventEmitter {
     this.getGitBranch = deps.getGitBranch;
     this.io = deps.io;
     this.sessionLogger = deps.sessionLogger;
+    this.isOrchyManaged = deps.isOrchyManaged;
+    this.getWorkspaceRoot = deps.getWorkspaceRoot;
   }
 
   /**
@@ -622,12 +630,32 @@ Please fix the issue and try again.`;
       const projectConfig = this.config.projects[project];
       if (projectConfig?.gitEnabled && this.gitManager) {
         try {
-          let projectPath = projectConfig.path;
-          if (projectPath.startsWith('~')) {
-            projectPath = projectPath.replace('~', process.env.HOME || '');
+          // For Orchy Managed workspaces, commit at workspace root (single git repo)
+          // For regular workspaces, commit at project path
+          let gitPath: string;
+          const orchyManaged = this.isOrchyManaged?.() ?? false;
+
+          if (orchyManaged && this.getWorkspaceRoot) {
+            const workspaceRoot = this.getWorkspaceRoot();
+            if (workspaceRoot) {
+              gitPath = workspaceRoot.startsWith('~')
+                ? workspaceRoot.replace('~', process.env.HOME || '')
+                : workspaceRoot;
+              console.log(`[TaskExecutor] Orchy Managed: committing at workspace root ${gitPath}`);
+            } else {
+              // Fallback to project path if workspace root not available
+              gitPath = projectConfig.path.startsWith('~')
+                ? projectConfig.path.replace('~', process.env.HOME || '')
+                : projectConfig.path;
+            }
+          } else {
+            gitPath = projectConfig.path.startsWith('~')
+              ? projectConfig.path.replace('~', process.env.HOME || '')
+              : projectConfig.path;
           }
+
           const commitMessage = `feat: ${task.name}`;
-          const commitResult = await this.gitManager.commit(projectPath, commitMessage);
+          const commitResult = await this.gitManager.commit(gitPath, commitMessage);
           if (commitResult.success && commitResult.commitHash) {
             console.log(`[TaskExecutor] Git commit: ${commitResult.commitHash}`);
           }
