@@ -12,6 +12,8 @@ import {
   Badge,
   Tooltip,
   Box,
+  Modal,
+  ThemeIcon,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -22,6 +24,8 @@ import {
   IconTrash,
   IconCheck,
   IconPlayerPlay,
+  IconServer,
+  IconAlertTriangle,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -47,6 +51,7 @@ import type { AddProjectOptions, CreateProjectOptions } from '../AddProjectModal
 import { EditProjectModal } from '../EditProjectModal';
 import { HelpOverlay, HelpTrigger } from '../overlay';
 import type { PermissionsConfig } from '../CollapsiblePermissions';
+import { useOrchestrator } from '../../context/OrchestratorContext';
 
 interface BranchCheckResult {
   project: string;
@@ -121,10 +126,26 @@ export function PromptScreen({
   createProjectError,
   onClearCreateProjectError,
 }: PromptScreenProps) {
+  const { startDevServers, devServers, startingDevServers, stopAllDevServers } = useOrchestrator();
   const [branchName, setBranchName] = useState('');
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
   // Check if workspace has projects (used to prevent exiting edit mode when empty)
   const hasProjects = workspace.projects.length > 0;
+
+  // Check if workspace has any projects with dev servers configured
+  const hasDevServerProjects = workspace.projects.some(
+    p => p.devServerEnabled !== false && p.devServer?.command
+  );
+
+  // Check if dev servers are already running for this workspace
+  const hasRunningDevServers = devServers.some(
+    s => workspace.projects.some(p => p.name === s.project) &&
+      (s.status === 'running' || s.status === 'starting')
+  );
+
+  const handleStartDevServers = () => {
+    startDevServers(workspace.id);
+  };
 
   // Start in edit mode if forceEditMode is true (empty workspace)
   const [isEditMode, setIsEditMode] = useState(forceEditMode || !hasProjects);
@@ -142,6 +163,7 @@ export function PromptScreen({
   // Modal states
   const [addModalOpened, { open: openAddModal, close: closeAddModal }] = useDisclosure(false);
   const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
+  const [devServerWarningOpened, { open: openDevServerWarning, close: closeDevServerWarning }] = useDisclosure(false);
 
   // Store pending start params while showing branch check modal
   const [pendingStartParams, setPendingStartParams] = useState<{
@@ -203,6 +225,15 @@ export function PromptScreen({
   }, [sessionProjectConfigs, workspaceProjectConfigs]);
 
   const handleStart = () => {
+    // Check if dev servers are running - must stop them first
+    const hasRunningServers = devServers.some(
+      s => s.status === 'running' || s.status === 'starting'
+    );
+    if (hasRunningServers) {
+      openDevServerWarning();
+      return;
+    }
+
     const text = editor?.getText().trim();
     if (text) {
       // Filter to only included projects
@@ -228,6 +259,12 @@ export function PromptScreen({
         );
       }
     }
+  };
+
+  const handleStopServersAndStart = () => {
+    stopAllDevServers();
+    closeDevServerWarning();
+    // The user will need to click Start again after servers stop
   };
 
   // Handle branch check result
@@ -523,15 +560,31 @@ export function PromptScreen({
       <Stack gap="xl">
         {/* Page Header */}
         <Stack gap={0}>
-          <Group gap="xs" align="center">
-            <Title order={2} style={{ letterSpacing: '-.02em' }}>
-              {workspace.name}
-            </Title>
-            <Tooltip label="Edit workspace">
-              <ActionIcon variant="subtle" color="gray" size="sm" onClick={handleToggleEditMode}>
-                <IconEdit size={16} />
-              </ActionIcon>
-            </Tooltip>
+          <Group justify="space-between" align="center">
+            <Group gap="xs" align="center">
+              <Title order={2} style={{ letterSpacing: '-.02em' }}>
+                {workspace.name}
+              </Title>
+              <Tooltip label="Edit workspace">
+                <ActionIcon variant="subtle" color="gray" size="sm" onClick={handleToggleEditMode}>
+                  <IconEdit size={16} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+
+            {hasDevServerProjects && (
+              <Button
+                variant="light"
+                color="sage"
+                size="sm"
+                leftSection={<IconServer size={16} />}
+                onClick={handleStartDevServers}
+                loading={startingDevServers}
+                disabled={hasRunningDevServers || startingDevServers}
+              >
+                {hasRunningDevServers ? 'Dev Servers Running' : 'Run Dev Servers'}
+              </Button>
+            )}
           </Group>
           <Group gap="xs">
             <Text c="dimmed" size="sm">
@@ -684,6 +737,48 @@ export function PromptScreen({
         onContinue={handleBranchCheckContinue}
         onCheckout={handleBranchCheckCheckout}
       />
+
+      {/* Dev server warning modal */}
+      <Modal
+        opened={devServerWarningOpened}
+        onClose={closeDevServerWarning}
+        title={
+          <Group gap="xs">
+            <ThemeIcon color="honey" variant="light" size="sm">
+              <IconAlertTriangle size={14} />
+            </ThemeIcon>
+            <Text fw={600}>Dev Servers Running</Text>
+          </Group>
+        }
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            You have dev servers running. Please stop them before starting a new session to avoid port conflicts.
+          </Text>
+
+          <Stack gap="xs">
+            <Button
+              color="rose"
+              fullWidth
+              leftSection={<IconServer size={16} />}
+              onClick={handleStopServersAndStart}
+            >
+              Stop All Dev Servers
+            </Button>
+
+            <Button
+              variant="subtle"
+              color="gray"
+              fullWidth
+              onClick={closeDevServerWarning}
+            >
+              Cancel
+            </Button>
+          </Stack>
+        </Stack>
+      </Modal>
     </Container>
   );
 }

@@ -735,6 +735,38 @@ export interface ChatMessage {
 // Session status type
 export type SessionStatus = 'planning' | 'running' | 'completed' | 'interrupted';
 
+// ═══════════════════════════════════════════════════════════════
+// Dev Server Management Types (standalone dev server controls)
+// ═══════════════════════════════════════════════════════════════
+
+/** State of a single dev server */
+export interface DevServerState {
+  project: string;
+  status: 'stopped' | 'starting' | 'running' | 'error' | 'stopping';
+  port: number | null;
+  url: string | null;
+  startedAt: number | null;
+  error?: string;
+}
+
+/** Port conflict information */
+export interface PortConflict {
+  project: string;
+  port: number;
+  url: string;
+  inUse: boolean;
+  processName?: string;
+  processPid?: number;
+}
+
+/** Log entry for dev server logs modal */
+export interface DevServerLogEntry {
+  project: string;
+  stream: 'stdout' | 'stderr';
+  text: string;
+  timestamp: number;
+}
+
 // Test state for project
 export interface TestScenarioState {
   name: string;

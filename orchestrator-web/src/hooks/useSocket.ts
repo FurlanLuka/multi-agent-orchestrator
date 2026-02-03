@@ -39,6 +39,10 @@ import type {
   ThemeOption,
   ComponentStyleOption,
   MockupOption,
+  // Dev server types
+  DevServerState,
+  PortConflict,
+  DevServerLogEntry,
 } from '@orchy/types';
 
 // Default port for standalone mode (fallback only)
@@ -218,6 +222,16 @@ export function useSocket() {
     name: string;
     filename: string;
   }>>([]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // Dev Server Management State (standalone dev server controls)
+  // ═══════════════════════════════════════════════════════════════
+  const [devServers, setDevServers] = useState<DevServerState[]>([]);
+  const [devServerLogs, setDevServerLogs] = useState<Record<string, DevServerLogEntry[]>>({});
+  const [portConflicts, setPortConflicts] = useState<PortConflict[]>([]);
+  const [showPortConflictModal, setShowPortConflictModal] = useState(false);
+  const [startingDevServers, setStartingDevServers] = useState(false);
+  const [devServerWorkspaceId, setDevServerWorkspaceId] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -713,6 +727,73 @@ export function useSocket() {
     // Dev servers stopped event
     socket.on('devServersStopped', () => {
       console.log('Dev servers stopped');
+      setDevServers([]);
+      setStartingDevServers(false);
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Dev Server Management Events (standalone dev server controls)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Dev server status updates
+    socket.on('devServerStatus', ({ servers }: { servers: DevServerState[] }) => {
+      console.log('[useSocket] Dev server status update:', servers.length, 'servers');
+      setDevServers(servers);
+      // Clear starting flag when we get a status update with running servers
+      if (servers.some(s => s.status === 'running')) {
+        setStartingDevServers(false);
+      }
+      // Clear starting flag when all servers are stopped
+      if (servers.length === 0) {
+        setStartingDevServers(false);
+      }
+    });
+
+    // Dev server error
+    socket.on('devServerError', ({ project, error }: { project?: string; error: string }) => {
+      console.error('[useSocket] Dev server error:', project || 'general', error);
+      setStartingDevServers(false);
+    });
+
+    // Port conflict detected
+    socket.on('portConflict', ({ conflicts }: { conflicts: PortConflict[] }) => {
+      console.log('[useSocket] Port conflicts detected:', conflicts.length);
+      setPortConflicts(conflicts);
+      setShowPortConflictModal(true);
+      setStartingDevServers(false);
+    });
+
+    // Port check result (no conflicts)
+    socket.on('portCheckResult', ({ hasConflicts }: { hasConflicts: boolean }) => {
+      if (!hasConflicts) {
+        setPortConflicts([]);
+      }
+    });
+
+    // Port kill result
+    socket.on('portKillResult', ({ port, success, processName }: { port: number; success: boolean; processName?: string; error?: string }) => {
+      console.log(`[useSocket] Port ${port} kill result: ${success ? 'success' : 'failed'}`, processName);
+      if (success) {
+        // Remove the conflict from the list
+        setPortConflicts(prev => prev.filter(c => c.port !== port));
+      }
+    });
+
+    // Dev server logs
+    socket.on('devServerLogs', ({ project, logs }: { project: string; logs: DevServerLogEntry[] }) => {
+      console.log(`[useSocket] Received ${logs.length} logs for ${project}`);
+      setDevServerLogs(prev => ({ ...prev, [project]: logs }));
+    });
+
+    // Dev server log stream (real-time)
+    socket.on('devServerLog', ({ project, text, stream, timestamp }: { project: string; text: string; stream: 'stdout' | 'stderr'; timestamp: number }) => {
+      setDevServerLogs(prev => {
+        const existing = prev[project] || [];
+        const newEntry: DevServerLogEntry = { project, text, stream, timestamp };
+        // Keep last 500 lines
+        const updated = [...existing, newEntry].slice(-500);
+        return { ...prev, [project]: updated };
+      });
     });
 
     // Resume session error
@@ -1518,6 +1599,98 @@ export function useSocket() {
     setDesignPhase('complete');
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════
+  // Dev Server Management Actions (standalone dev server controls)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Start dev servers for a workspace (checks ports first)
+  const startDevServers = useCallback((workspaceId: string, projects?: string[]) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Starting dev servers for workspace:', workspaceId);
+      setStartingDevServers(true);
+      setDevServerWorkspaceId(workspaceId);
+      // First check port availability
+      socketRef.current.emit('checkPortAvailability', { workspaceId, projects });
+      // If no conflicts, backend will emit portCheckResult and we can start
+      // If conflicts, backend will emit portConflict and we show modal
+      // Once ports are clear, start servers
+      socketRef.current.emit('startDevServers', { workspaceId, projects });
+    }
+  }, []);
+
+  // Force start dev servers (skip port check, useful after resolving conflicts)
+  const forceStartDevServers = useCallback((workspaceId: string, projects?: string[]) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Force starting dev servers for workspace:', workspaceId);
+      setStartingDevServers(true);
+      setShowPortConflictModal(false);
+      setPortConflicts([]);
+      socketRef.current.emit('startDevServers', { workspaceId, projects });
+    }
+  }, []);
+
+  // Stop a single dev server
+  const stopDevServer = useCallback((project: string) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Stopping dev server:', project);
+      socketRef.current.emit('stopDevServer', { project });
+    }
+  }, []);
+
+  // Stop all dev servers
+  const stopAllDevServers = useCallback(() => {
+    if (socketRef.current) {
+      console.log('[useSocket] Stopping all dev servers');
+      socketRef.current.emit('stopDevServers');
+    }
+  }, []);
+
+  // Restart a single dev server
+  const restartDevServer = useCallback((project: string) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Restarting dev server:', project);
+      socketRef.current.emit('restartDevServer', { project });
+    }
+  }, []);
+
+  // Check port availability for a workspace
+  const checkPorts = useCallback((workspaceId: string, projects?: string[]) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Checking ports for workspace:', workspaceId);
+      socketRef.current.emit('checkPortAvailability', { workspaceId, projects });
+    }
+  }, []);
+
+  // Kill process on a specific port
+  const killPortProcess = useCallback((port: number) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Killing process on port:', port);
+      socketRef.current.emit('killPortProcess', { port });
+    }
+  }, []);
+
+  // Get logs for a specific dev server
+  const getDevServerLogs = useCallback((project: string) => {
+    if (socketRef.current) {
+      console.log('[useSocket] Getting logs for:', project);
+      socketRef.current.emit('getDevServerLogs', { project });
+    }
+  }, []);
+
+  // Get status of all dev servers
+  const refreshDevServerStatus = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('getDevServerStatus');
+    }
+  }, []);
+
+  // Close port conflict modal
+  const closePortConflictModal = useCallback(() => {
+    setShowPortConflictModal(false);
+    setPortConflicts([]);
+    setStartingDevServers(false);
+  }, []);
+
   // Derived state: separate active flows from completed flows
   const { activeFlows, completedFlows } = useMemo(() => ({
     activeFlows: flows.filter(f => f.status === 'in_progress'),
@@ -1636,5 +1809,23 @@ export function useSocket() {
     clearDesignPreview,
     clearDesignRefine,
     finishAddingPages,
+    // Dev server state
+    devServers,
+    devServerLogs,
+    portConflicts,
+    showPortConflictModal,
+    startingDevServers,
+    devServerWorkspaceId,
+    // Dev server actions
+    startDevServers,
+    forceStartDevServers,
+    stopDevServer,
+    stopAllDevServers,
+    restartDevServer,
+    checkPorts,
+    killPortProcess,
+    getDevServerLogs,
+    refreshDevServerStatus,
+    closePortConflictModal,
   };
 }

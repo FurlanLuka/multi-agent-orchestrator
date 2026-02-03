@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { MemoryRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { useOrchestrator } from './context/OrchestratorContext';
 import { SplashScreen } from './components/SplashScreen';
@@ -12,6 +12,7 @@ import { ModeSelectionPage } from './pages/ModeSelectionPage';
 import { DesignSessionPage } from './pages/DesignSessionPage';
 import { DesignsLibraryPage } from './pages/DesignsLibraryPage';
 import { BackButton } from './components/BackButton';
+import { DevServerPanel, PortConflictModal, DevServerLogsModal } from './components/devserver';
 import type { WorkspaceConfig, ProjectConfig, WorkspaceProjectConfig, ProjectTemplate } from '@orchy/types';
 
 // Wrapper component that handles routing logic
@@ -328,10 +329,102 @@ function PromptScreenWrapper({
   );
 }
 
+/**
+ * Overlay component for dev server UI elements.
+ * Renders floating panel, port conflict modal, and logs modal.
+ * Persists across all routes.
+ */
+function DevServerOverlay() {
+  const {
+    devServers,
+    devServerLogs,
+    portConflicts,
+    showPortConflictModal,
+    stopDevServer,
+    stopAllDevServers,
+    restartDevServer,
+    killPortProcess,
+    forceStartDevServers,
+    closePortConflictModal,
+    getDevServerLogs,
+    devServerWorkspaceId,
+  } = useOrchestrator();
+
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [logsProject, setLogsProject] = useState<string | null>(null);
+
+  const handleViewLogs = (project: string) => {
+    setLogsProject(project);
+    setLogsModalOpen(true);
+  };
+
+  const handleCloseLogsModal = () => {
+    setLogsModalOpen(false);
+    setLogsProject(null);
+  };
+
+  const handleKillAllAndStart = () => {
+    // Kill all conflicting ports then start
+    const conflictingPorts = portConflicts.filter(c => c.inUse).map(c => c.port);
+    conflictingPorts.forEach(port => killPortProcess(port));
+    // After killing, force start (backend handles waiting)
+    if (devServerWorkspaceId) {
+      forceStartDevServers(devServerWorkspaceId);
+    }
+    closePortConflictModal();
+  };
+
+  const handleSkipConflicting = () => {
+    // Start only non-conflicting servers
+    if (devServerWorkspaceId) {
+      const nonConflicting = portConflicts.filter(c => !c.inUse).map(c => c.project);
+      if (nonConflicting.length > 0) {
+        forceStartDevServers(devServerWorkspaceId, nonConflicting);
+      }
+    }
+    closePortConflictModal();
+  };
+
+  // Get the current server and its logs for the logs modal
+  const currentServer = logsProject ? devServers.find(s => s.project === logsProject) || null : null;
+  const currentLogs = logsProject ? (devServerLogs[logsProject] || []) : [];
+
+  return (
+    <>
+      <DevServerPanel
+        servers={devServers}
+        onStop={stopDevServer}
+        onStopAll={stopAllDevServers}
+        onRestart={restartDevServer}
+        onViewLogs={handleViewLogs}
+      />
+
+      <PortConflictModal
+        opened={showPortConflictModal}
+        conflicts={portConflicts}
+        onClose={closePortConflictModal}
+        onKillPort={killPortProcess}
+        onSkipConflicting={handleSkipConflicting}
+        onKillAllAndStart={handleKillAllAndStart}
+      />
+
+      <DevServerLogsModal
+        opened={logsModalOpen}
+        server={currentServer}
+        logs={currentLogs}
+        onClose={handleCloseLogsModal}
+        onRestart={restartDevServer}
+        onRefreshLogs={getDevServerLogs}
+      />
+    </>
+  );
+}
+
 function App() {
   return (
     <MemoryRouter>
       <AppRoutes />
+      <DevServerOverlay />
     </MemoryRouter>
   );
 }

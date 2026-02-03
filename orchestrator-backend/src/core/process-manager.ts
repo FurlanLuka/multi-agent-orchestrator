@@ -116,8 +116,9 @@ export class ProcessManager extends EventEmitter {
 
   /**
    * Extracts port number from a URL string
+   * Public for port conflict resolution
    */
-  private getPortFromUrl(url: string | undefined): number | null {
+  getPortFromUrl(url: string | undefined): number | null {
     if (!url) return null;
     try {
       const parsed = new URL(url);
@@ -775,19 +776,22 @@ export class ProcessManager extends EventEmitter {
   /**
    * Safely kills node/npm processes using a specific port
    * Only kills processes that look like dev servers (node, npm, tsx, ts-node, nest)
+   * Public for port conflict resolution
    */
-  private async killProcessOnPort(port: number): Promise<void> {
+  async killProcessOnPort(port: number): Promise<{ success: boolean; processName?: string }> {
     const { exec } = require('child_process');
 
     return new Promise((resolve) => {
       // Find PIDs on the port and check if they're node-related before killing
       exec(`lsof -ti:${port}`, (error: Error | null, stdout: string) => {
         if (error || !stdout.trim()) {
-          resolve();
+          resolve({ success: true });
           return;
         }
 
         const pids = stdout.trim().split('\n').filter(Boolean);
+        let killedProcessName: string | undefined;
+        let killedAny = false;
 
         // For each PID, check if it's a node-related process before killing
         let checked = 0;
@@ -806,6 +810,8 @@ export class ProcessManager extends EventEmitter {
               console.log(`[ProcessManager] Killing ${cmd} (PID ${pid}) on port ${port}`);
               try {
                 process.kill(parseInt(pid), 'SIGKILL');
+                killedProcessName = cmd;
+                killedAny = true;
               } catch {
                 // Process may already be dead
               }
@@ -814,13 +820,13 @@ export class ProcessManager extends EventEmitter {
             }
 
             if (checked === pids.length) {
-              resolve();
+              resolve({ success: killedAny || pids.length === 0, processName: killedProcessName });
             }
           });
         }
 
         // Safety timeout
-        setTimeout(resolve, 2000);
+        setTimeout(() => resolve({ success: false }), 2000);
       });
     });
   }
@@ -1096,5 +1102,174 @@ export class ProcessManager extends EventEmitter {
     }
 
     return { healthy: false, error: `Health check failed after ${maxRetries} attempts` };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Standalone Dev Server Management (for floating panel controls)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Stops a single dev server by project name
+   */
+  async stopDevServer(project: string): Promise<void> {
+    const projectConfig = this.config.projects[project];
+    const key = this.getKey(project, 'devServer');
+    const info = this.processes.get(key);
+    const port = this.getPortFromUrl(projectConfig?.devServer?.url);
+
+    if (info) {
+      const pid = info.process.pid;
+      console.log(`[ProcessManager] Stopping dev server for ${project} (PID: ${pid}${port ? `, port: ${port}` : ''})`);
+
+      if (pid) {
+        // Kill the entire process tree
+        await this.killProcessTree(pid, 'SIGTERM');
+
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Force kill if still running
+        if (this.processes.has(key)) {
+          console.log(`[ProcessManager] Force killing dev server tree for ${project}`);
+          await this.killProcessTree(pid, 'SIGKILL');
+        }
+      } else {
+        info.process.kill('SIGTERM');
+      }
+
+      // Remove from our tracking
+      this.processes.delete(key);
+
+      // Port cleanup
+      if (port) {
+        await this.killProcessOnPort(port);
+        await this.waitForPortFree(port, 5000);
+      }
+    }
+  }
+
+  /**
+   * Checks if a port is in use and returns process information
+   */
+  async checkPortStatus(port: number): Promise<{
+    inUse: boolean;
+    processName?: string;
+    processPid?: number;
+  }> {
+    const { exec } = require('child_process');
+
+    return new Promise((resolve) => {
+      exec(`lsof -ti:${port}`, (error: Error | null, stdout: string) => {
+        if (error || !stdout.trim()) {
+          resolve({ inUse: false });
+          return;
+        }
+
+        const pids = stdout.trim().split('\n').filter(Boolean);
+        if (pids.length === 0) {
+          resolve({ inUse: false });
+          return;
+        }
+
+        const pid = pids[0];
+        // Get the command name for this PID
+        exec(`ps -p ${pid} -o comm=`, (psError: Error | null, psStdout: string) => {
+          const processName = psStdout?.trim() || 'unknown';
+          resolve({
+            inUse: true,
+            processName,
+            processPid: parseInt(pid, 10),
+          });
+        });
+
+        // Safety timeout
+        setTimeout(() => resolve({ inUse: true }), 2000);
+      });
+    });
+  }
+
+  /**
+   * Gets the status of all running dev servers
+   */
+  getAllDevServerStatuses(): Array<{
+    project: string;
+    status: 'stopped' | 'starting' | 'running' | 'error';
+    port: number | null;
+    url: string | null;
+    startedAt: number | null;
+  }> {
+    const statuses: Array<{
+      project: string;
+      status: 'stopped' | 'starting' | 'running' | 'error';
+      port: number | null;
+      url: string | null;
+      startedAt: number | null;
+    }> = [];
+
+    for (const [key, info] of this.processes.entries()) {
+      if (info.type === 'devServer') {
+        const project = info.project;
+        const projectConfig = this.config.projects[project];
+        const url = projectConfig?.devServer?.url || null;
+        const port = this.getPortFromUrl(url ?? undefined);
+
+        statuses.push({
+          project,
+          status: info.ready ? 'running' : 'starting',
+          port,
+          url,
+          startedAt: info.startedAt,
+        });
+      }
+    }
+
+    return statuses;
+  }
+
+  /**
+   * Gets recent logs for a project (both dev server and agent)
+   * Returns the most recent lines from the log buffer
+   */
+  getProjectLogs(project: string, maxLines: number = 100): string[] {
+    const logs = this.logBuffer.get(project) || [];
+    return logs.slice(-maxLines);
+  }
+
+  /**
+   * Checks if a dev server is currently running for a project
+   */
+  isDevServerRunning(project: string): boolean {
+    const key = this.getKey(project, 'devServer');
+    return this.processes.has(key);
+  }
+
+  /**
+   * Gets the running dev server info for a project
+   */
+  getDevServerInfo(project: string): {
+    running: boolean;
+    ready: boolean;
+    port: number | null;
+    url: string | null;
+    startedAt: number | null;
+  } | null {
+    const key = this.getKey(project, 'devServer');
+    const info = this.processes.get(key);
+
+    if (!info) {
+      return null;
+    }
+
+    const projectConfig = this.config.projects[project];
+    const url = projectConfig?.devServer?.url || null;
+    const port = this.getPortFromUrl(url ?? undefined);
+
+    return {
+      running: true,
+      ready: info.ready,
+      port,
+      url,
+      startedAt: info.startedAt,
+    };
   }
 }

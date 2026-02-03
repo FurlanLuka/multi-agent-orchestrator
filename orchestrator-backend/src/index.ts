@@ -3446,11 +3446,220 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         console.log('[Orchestrator] Stopping dev servers...');
         await processManager.stopAllDevServers();
         socket.emit('devServersStopped');
+        // Emit updated dev server status
+        ui.io.emit('devServerStatus', { servers: [] });
         console.log('[Orchestrator] Dev servers stopped');
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         console.error('[Orchestrator] Failed to stop dev servers:', error);
       }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Standalone Dev Server Management (for floating panel controls)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Get status of all running dev servers
+    socket.on('getDevServerStatus', () => {
+      const servers = processManager.getAllDevServerStatuses();
+      socket.emit('devServerStatus', { servers });
+    });
+
+    // Start dev servers for a workspace (standalone, outside of session)
+    socket.on('startDevServers', async ({ workspaceId, projects }: { workspaceId: string; projects?: string[] }) => {
+      try {
+        console.log(`[Orchestrator] Starting dev servers for workspace ${workspaceId}`);
+
+        // Get workspace config
+        const workspace = workspaceManager.getWorkspace(workspaceId);
+        if (!workspace) {
+          socket.emit('devServerError', { error: 'Workspace not found' });
+          return;
+        }
+
+        // Get project configs from workspace
+        const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+
+        // Merge into config.projects so ProcessManager has access
+        Object.assign(config.projects, workspaceProjectConfigs);
+
+        // Determine which projects to start
+        const projectsToStart = projects || workspace.projects
+          .filter(p => p.devServerEnabled !== false && p.devServer)
+          .map(p => p.name);
+
+        if (projectsToStart.length === 0) {
+          socket.emit('devServerError', { error: 'No dev server enabled projects found' });
+          return;
+        }
+
+        // Start each dev server
+        for (const project of projectsToStart) {
+          const projectConfig = workspaceProjectConfigs[project];
+          if (!projectConfig || !projectConfig.devServer) {
+            console.log(`[Orchestrator] Skipping ${project} - no dev server config`);
+            continue;
+          }
+
+          // Emit starting status
+          ui.io.emit('devServerStatus', {
+            servers: processManager.getAllDevServerStatuses().concat([{
+              project,
+              status: 'starting' as const,
+              port: processManager.getPortFromUrl(projectConfig.devServer.url),
+              url: projectConfig.devServer.url || null,
+              startedAt: null,
+            }])
+          });
+
+          try {
+            await processManager.startDevServer(project);
+            console.log(`[Orchestrator] Dev server started for ${project}`);
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            console.error(`[Orchestrator] Failed to start dev server for ${project}:`, error);
+            ui.io.emit('devServerError', { project, error });
+          }
+        }
+
+        // Emit final status
+        ui.io.emit('devServerStatus', { servers: processManager.getAllDevServerStatuses() });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Failed to start dev servers:', error);
+        socket.emit('devServerError', { error });
+      }
+    });
+
+    // Stop a single dev server
+    socket.on('stopDevServer', async ({ project }: { project: string }) => {
+      try {
+        console.log(`[Orchestrator] Stopping dev server for ${project}`);
+        await processManager.stopDevServer(project);
+        ui.io.emit('devServerStatus', { servers: processManager.getAllDevServerStatuses() });
+        console.log(`[Orchestrator] Dev server stopped for ${project}`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Failed to stop dev server for ${project}:`, error);
+        socket.emit('devServerError', { project, error });
+      }
+    });
+
+    // Restart a single dev server
+    socket.on('restartDevServer', async ({ project }: { project: string }) => {
+      try {
+        console.log(`[Orchestrator] Restarting dev server for ${project}`);
+
+        // Emit stopping status
+        const currentServers = processManager.getAllDevServerStatuses();
+        const updatedServers = currentServers.map(s =>
+          s.project === project ? { ...s, status: 'stopping' as const } : s
+        );
+        ui.io.emit('devServerStatus', { servers: updatedServers });
+
+        await processManager.restartDevServer(project);
+
+        ui.io.emit('devServerStatus', { servers: processManager.getAllDevServerStatuses() });
+        console.log(`[Orchestrator] Dev server restarted for ${project}`);
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Failed to restart dev server for ${project}:`, error);
+        socket.emit('devServerError', { project, error });
+      }
+    });
+
+    // Check port availability for workspace projects
+    socket.on('checkPortAvailability', async ({ workspaceId, projects }: { workspaceId: string; projects?: string[] }) => {
+      try {
+        console.log(`[Orchestrator] Checking port availability for workspace ${workspaceId}`);
+
+        const workspace = workspaceManager.getWorkspace(workspaceId);
+        if (!workspace) {
+          socket.emit('portCheckError', { error: 'Workspace not found' });
+          return;
+        }
+
+        const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+        const projectsToCheck = projects || workspace.projects
+          .filter(p => p.devServerEnabled !== false && p.devServer?.url)
+          .map(p => p.name);
+
+        const conflicts: Array<{
+          project: string;
+          port: number;
+          url: string;
+          inUse: boolean;
+          processName?: string;
+          processPid?: number;
+        }> = [];
+
+        for (const project of projectsToCheck) {
+          const projectConfig = workspaceProjectConfigs[project];
+          if (!projectConfig?.devServer?.url) continue;
+
+          const port = processManager.getPortFromUrl(projectConfig.devServer.url);
+          if (!port) continue;
+
+          // Skip if we already have this server running (it's our own port)
+          if (processManager.isDevServerRunning(project)) {
+            continue;
+          }
+
+          const portStatus = await processManager.checkPortStatus(port);
+          if (portStatus.inUse) {
+            conflicts.push({
+              project,
+              port,
+              url: projectConfig.devServer.url,
+              inUse: true,
+              processName: portStatus.processName,
+              processPid: portStatus.processPid,
+            });
+          }
+        }
+
+        if (conflicts.length > 0) {
+          socket.emit('portConflict', { conflicts });
+        } else {
+          socket.emit('portCheckResult', { hasConflicts: false });
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[Orchestrator] Port check failed:', error);
+        socket.emit('portCheckError', { error });
+      }
+    });
+
+    // Kill process on a specific port
+    socket.on('killPortProcess', async ({ port }: { port: number }) => {
+      try {
+        console.log(`[Orchestrator] Killing process on port ${port}`);
+        const result = await processManager.killProcessOnPort(port);
+        socket.emit('portKillResult', {
+          port,
+          success: result.success,
+          processName: result.processName,
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error(`[Orchestrator] Failed to kill process on port ${port}:`, error);
+        socket.emit('portKillResult', { port, success: false, error });
+      }
+    });
+
+    // Get logs for a specific dev server
+    socket.on('getDevServerLogs', ({ project }: { project: string }) => {
+      const logs = processManager.getProjectLogs(project);
+      // Filter for dev server logs only (not agent logs)
+      const devServerLogs = logs
+        .filter(line => !line.startsWith('[agent]'))
+        .map((text, idx) => ({
+          project,
+          stream: text.includes('[stderr]') ? 'stderr' as const : 'stdout' as const,
+          text: text.replace(/^\[(stdout|stderr)\]\s*/, ''),
+          timestamp: Date.now() - (logs.length - idx) * 100, // Approximate timestamps
+        }));
+      socket.emit('devServerLogs', { project, logs: devServerLogs });
     });
 
     // Start a new session - clean up everything
