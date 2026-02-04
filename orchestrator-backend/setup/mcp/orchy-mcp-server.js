@@ -887,37 +887,77 @@ resource "null_resource" "deploy_app" {
 output "server_ip" { value = hcloud_server.app.ipv4_address }
 \`\`\`
 
-## SECRETS TO REQUEST
+## SECRETS AND CONFIGURATION
 
-Use \`request_user_input\` with type: "github_secret" and include instructions:
+### CRITICAL: Auto-Generate vs Request
+
+**AUTO-GENERATE these (do NOT ask user):**
+- SSH keys - generate with: \`ssh-keygen -t ed25519 -f /tmp/deploy_key -N "" -C "deploy@github-actions"\`
+- JWT secrets, session secrets, encryption keys - generate with: \`openssl rand -base64 32\`
+- Internal service tokens
+- Any cryptographic material
+
+**REQUEST from user (they need to know these or get them from external services):**
+- Login credentials (ADMIN_PASSWORD, ADMIN_USERNAME) - user needs to log in!
+- External API tokens (HCLOUD_TOKEN, TF_API_TOKEN, VERCEL_TOKEN, etc.)
+- Third-party service credentials (OAuth keys, Stripe keys, etc.)
+- Organization/account names (TF_CLOUD_ORGANIZATION, TF_WORKSPACE)
+
+### 1. Configuration Values (use type: "input")
+Request non-sensitive config values that will be embedded in files:
+
+\`\`\`json
+{
+  "inputs": [
+    {
+      "type": "input",
+      "name": "TF_CLOUD_ORGANIZATION",
+      "label": "Terraform Cloud Organization",
+      "description": "Your Terraform Cloud organization name (from app.terraform.io)"
+    },
+    {
+      "type": "input",
+      "name": "TF_WORKSPACE",
+      "label": "Terraform Workspace Name",
+      "description": "Your Terraform Cloud workspace name (create one at app.terraform.io if needed)"
+    }
+  ]
+}
+\`\`\`
+
+### 2. GitHub Secrets (use type: "github_secret")
+Request sensitive tokens/keys that will be stored in GitHub Secrets:
 
 \`\`\`json
 {
   "inputs": [{
     "type": "github_secret",
-    "name": "HETZNER_API_TOKEN",
+    "name": "HCLOUD_TOKEN",
     "label": "Hetzner API Token",
-    "instructions": [
-      "Go to console.hetzner.cloud",
-      "Click Security → API Tokens",
-      "Generate API Token (Read & Write)",
-      "Copy and paste below"
-    ],
+    "description": "Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)",
     "repo": "owner/repo"
   }]
 }
 \`\`\`
 
-**Required secrets by provider:**
-- Terraform Cloud: TF_API_TOKEN, TF_CLOUD_ORGANIZATION
-- Vercel: VERCEL_TOKEN
-- Netlify: NETLIFY_AUTH_TOKEN
-- Cloudflare: CLOUDFLARE_API_TOKEN
-- Railway: RAILWAY_TOKEN
-- Fly.io: FLY_API_TOKEN
-- Hetzner: HETZNER_API_TOKEN
-- DigitalOcean: DIGITALOCEAN_TOKEN
-- AWS: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+**Required by provider:**
+
+| Provider | Config Values | GitHub Secrets |
+|----------|--------------|----------------|
+| Terraform Cloud | TF_CLOUD_ORGANIZATION, TF_WORKSPACE | TF_API_TOKEN |
+| Hetzner | - | HCLOUD_TOKEN |
+| Vercel | - | VERCEL_TOKEN |
+| Netlify | - | NETLIFY_AUTH_TOKEN |
+| AWS | - | AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY |
+
+**For Hetzner + Terraform deployments:**
+1. TF_CLOUD_ORGANIZATION (config) - request from user
+2. TF_WORKSPACE (config) - request from user
+3. TF_API_TOKEN (secret) - request from user
+4. HCLOUD_TOKEN (secret) - request from user
+5. SSH_PRIVATE_KEY (secret) - AUTO-GENERATE, store in GitHub secrets
+6. SSH_PUBLIC_KEY - AUTO-GENERATE, use in Terraform config
+7. ADMIN_PASSWORD (secret) - request from user (they need to log in!)
 
 ## KEY PRINCIPLES
 

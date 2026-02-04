@@ -198,8 +198,10 @@ The \`${WORKSPACE_ROOT_PROJECT}\` project represents the workspace root director
 - Any code changes in project directories (frontend/, backend/, etc.)
 - Project-specific configurations
 - Feature implementation code
+- E2E tests (workspace root has no testable endpoints)
 
-Workers assigned to ${WORKSPACE_ROOT_PROJECT} are RESTRICTED from modifying project directories.` : '';
+Workers assigned to ${WORKSPACE_ROOT_PROJECT} are RESTRICTED from modifying project directories.
+**NEVER include ${WORKSPACE_ROOT_PROJECT} in testPlan** - it has no E2E tests.` : '';
 
       projectsSection = `
 ## REGISTERED PROJECTS
@@ -302,49 +304,7 @@ When NOT executing (refusing):
 - Explain why based on the current project status
 - Tell user what status would allow the action`;
 
-    // Add GitHub integration section if enabled
-    let githubSection = '';
-    if (this.workspaceGitHub?.enabled && this.workspaceGitHub?.repo) {
-      githubSection = `
-
-## GITHUB INTEGRATION
-
-This workspace is connected to GitHub repository: **${this.workspaceGitHub.repo}**
-
-### DEPLOYMENT AUTOMATION
-
-When user requests deployment (e.g., "deploy to X", "add deployment", "set up CI/CD"):
-
-1. **Call \`mcp__orchestrator-planning__get_deployment_instructions\`** to get the full deployment guide
-2. The guide includes provider recommendations, configs, and secret request formats
-3. Follow the guide to generate deployment config in \`.github/\` folder
-
-### GitHub Actions
-You can create CI/CD workflows in \`.github/workflows/\` for:
-- Automated testing on push/PR
-- Deployment pipelines
-- Release automation
-
-### Setting GitHub Secrets
-When the application needs secrets for CI/CD (API keys, deployment credentials, etc.):
-
-Use \`request_user_input\` with type: "github_secret":
-\`\`\`json
-{
-  "inputs": [{
-    "type": "github_secret",
-    "name": "DEPLOY_TOKEN",
-    "label": "Deployment Token",
-    "description": "Token for deploying to production",
-    "repo": "${this.workspaceGitHub.repo}"
-  }]
-}
-\`\`\`
-
-This will securely collect and set the secret on GitHub.`;
-    }
-
-    const fullSystemPrompt = systemPrompt + githubSection;
+    const fullSystemPrompt = systemPrompt;
 
     // Build state context for user action requests
     const stateContext = this.buildStateContext();
@@ -978,6 +938,41 @@ ${prompt}`;
     projects: string[],
     projectPaths: Record<string, string>
   ): string {
+    // Build GitHub section if enabled
+    let githubSection = '';
+    if (this.workspaceGitHub?.enabled && this.workspaceGitHub?.repo) {
+      githubSection = `
+## GITHUB INTEGRATION
+
+This workspace is connected to GitHub repository: **${this.workspaceGitHub.repo}**
+
+### GitHub Actions
+You can create CI/CD workflows in \`.github/workflows/\` for:
+- Automated testing on push/PR
+- Deployment pipelines
+- Release automation
+
+### Setting GitHub Secrets
+When the plan requires secrets for CI/CD (API keys, deployment credentials, etc.):
+
+Use \`request_user_input\` with type: "github_secret":
+\`\`\`json
+{
+  "inputs": [{
+    "type": "github_secret",
+    "name": "DEPLOY_TOKEN",
+    "label": "Deployment Token",
+    "description": "Token for deploying to production",
+    "repo": "${this.workspaceGitHub.repo}"
+  }]
+}
+\`\`\`
+
+This will securely collect and set the secret on GitHub.
+
+`;
+    }
+
     // Build explicit explore commands for each project - guidelines + feature-related
     const exploreCommands = projects.map((p) => {
       const path = projectPaths[p] || 'unknown';
@@ -998,7 +993,7 @@ ${feature}
 
 ## Projects
 ${projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n')}
-
+${githubSection}
 ## STEP 1: EXPLORE PROJECTS + FEATURE CONTEXT (MANDATORY)
 
 Launch Explore agents in parallel - one per project. Each agent explores:
@@ -1010,6 +1005,19 @@ Launch Explore agents in parallel - one per project. Each agent explores:
 ${exploreCommands}
 
 **DO NOT proceed until you have explored ALL projects.**
+
+## STEP 1.5: DEPLOYMENT REQUESTS (MANDATORY for deployment features)
+
+**CRITICAL:** If the feature involves deployment, CI/CD, infrastructure, or hosting (keywords: "deploy", "hetzner", "aws", "vercel", "CI/CD", "docker", "kubernetes"):
+
+1. **MUST CALL \`mcp__orchestrator-planning__get_deployment_instructions\`** BEFORE asking questions
+2. This returns the complete deployment guide including:
+   - Provider-specific GitHub Actions configs
+   - Terraform templates for VPS providers
+   - **Secret request format** - you MUST use this format to request secrets from user
+3. Use the guide to inform your clarifying questions
+
+**DO NOT skip this step for deployment features - the guide contains required secret request formats.**
 
 ## STEP 2: ASK CLARIFYING QUESTIONS
 
@@ -1025,6 +1033,8 @@ Use \`mcp__orchestrator-planning__ask_planning_question\` for questions.
 Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
 - refinedDescription: 1-2 paragraph summary
 - keyRequirements: Array of user-facing requirements
+  - **For deployment features:** Include "Required GitHub Secrets: SECRET_NAME1, SECRET_NAME2, ..." as a requirement
+  - This ensures the plan knows which secrets need to be requested from the user
 
 [PLANNER_STATUS] {"phase": "exploring", "message": "Launching project exploration..."}
 
@@ -1081,35 +1091,52 @@ ${projectList}
 ## OUTPUT FORMAT:
 
 {
-  \\"feature\\": \\"Feature name\\",
-  \\"description\\": \\"Brief description\\",
-  \\"overview\\": \\"High-level implementation approach\\",
-  \\"architecture\\": \\"flowchart LR\\\\n    ui[Frontend] --> api[Backend API]\\\\n    api --> db[(Database)]\\",
+  \\"feature\\": \\"User Authentication\\",
+  \\"description\\": \\"Login/logout with JWT tokens\\",
+  \\"overview\\": \\"Backend handles auth logic, frontend stores token in localStorage\\",
+  \\"architecture\\": \\"flowchart LR\\\\n    ui[Login Form] --> api[POST /auth/login]\\\\n    api --> db[(Users Table)]\\",
   \\"tasks\\": [
     {
-      \\"project\\": \\"project-name\\",
-      \\"name\\": \\"Task name\\",
-      \\"task\\": \\"## Detailed task description in markdown\\\\n\\\\n**Files to create:**\\\\n- path/to/file.ts\\\\n\\\\n**Implementation:**\\\\n- Step by step instructions...\\"
+      \\"project\\": \\"backend\\",
+      \\"name\\": \\"Create login endpoint\\",
+      \\"task\\": \\"## Create POST /auth/login endpoint\\\\n\\\\n**Files to create:**\\\\n- src/auth/auth.controller.ts\\\\n- src/auth/auth.service.ts\\\\n- src/auth/dto/login.dto.ts\\\\n\\\\n**API Contract:**\\\\n\\\\n### POST /auth/login\\\\n**Request Body:**\\\\n\`\`\`json\\\\n{\\\\n  \\\\\\"email\\\\\\": \\\\\\"string (required, valid email)\\\\\\",\\\\n  \\\\\\"password\\\\\\": \\\\\\"string (required, min 8 chars)\\\\\\"\\\\n}\\\\n\`\`\`\\\\n\\\\n**Success Response (200):**\\\\n\`\`\`json\\\\n{\\\\n  \\\\\\"token\\\\\\": \\\\\\"string (JWT)\\\\\\",\\\\n  \\\\\\"user\\\\\\": {\\\\n    \\\\\\"id\\\\\\": \\\\\\"number\\\\\\",\\\\n    \\\\\\"email\\\\\\": \\\\\\"string\\\\\\",\\\\n    \\\\\\"name\\\\\\": \\\\\\"string\\\\\\"\\\\n  }\\\\n}\\\\n\`\`\`\\\\n\\\\n**Error Responses:**\\\\n- 400: \`{ \\\\\\"message\\\\\\": \\\\\\"Email and password required\\\\\\" }\`\\\\n- 401: \`{ \\\\\\"message\\\\\\": \\\\\\"Invalid credentials\\\\\\" }\`\\\\n\\\\n**Implementation:**\\\\n1. Create LoginDto with class-validator decorators\\\\n2. AuthService.login() - find user by email, verify password with bcrypt\\\\n3. Generate JWT with 24h expiry using @nestjs/jwt\\\\n4. Return token and user (without password)\\"
     }
   ],
   \\"testPlan\\": {
-    \\"project-name\\": [\\"E2E scenario 1\\", \\"E2E scenario 2\\"]
+    \\"backend\\": [\\"Login with valid credentials returns token\\", \\"Login with wrong password returns 401\\"]
   },
-  \\"e2eDependencies\\": {
-    \\"frontend\\": [\\"backend\\"]
-  }
+  \\"e2eDependencies\\": {}
 }
 
 ## TASK REQUIREMENTS:
 
-Each task MUST include:
+Each task MUST include implementation-ready detail:
+
 1. **Files to create/modify** - exact paths matching project conventions
-2. **Implementation details** - functions, classes, components
-3. **For APIs:** Complete contract for EVERY endpoint:
-   - HTTP method and full path
-   - Request/response body schemas
-   - Status codes and error handling
-4. **For UIs:** component props, state, behavior, API endpoints called
+
+2. **For APIs - FULL CONTRACT for each endpoint:**
+   - HTTP method + path (e.g., POST /auth/login)
+   - Request body with field types and validation rules
+   - Success response with exact JSON structure
+   - Error responses with status codes and messages
+
+   Example:
+   ### POST /users
+   **Request:** \`{ \\"email\\": \\"string (required)\\", \\"name\\": \\"string (optional)\\" }\`
+   **201:** \`{ \\"id\\": 1, \\"email\\": \\"...\\", \\"createdAt\\": \\"...\\" }\`
+   **400:** \`{ \\"message\\": \\"Email already exists\\" }\`
+
+3. **For UIs - component specification:**
+   - Props interface with types
+   - State variables needed
+   - API calls to make (which endpoints, when)
+   - User interactions and their handlers
+
+4. **Implementation notes:**
+   - Libraries to use (e.g., \\"bcrypt with cost factor 10\\")
+   - Patterns to follow (e.g., \\"use existing UserService pattern from src/users/\\")
+   - Edge cases to handle
+
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
    - List ALL required secrets with their names and purposes
    - Specify WHERE they need to be configured (e.g., .env file, GitHub Secrets, CI/CD)
@@ -1117,8 +1144,30 @@ Each task MUST include:
      - **Auto-generate** internal/cryptographic secrets that users never see or type: JWT_SECRET, SESSION_SECRET, encryption keys, internal API keys between services - use \`openssl rand -base64 32\`
      - **Request from user** these types of secrets:
        1. **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME) - user needs to know these to log in!
-       2. **External/third-party credentials** (OAuth client IDs/secrets, Stripe API keys, AWS keys)
-   - Example: \\"**Secrets:** Generate JWT_SECRET using openssl rand. Use \`request_user_input\` to collect ADMIN_PASSWORD (user needs this to log in) and GOOGLE_CLIENT_ID from the user.\\"
+       2. **External/third-party credentials** (OAuth client IDs/secrets, Stripe API keys, Hetzner tokens, AWS keys)
+
+   **For GitHub Secrets (CI/CD deployments):** Include EXPLICIT instructions in the task to request each secret:
+   \`\`\`
+   **Request GitHub Secrets:**
+   Use \`request_user_input\` for EACH secret with type \\"github_secret\\":
+   {
+     \\"inputs\\": [
+       {
+         \\"type\\": \\"github_secret\\",
+         \\"name\\": \\"HCLOUD_TOKEN\\",
+         \\"label\\": \\"Hetzner API Token\\",
+         \\"description\\": \\"Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)\\"
+       },
+       {
+         \\"type\\": \\"github_secret\\",
+         \\"name\\": \\"TF_API_TOKEN\\",
+         \\"label\\": \\"Terraform Cloud Token\\",
+         \\"description\\": \\"Go to app.terraform.io → User Settings → Tokens → Create API token\\"
+       }
+     ]
+   }
+   \`\`\`
+   The agent MUST call request_user_input to collect these secrets BEFORE creating the workflow file.
 
 ## RULES:
 
@@ -1126,11 +1175,12 @@ Each task MUST include:
 - Tasks for SAME project run SEQUENTIALLY (in array order)
 - NO task-level dependencies - e2eDependencies controls E2E test order only
 - testPlan = E2E scenarios only (automatable via HTTP or browser)
+- NEVER include ${WORKSPACE_ROOT_PROJECT} in testPlan - it has no testable endpoints
 - If a project named '${WORKSPACE_ROOT_PROJECT}' exists, use it for workspace-root-level tasks:
   - GitHub workflows (.github/workflows/)
   - CI/CD configurations
   - Root-level configs (turbo.json, root package.json scripts)
-  - DO NOT use ${WORKSPACE_ROOT_PROJECT} for project code changes
+  - DO NOT use ${WORKSPACE_ROOT_PROJECT} for project code changes or E2E tests
 ")
 
 After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the plan.

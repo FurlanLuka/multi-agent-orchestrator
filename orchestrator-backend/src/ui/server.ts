@@ -384,25 +384,39 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     // Clean up
     pendingUserInputs.delete(requestId);
 
-    // Handle GitHub secret type
-    if (isGitHubSecret && githubSecretInput && deps.onSetGitHubSecret) {
-      const secretName = githubSecretInput.name;
-      const repo = githubSecretInput.repo;
-      const secretValue = response.values[secretName];
+    // Handle GitHub secret type - process ALL github_secret inputs
+    const githubSecretInputs = inputs.filter((input: any) => input.type === 'github_secret');
+    if (githubSecretInputs.length > 0 && deps.onSetGitHubSecret) {
+      const results: { secretName: string; repo: string; success: boolean; error?: string }[] = [];
 
-      if (secretName && repo && secretValue) {
-        console.log(`[UIServer] Setting GitHub secret ${secretName} on ${repo}`);
-        const result = await deps.onSetGitHubSecret(repo, secretName, secretValue);
-        if (result.success) {
-          console.log(`[UIServer] GitHub secret ${secretName} set successfully`);
-          res.json({ success: true, secretName, repo });
+      for (const secretInput of githubSecretInputs) {
+        const secretName = secretInput.name;
+        const repo = secretInput.repo;
+        const secretValue = response.values[secretName];
+
+        if (secretName && repo && secretValue) {
+          console.log(`[UIServer] Setting GitHub secret ${secretName} on ${repo}`);
+          const result = await deps.onSetGitHubSecret(repo, secretName, secretValue);
+          if (result.success) {
+            console.log(`[UIServer] GitHub secret ${secretName} set successfully`);
+            results.push({ secretName, repo, success: true });
+          } else {
+            console.error(`[UIServer] Failed to set GitHub secret ${secretName}: ${result.error}`);
+            results.push({ secretName, repo, success: false, error: result.error });
+          }
         } else {
-          console.error(`[UIServer] Failed to set GitHub secret: ${result.error}`);
-          res.json({ success: false, error: result.error });
+          console.warn(`[UIServer] Skipping GitHub secret - missing name, repo, or value: ${secretName}`);
+          results.push({ secretName: secretName || 'unknown', repo: repo || 'unknown', success: false, error: 'Missing name, repo, or value' });
         }
-      } else {
-        res.json({ error: 'Missing secret name, repo, or value' });
       }
+
+      const allSuccess = results.every(r => r.success);
+      res.json({
+        success: allSuccess,
+        secrets: results,
+        totalSet: results.filter(r => r.success).length,
+        totalFailed: results.filter(r => !r.success).length
+      });
       return;
     }
 

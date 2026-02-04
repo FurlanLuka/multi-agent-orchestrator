@@ -92,7 +92,7 @@ Example outputs:
   try {
     const result = await askAgent(prompt, {
       cwd: options.cwd,
-      timeout: options.timeout || 15000,
+      timeout: options.timeout,
     });
 
     // Clean up the response - extract just the branch name

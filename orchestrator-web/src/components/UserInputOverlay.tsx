@@ -24,7 +24,8 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
   const isConfirmation = request.inputs.length > 0 && request.inputs[0].type === 'confirmation';
   const confirmationInput = isConfirmation ? request.inputs[0] : null;
 
-  // Check if this is a GitHub secret input
+  // Check if ALL inputs are GitHub secrets (for special styling)
+  const allGitHubSecrets = request.inputs.length > 0 && request.inputs.every(input => input.type === 'github_secret');
   const isGitHubSecret = request.inputs.length > 0 && request.inputs[0].type === 'github_secret';
   const githubSecretInput = isGitHubSecret ? request.inputs[0] : null;
 
@@ -169,11 +170,12 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
     );
   }
 
-  // Render GitHub secret dialog
-  if (isGitHubSecret && githubSecretInput) {
-    const secretName = githubSecretInput.name || 'SECRET';
-    const repo = githubSecretInput.repo || 'owner/repo';
+  // Render GitHub secret dialog (with pagination for multiple secrets)
+  if (allGitHubSecrets && currentInput && currentInput.type === 'github_secret') {
+    const secretName = currentInput.name || 'SECRET';
+    const repo = currentInput.repo || 'owner/repo';
     const command = `gh secret set ${secretName} --repo ${repo}`;
+    const canProceedSecret = values[secretName]?.trim();
 
     return (
       <Box
@@ -213,7 +215,7 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
                   Set GitHub Secret
                 </Text>
                 <Text size="xs" c="dimmed">
-                  {request.project}
+                  {request.project} - Secret {currentIndex + 1} of {request.inputs.length}
                 </Text>
               </div>
             </Group>
@@ -244,16 +246,16 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
             </Group>
 
             {/* Description */}
-            {githubSecretInput.description && (
+            {currentInput.description && (
               <Text size="sm" c="gray.3">
-                {githubSecretInput.description}
+                {currentInput.description}
               </Text>
             )}
 
             {/* Secret input */}
             <Stack gap="xs">
               <Text size="sm" fw={500} c="white">
-                {githubSecretInput.label}
+                {currentInput.label}
                 <Text span c="red" ml={4}>*</Text>
               </Text>
               <PasswordInput
@@ -271,27 +273,39 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
               />
             </Stack>
 
-            {/* Buttons */}
-            <Group justify="flex-end" mt="sm">
-              {onCancel && (
-                <Button
-                  variant="subtle"
-                  color="gray"
-                  size="sm"
-                  leftSection={<IconX size={14} />}
-                  onClick={onCancel}
-                >
-                  Cancel
-                </Button>
-              )}
+            {/* Navigation buttons */}
+            <Group justify="space-between" mt="sm">
+              <Group gap="xs">
+                {!isFirstInput && (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    onClick={handleBack}
+                  >
+                    Back
+                  </Button>
+                )}
+                {onCancel && (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconX size={14} />}
+                    onClick={onCancel}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </Group>
               <Button
                 color="dark"
                 size="sm"
-                leftSection={<IconBrandGithub size={14} />}
-                onClick={() => onSubmit(request.requestId, values)}
-                disabled={!values[secretName]?.trim()}
+                leftSection={isLastInput ? <IconBrandGithub size={14} /> : undefined}
+                onClick={handleNext}
+                disabled={!canProceedSecret}
               >
-                Set Secret
+                {isLastInput ? `Set ${request.inputs.length === 1 ? 'Secret' : 'Secrets'}` : 'Next'}
               </Button>
             </Group>
           </Stack>

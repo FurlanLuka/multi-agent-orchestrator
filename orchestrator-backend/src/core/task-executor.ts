@@ -873,10 +873,15 @@ Returns: \`{"success": true, "secretName": "HETZNER_TOKEN", "repo": "${githubCon
 7. Focus ONLY on implementing the feature code
 8. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
 9. **Handle secrets correctly:**
-   - **Auto-generate internal/cryptographic secrets** (JWT_SECRET, SESSION_SECRET, encryption keys, internal service tokens): Generate secure random values using \`openssl rand -base64 32\`
+   - **Auto-generate (do NOT ask user):**
+     - JWT_SECRET, SESSION_SECRET, encryption keys: \`openssl rand -base64 32\`
+     - SSH keys for deployment: \`ssh-keygen -t ed25519 -f /tmp/deploy_key -N "" -C "deploy@github-actions"\`
+     - Internal service tokens, API keys between your own services
    - **Request from user** via \`request_user_input\`:
-     - **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME): User needs to know these to log in!
-     - **External/third-party credentials** (OAuth keys, Stripe/Google/AWS API tokens)
+     - **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME): User needs to log in!
+     - **External API tokens** (HCLOUD_TOKEN, TF_API_TOKEN, VERCEL_TOKEN, AWS keys)
+     - **Third-party credentials** (OAuth keys, Stripe/Google API tokens)
+     - **Organization names** (TF_CLOUD_ORGANIZATION)
    - **NEVER use placeholder values** like "your-secret-here" or "changeme" - either generate a real value or ask the user
 
 ## Status Reporting

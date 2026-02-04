@@ -1100,6 +1100,13 @@ After fixing, the E2E tests will be re-run automatically.`;
       return;
     }
 
+    // Workspace root project never has E2E tests - it's for config/workflow files only
+    if (project === WORKSPACE_ROOT_PROJECT) {
+      console.log(`[Orchestrator] ${project} is workspace root - no E2E tests, marking as complete`);
+      statusMonitor.updateStatus(project, 'IDLE', 'Workspace root has no E2E tests');
+      return;
+    }
+
     // Skip E2E if project has hasE2E: false
     if (projectConfig && projectConfig.hasE2E === false) {
       console.log(`[Orchestrator] ${project} has E2E disabled (hasE2E: false), marking as complete`);
@@ -1509,16 +1516,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     await processManager.stopAllDevServers();
     ui.io.emit('devServerStatus', { servers: [] });
 
-    // Check if auto-merge is enabled for this workspace (orchyManaged = auto-merge)
-    const session = sessionManager.getCurrentSession();
-    if (session?.workspaceId) {
-      const workspace = workspaceManager.getWorkspace(session.workspaceId);
-      // Auto-merge for orchyManaged workspaces when there are git branches
-      if (workspace?.orchyManaged && session.gitBranches && Object.keys(session.gitBranches).length > 0) {
-        console.log('[Orchestrator] Orchy Managed workspace: triggering automatic merge...');
-        await executeMergeSession(session.id);
-      }
-    }
+    // For orchyManaged workspaces: user will see CompletionPanel with Save/Discard buttons
+    // No auto-merge - let user decide via the UI
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -2574,11 +2573,14 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
               if (!projectConfig.permissions.allow.includes(permission)) {
                 projectConfig.permissions.allow.push(permission);
-                try {
-                  workspaceManager.updateWorkspaceProject(workspaceId, project, { permissions: projectConfig.permissions });
-                  console.log(`[Orchestrator] Permission saved for ${project}: ${permission}`);
-                } catch (err) {
-                  console.error(`[Orchestrator] Failed to save permission:`, err);
+                // Skip persisting for virtual workspace project (not stored in workspace config)
+                if (project !== WORKSPACE_ROOT_PROJECT) {
+                  try {
+                    workspaceManager.updateWorkspaceProject(workspaceId, project, { permissions: projectConfig.permissions });
+                    console.log(`[Orchestrator] Permission saved for ${project}: ${permission}`);
+                  } catch (err) {
+                    console.error(`[Orchestrator] Failed to save permission:`, err);
+                  }
                 }
               }
             }
