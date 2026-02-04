@@ -209,6 +209,19 @@ async function handleMessage(msg) {
             },
             required: ['apiContracts', 'executionOrder']
           }
+        },
+        {
+          name: 'get_deployment_instructions',
+          description: 'Get comprehensive deployment automation instructions. Call this when user requests deployment (e.g., "deploy to X", "add deployment", "set up CI/CD"). Returns detailed guide for all supported providers including Vercel, Netlify, Hetzner, AWS, etc.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              provider: {
+                type: 'string',
+                description: 'Optional: specific provider to get instructions for (vercel, netlify, hetzner, digitalocean, aws, railway, fly). If omitted, returns full guide with all providers.'
+              }
+            }
+          }
         }
       ]
     });
@@ -339,6 +352,14 @@ async function handleMessage(msg) {
 
     respond(id, {
       content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'get_deployment_instructions') {
+    const provider = params.arguments?.provider || null;
+    const instructions = getDeploymentInstructions(provider);
+
+    respond(id, {
+      content: [{ type: 'text', text: instructions }]
     });
   }
   else if (method === 'notifications/initialized') {
@@ -669,4 +690,268 @@ function submitTechnicalSpec(apiContracts, architectureDecisions, executionOrder
     req.write(postData);
     req.end();
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Deployment Instructions (returned by get_deployment_instructions tool)
+// ═══════════════════════════════════════════════════════════════
+
+function getDeploymentInstructions(provider) {
+  const fullGuide = `# DEPLOYMENT AUTOMATION GUIDE
+
+## WORKFLOW OVERVIEW
+
+1. **Analyze Codebase** - Detect frameworks, database needs, app type
+2. **Recommend Provider** - Based on app type (see table below)
+3. **Ask Clarifying Questions** - Provider choice, domain, database options
+4. **Check Provider Docs** - Use WebSearch to verify current instance types/APIs
+5. **Generate Config** - Everything in \`.github/\` folder
+
+## PROVIDER RECOMMENDATION
+
+| App Type | Recommended Provider | Why |
+|----------|---------------------|-----|
+| Static site (React, Vue) | Cloudflare Pages / Vercel | Free, global CDN |
+| Next.js (SSR) | Vercel | Built for Next.js |
+| Frontend + simple API | Vercel + Functions | All-in-one |
+| Full-stack + database | Hetzner / DigitalOcean | Cost-effective |
+| Microservices | Railway / Fly.io | Easy multi-service |
+| Enterprise | AWS | Flexibility, scale |
+
+## DEPLOYMENT CATEGORIES
+
+### CATEGORY 1: Platform CLI (No Terraform)
+Vercel, Netlify, Cloudflare Pages, Railway, Fly.io
+- Simple CLI-based deployment
+- Platform handles state internally
+- Just need API token
+
+### CATEGORY 2: Cloud Providers (Terraform)
+Hetzner, DigitalOcean, AWS, GCP
+- Use Terraform for infrastructure
+- Terraform Cloud for state management
+- Can provision VPS, databases, load balancers
+
+## PROVIDER CONFIGS
+
+### Vercel (Next.js, React, static)
+\`\`\`yaml
+# Secrets: VERCEL_TOKEN
+- name: Deploy to Vercel
+  env:
+    VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
+  run: |
+    npm i -g vercel
+    vercel pull --yes --environment=production
+    vercel build --prod
+    vercel deploy --prebuilt --prod
+\`\`\`
+
+### Netlify (Static, JAMstack)
+\`\`\`yaml
+# Secrets: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID
+- name: Deploy to Netlify
+  env:
+    NETLIFY_AUTH_TOKEN: \${{ secrets.NETLIFY_AUTH_TOKEN }}
+    NETLIFY_SITE_ID: \${{ secrets.NETLIFY_SITE_ID }}
+  run: |
+    npm i -g netlify-cli
+    netlify deploy --prod --dir=dist
+\`\`\`
+
+### Cloudflare Pages (Static + edge)
+\`\`\`yaml
+# Secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+- name: Deploy to Cloudflare
+  env:
+    CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+    CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  run: |
+    npm i -g wrangler
+    wrangler pages deploy dist --project-name=\${{ github.event.repository.name }}
+\`\`\`
+
+### Railway (Full-stack, easy)
+\`\`\`yaml
+# Secrets: RAILWAY_TOKEN
+- name: Deploy to Railway
+  env:
+    RAILWAY_TOKEN: \${{ secrets.RAILWAY_TOKEN }}
+  run: |
+    npm i -g @railway/cli
+    railway up --detach
+\`\`\`
+
+### Fly.io (Containers, global)
+\`\`\`yaml
+# Secrets: FLY_API_TOKEN
+- name: Deploy to Fly.io
+  env:
+    FLY_API_TOKEN: \${{ secrets.FLY_API_TOKEN }}
+  run: |
+    curl -L https://fly.io/install.sh | sh
+    flyctl deploy --remote-only
+\`\`\`
+
+### Hetzner/DigitalOcean/AWS (Terraform)
+\`\`\`yaml
+# Secrets: TF_API_TOKEN, HETZNER_API_TOKEN (or provider-specific)
+- name: Deploy via Terraform
+  env:
+    TF_TOKEN_app_terraform_io: \${{ secrets.TF_API_TOKEN }}
+    TF_VAR_hcloud_token: \${{ secrets.HETZNER_API_TOKEN }}
+  run: |
+    cd .github/infrastructure
+    terraform init
+    terraform apply -auto-approve
+\`\`\`
+
+## DATABASE OPTIONS
+
+**Detection:** Look for Prisma, TypeORM, Drizzle, SQLAlchemy, pg/mysql drivers
+
+| Provider | Managed DB | Self-hosted | SQLite |
+|----------|-----------|-------------|--------|
+| Hetzner | - | Docker PostgreSQL | ✅ |
+| DigitalOcean | Managed PostgreSQL/MySQL | Docker | ✅ |
+| AWS | RDS, Aurora | Docker on EC2 | ✅ |
+| Railway | Built-in PostgreSQL | - | ✅ |
+
+## TERRAFORM STRUCTURE (VPS deployments)
+
+\`\`\`
+.github/
+  workflows/deploy.yml
+  infrastructure/
+    main.tf
+    variables.tf
+    outputs.tf
+\`\`\`
+
+Example main.tf for Hetzner:
+\`\`\`hcl
+terraform {
+  cloud {
+    organization = "your-org"
+    workspaces { name = "app-production" }
+  }
+  required_providers {
+    hcloud = { source = "hetznercloud/hcloud", version = "~> 1.45" }
+  }
+}
+
+variable "hcloud_token" { sensitive = true }
+variable "github_token" { sensitive = true }
+variable "github_repository" {}
+
+provider "hcloud" { token = var.hcloud_token }
+
+resource "tls_private_key" "deploy" { algorithm = "ED25519" }
+resource "hcloud_ssh_key" "deploy" {
+  name = "deploy-key"
+  public_key = tls_private_key.deploy.public_key_openssh
+}
+
+resource "hcloud_server" "app" {
+  name = "app-server"
+  server_type = "cx22"  # VERIFY WITH DOCS
+  image = "ubuntu-22.04"
+  location = "fsn1"
+  ssh_keys = [hcloud_ssh_key.deploy.id]
+  user_data = <<-EOF
+    #cloud-config
+    packages: [docker.io]
+    runcmd:
+      - systemctl enable docker && systemctl start docker
+  EOF
+}
+
+resource "null_resource" "deploy_app" {
+  triggers = { always_run = timestamp() }
+  connection {
+    type = "ssh"
+    user = "root"
+    private_key = tls_private_key.deploy.private_key_openssh
+    host = hcloud_server.app.ipv4_address
+  }
+  provisioner "remote-exec" {
+    inline = [
+      "echo '\${var.github_token}' | docker login ghcr.io -u github --password-stdin",
+      "docker pull ghcr.io/\${var.github_repository}:latest",
+      "docker stop app || true && docker rm app || true",
+      "docker run -d --name app --restart always -p 3000:3000 ghcr.io/\${var.github_repository}:latest"
+    ]
+  }
+}
+
+output "server_ip" { value = hcloud_server.app.ipv4_address }
+\`\`\`
+
+## SECRETS TO REQUEST
+
+Use \`request_user_input\` with type: "github_secret" and include instructions:
+
+\`\`\`json
+{
+  "inputs": [{
+    "type": "github_secret",
+    "name": "HETZNER_API_TOKEN",
+    "label": "Hetzner API Token",
+    "instructions": [
+      "Go to console.hetzner.cloud",
+      "Click Security → API Tokens",
+      "Generate API Token (Read & Write)",
+      "Copy and paste below"
+    ],
+    "repo": "owner/repo"
+  }]
+}
+\`\`\`
+
+**Required secrets by provider:**
+- Terraform Cloud: TF_API_TOKEN, TF_CLOUD_ORGANIZATION
+- Vercel: VERCEL_TOKEN
+- Netlify: NETLIFY_AUTH_TOKEN
+- Cloudflare: CLOUDFLARE_API_TOKEN
+- Railway: RAILWAY_TOKEN
+- Fly.io: FLY_API_TOKEN
+- Hetzner: HETZNER_API_TOKEN
+- DigitalOcean: DIGITALOCEAN_TOKEN
+- AWS: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+## KEY PRINCIPLES
+
+1. **Verify with docs** - Use WebSearch before generating (instance types change)
+2. **Everything in .github/** - Self-contained deployment
+3. **Idempotent** - Safe to run repeatedly
+4. **Instructions with secrets** - Show step-by-step for each secret request
+`;
+
+  // If specific provider requested, filter to just that section
+  if (provider) {
+    const providerLower = provider.toLowerCase();
+    const providerSections = {
+      'vercel': 'Vercel',
+      'netlify': 'Netlify',
+      'cloudflare': 'Cloudflare',
+      'railway': 'Railway',
+      'fly': 'Fly.io',
+      'fly.io': 'Fly.io',
+      'hetzner': 'Hetzner',
+      'digitalocean': 'DigitalOcean',
+      'aws': 'AWS',
+      'gcp': 'GCP'
+    };
+
+    if (providerSections[providerLower]) {
+      return `# ${providerSections[providerLower]} Deployment Instructions\n\n` +
+        `See full guide for details. Key points:\n` +
+        `- Use WebSearch to verify current instance types/APIs\n` +
+        `- Request secrets via request_user_input with instructions\n` +
+        `- Put all config in .github/ folder\n\n` +
+        fullGuide;
+    }
+  }
+
+  return fullGuide;
 }

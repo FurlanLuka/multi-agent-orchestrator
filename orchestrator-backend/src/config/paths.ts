@@ -659,6 +659,7 @@ export function initializePlannerPermissionsIfNeeded(): void {
       'mcp__orchestrator-planning__exploration_complete',
       'mcp__orchestrator-planning__request_user_input',
       'mcp__orchestrator-planning__task_complete',
+      'mcp__orchestrator-planning__get_deployment_instructions',
     ]
   };
 

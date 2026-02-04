@@ -311,6 +311,14 @@ When NOT executing (refusing):
 
 This workspace is connected to GitHub repository: **${this.workspaceGitHub.repo}**
 
+### DEPLOYMENT AUTOMATION
+
+When user requests deployment (e.g., "deploy to X", "add deployment", "set up CI/CD"):
+
+1. **Call \`mcp__orchestrator-planning__get_deployment_instructions\`** to get the full deployment guide
+2. The guide includes provider recommendations, configs, and secret request formats
+3. Follow the guide to generate deployment config in \`.github/\` folder
+
 ### GitHub Actions
 You can create CI/CD workflows in \`.github/workflows/\` for:
 - Automated testing on push/PR
@@ -320,7 +328,7 @@ You can create CI/CD workflows in \`.github/workflows/\` for:
 ### Setting GitHub Secrets
 When the application needs secrets for CI/CD (API keys, deployment credentials, etc.):
 
-1. **For GitHub Actions secrets**, use \`request_user_input\` with type: "github_secret":
+Use \`request_user_input\` with type: "github_secret":
 \`\`\`json
 {
   "inputs": [{
@@ -333,12 +341,7 @@ When the application needs secrets for CI/CD (API keys, deployment credentials, 
 }
 \`\`\`
 
-This will:
-- Show the user the exact command: \`gh secret set DEPLOY_TOKEN --repo ${this.workspaceGitHub.repo}\`
-- Securely collect the secret value
-- Set the secret on GitHub
-
-**Important:** Use github_secret type for secrets that should be stored in GitHub Actions secrets (CI/CD credentials). Use regular "input" type for local .env files.`;
+This will securely collect and set the secret on GitHub.`;
     }
 
     const fullSystemPrompt = systemPrompt + githubSection;
