@@ -78,7 +78,8 @@ export class GitManager {
       return arg;
     });
 
-    return execWithShellEnv(`git ${escapedArgs.join(' ')}`, {
+    // Use GIT_TERMINAL_PROMPT=0 to prevent credential prompts (fail fast instead of hanging)
+    return execWithShellEnv(`GIT_TERMINAL_PROMPT=0 git ${escapedArgs.join(' ')}`, {
       cwd: expandedCwd,
     });
   }
@@ -482,16 +483,16 @@ export class GitManager {
       }
     }
 
-    // 6. Go back to source branch
-    await this.runGitCommand(projectPath, ['checkout', sourceBranch]);
+    // 6. Stay on target branch (main) for future operations
+    // Do NOT go back to source branch - we want to be on main after merge
 
-    // 7. Restore stash if we stashed
+    // 7. Restore stash if we stashed (stash applies to current branch)
     if (didStash) {
       await this.runGitCommand(projectPath, ['stash', 'pop']);
     }
 
     const pushNote = hasRemote ? ' and pushed' : ' (local only - no remote configured)';
-    console.log(`[GitManager] Merged '${sourceBranch}' into '${targetBranch}'${pushNote} at ${projectPath}`);
+    console.log(`[GitManager] Merged '${sourceBranch}' into '${targetBranch}'${pushNote} at ${projectPath}. Now on '${targetBranch}'.`);
     return { success: true, message: `Merged '${sourceBranch}' into '${targetBranch}'${pushNote}` };
   }
 

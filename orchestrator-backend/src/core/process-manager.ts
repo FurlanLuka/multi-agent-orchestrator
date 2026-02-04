@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Config } from '@orchy/types';
+import { Config, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
 import { spawnWithShellEnv } from '../utils/shell-env';
 
@@ -340,13 +340,30 @@ export class ProcessManager extends EventEmitter {
     // Handle permissions - MCP handles live permission prompts, no need for settings.json
     const useDangerousMode = projectConfig.permissions?.dangerouslyAllowAll === true;
 
+    // For workspace root project, prepend directory restrictions to the prompt
+    let finalPrompt = prompt;
+    if (project === WORKSPACE_ROOT_PROJECT) {
+      const projectDirs = Object.keys(this.config.projects)
+        .filter(p => p !== WORKSPACE_ROOT_PROJECT);
+      finalPrompt = `CRITICAL DIRECTORY RESTRICTION:
+You are working at the workspace root level. You MUST NOT enter or modify these project directories:
+${projectDirs.join(', ')}
+
+You may ONLY work in the workspace root and non-project directories (.github/, shared configs, etc.).
+
+---
+
+${prompt}`;
+      console.log(`[ProcessManager] Added workspace root restrictions for ${WORKSPACE_ROOT_PROJECT}`);
+    }
+
     console.log(`[ProcessManager] Sending to project "${project}" at path: ${projectPath}`);
-    console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
+    console.log(`[ProcessManager] Prompt preview: ${finalPrompt.substring(0, 100)}...`);
     console.log(`[ProcessManager] Permissions mode: ${useDangerousMode ? 'DANGEROUS (skip all)' : 'MCP prompts'}`);
 
     // Build args
     const args = [
-      '-p', prompt,
+      '-p', finalPrompt,
       '--output-format', 'stream-json',
       '--verbose',
       '--no-session-persistence'
@@ -545,14 +562,31 @@ export class ProcessManager extends EventEmitter {
       throw new Error(`Project path does not exist: ${projectPath}`);
     }
 
+    // For workspace root project, prepend directory restrictions to the prompt
+    let finalPrompt = prompt;
+    if (project === WORKSPACE_ROOT_PROJECT) {
+      const projectDirs = Object.keys(this.config.projects)
+        .filter(p => p !== WORKSPACE_ROOT_PROJECT);
+      finalPrompt = `CRITICAL DIRECTORY RESTRICTION:
+You are working at the workspace root level. You MUST NOT enter or modify these project directories:
+${projectDirs.join(', ')}
+
+You may ONLY work in the workspace root and non-project directories (.github/, shared configs, etc.).
+
+---
+
+${prompt}`;
+      console.log(`[ProcessManager] Added workspace root restrictions for ${WORKSPACE_ROOT_PROJECT}`);
+    }
+
     const useDangerousMode = projectConfig.permissions?.dangerouslyAllowAll === true;
 
     console.log(`[ProcessManager] Running persistent agent for "${project}"`);
-    console.log(`[ProcessManager] Prompt preview: ${prompt.substring(0, 100)}...`);
+    console.log(`[ProcessManager] Prompt preview: ${finalPrompt.substring(0, 100)}...`);
 
     // Build args - note: NO --no-session-persistence to keep context
     const args = [
-      '-p', prompt,
+      '-p', finalPrompt,
       '--output-format', 'stream-json',
       '--verbose'
       // Removed: --no-session-persistence (agent keeps context for multi-task sessions)

@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig, GitHubConfig } from '@orchy/types';
+import { WORKSPACE_ROOT_PROJECT } from '@orchy/types';
+import * as path from 'path';
 
 /**
  * Manages workspace configuration (stored in workspaces.json)
@@ -183,6 +185,9 @@ export class WorkspaceManager extends EventEmitter {
   /**
    * Get project configs from a workspace as a Record<name, config>
    * (for compatibility with existing code that expects this format)
+   *
+   * For orchyManaged workspaces with projects, automatically injects a virtual
+   * __workspace__ project pointing to the workspace root directory.
    */
   getWorkspaceProjectConfigs(workspaceId: string): Record<string, ProjectConfig> {
     const workspace = this.workspaces[workspaceId];
@@ -195,17 +200,57 @@ export class WorkspaceManager extends EventEmitter {
       const { name, ...config } = project;
       configs[name] = config;
     }
+
+    // For orchyManaged workspaces, inject virtual workspace root project
+    if (workspace.orchyManaged && workspace.projects.length > 0) {
+      const firstProject = workspace.projects[0];
+      const workspaceRoot = path.dirname(firstProject.path);
+
+      // Generate list of project directory names to exclude
+      const projectDirNames = workspace.projects.map(p => path.basename(p.path));
+
+      configs[WORKSPACE_ROOT_PROJECT] = {
+        path: workspaceRoot,
+        hasE2E: false,
+        devServerEnabled: false,
+        buildEnabled: false,
+        gitEnabled: true,
+        e2eInstructions: `CRITICAL RESTRICTION: You are working at the workspace root level.
+
+You MUST NOT enter or modify any project directories:
+${projectDirNames.map(d => `- ${d}/`).join('\n')}
+
+You may ONLY work in:
+- The workspace root directory itself (files like package.json, turbo.json, etc.)
+- .github/ directory (workflows, actions, dependabot)
+- Shared configuration directories that are NOT project directories
+- Documentation files at the root level
+
+If a task requires modifying project code, it should be assigned to that specific project, not to ${WORKSPACE_ROOT_PROJECT}.`
+      };
+    }
+
     return configs;
   }
 
   /**
    * Get project names for a workspace (for backwards compatibility)
+   *
+   * For orchyManaged workspaces, includes the virtual __workspace__ project.
    */
   getWorkspaceProjectNames(workspaceId: string): string[] {
     const workspace = this.workspaces[workspaceId];
     if (!workspace) {
       return [];
     }
-    return workspace.projects.map(p => p.name);
+
+    const names = workspace.projects.map(p => p.name);
+
+    // For orchyManaged workspaces, include the virtual workspace root project
+    if (workspace.orchyManaged && workspace.projects.length > 0) {
+      names.push(WORKSPACE_ROOT_PROJECT);
+    }
+
+    return names;
   }
 }

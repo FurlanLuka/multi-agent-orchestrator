@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -178,11 +178,35 @@ export class PlanningAgentManager extends EventEmitter {
       const projectList = Object.entries(this.projectConfig)
         .map(([name, config]) => `- **${name}**: ${config.path}`)
         .join('\n');
+
+      // Check if __workspace__ project exists (orchyManaged workspace)
+      const hasWorkspaceProject = WORKSPACE_ROOT_PROJECT in this.projectConfig;
+      const workspaceSection = hasWorkspaceProject ? `
+
+### Special Project: ${WORKSPACE_ROOT_PROJECT}
+
+The \`${WORKSPACE_ROOT_PROJECT}\` project represents the workspace root directory. Use it for tasks that operate at the monorepo root level:
+
+**Assign tasks to ${WORKSPACE_ROOT_PROJECT} for:**
+- GitHub workflow files (.github/workflows/)
+- CI/CD pipeline configurations
+- Root-level package.json, turbo.json, etc.
+- Shared configuration files
+- Root-level documentation
+
+**DO NOT assign to ${WORKSPACE_ROOT_PROJECT}:**
+- Any code changes in project directories (frontend/, backend/, etc.)
+- Project-specific configurations
+- Feature implementation code
+
+Workers assigned to ${WORKSPACE_ROOT_PROJECT} are RESTRICTED from modifying project directories.` : '';
+
       projectsSection = `
 ## REGISTERED PROJECTS
 
 These are the projects you coordinate. Work ONLY on these directories:
 ${projectList}
+${workspaceSection}
 
 When the user asks to implement a feature, explore THESE project directories (not the orchestrator directory).`;
     }
@@ -1081,6 +1105,11 @@ Each task MUST include:
 - Tasks for SAME project run SEQUENTIALLY (in array order)
 - NO task-level dependencies - e2eDependencies controls E2E test order only
 - testPlan = E2E scenarios only (automatable via HTTP or browser)
+- If a project named '${WORKSPACE_ROOT_PROJECT}' exists, use it for workspace-root-level tasks:
+  - GitHub workflows (.github/workflows/)
+  - CI/CD configurations
+  - Root-level configs (turbo.json, root package.json scripts)
+  - DO NOT use ${WORKSPACE_ROOT_PROJECT} for project code changes
 ")
 
 After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the plan.

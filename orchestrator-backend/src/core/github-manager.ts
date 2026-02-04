@@ -17,13 +17,15 @@ const DEFAULT_SETTINGS: GitHubGlobalSettings = {
 };
 
 // Allowed gh CLI commands whitelist
-// Format: [command, subcommand, requiresRepo]
-const ALLOWED_COMMANDS: Array<{ command: string; subcommand: string; requiresRepo: boolean }> = [
+// Format: [command, subcommand, requiresRepo, repoIsPositional]
+// repoIsPositional: true means repo is passed as positional arg, false means --repo flag
+const ALLOWED_COMMANDS: Array<{ command: string; subcommand: string; requiresRepo: boolean; repoIsPositional?: boolean }> = [
   { command: 'auth', subcommand: 'status', requiresRepo: false },
-  { command: 'repo', subcommand: 'view', requiresRepo: true },
+  { command: 'auth', subcommand: 'setup-git', requiresRepo: false },
+  { command: 'repo', subcommand: 'view', requiresRepo: true, repoIsPositional: true },
   { command: 'repo', subcommand: 'create', requiresRepo: false },
-  { command: 'secret', subcommand: 'set', requiresRepo: true },
-  { command: 'secret', subcommand: 'list', requiresRepo: true },
+  { command: 'secret', subcommand: 'set', requiresRepo: true, repoIsPositional: false },
+  { command: 'secret', subcommand: 'list', requiresRepo: true, repoIsPositional: false },
 ];
 
 export interface CreateRepoOptions {
@@ -97,6 +99,23 @@ export class GitHubManager {
       return result.exitCode === 0;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Configures git to use gh CLI for authentication (HTTPS credential helper)
+   * This allows git commands to use the gh auth token for HTTPS URLs
+   */
+  async setupGitAuth(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.executeGhCommand(['auth', 'setup-git']);
+      if (result.exitCode === 0) {
+        console.log('[GitHubManager] Configured git to use gh credentials');
+        return { success: true };
+      }
+      return { success: false, error: result.stderr || 'Failed to setup git auth' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to setup git auth' };
     }
   }
 
@@ -382,6 +401,9 @@ export class GitHubManager {
    */
   async addRemote(repoPath: string, repo: string): Promise<{ success: boolean; error?: string }> {
     try {
+      // First, ensure git is configured to use gh credentials for HTTPS
+      await this.setupGitAuth();
+
       const expandedPath = repoPath.startsWith('~')
         ? repoPath.replace('~', os.homedir())
         : repoPath;
@@ -453,37 +475,11 @@ export class GitHubManager {
   }
 
   /**
-   * Validates a command against the whitelist
-   */
-  private validateCommand(args: string[], repo?: string): boolean {
-    if (args.length < 2) {
-      console.warn('[GitHubManager] Invalid command: insufficient arguments');
-      return false;
-    }
-
-    const [command, subcommand] = args;
-    const allowed = ALLOWED_COMMANDS.find(
-      c => c.command === command && c.subcommand === subcommand
-    );
-
-    if (!allowed) {
-      console.warn(`[GitHubManager] Command not in whitelist: ${command} ${subcommand}`);
-      return false;
-    }
-
-    if (allowed.requiresRepo && !repo) {
-      console.warn(`[GitHubManager] Command requires --repo flag: ${command} ${subcommand}`);
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
    * Executes a gh CLI command with validation
    */
   private async executeGhCommand(args: string[], repo?: string): Promise<ExecResult> {
-    if (!this.validateCommand(args, repo)) {
+    const commandInfo = this.getCommandInfo(args);
+    if (!commandInfo) {
       return {
         stdout: '',
         stderr: 'Command not allowed',
@@ -491,9 +487,23 @@ export class GitHubManager {
       };
     }
 
+    if (commandInfo.requiresRepo && !repo) {
+      return {
+        stdout: '',
+        stderr: 'Command requires repo',
+        exitCode: 1,
+      };
+    }
+
     const fullArgs = [...args];
     if (repo) {
-      fullArgs.push('--repo', repo);
+      if (commandInfo.repoIsPositional) {
+        // Insert repo after the subcommand (e.g., 'gh repo view <repo>')
+        fullArgs.splice(2, 0, repo);
+      } else {
+        // Add as --repo flag
+        fullArgs.push('--repo', repo);
+      }
     }
 
     const command = `gh ${fullArgs.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`;
@@ -508,5 +518,19 @@ export class GitHubManager {
         exitCode: 1,
       };
     }
+  }
+
+  /**
+   * Gets command info from whitelist
+   */
+  private getCommandInfo(args: string[]): typeof ALLOWED_COMMANDS[number] | null {
+    if (args.length < 2) {
+      return null;
+    }
+
+    const [command, subcommand] = args;
+    return ALLOWED_COMMANDS.find(
+      c => c.command === command && c.subcommand === subcommand
+    ) || null;
   }
 }

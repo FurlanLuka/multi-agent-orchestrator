@@ -106,7 +106,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig } from '@orchy/types';
+import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -416,6 +416,12 @@ async function main() {
     try {
       const settings = githubManager.getSettings();
       const ghInstalled = await githubManager.isGhInstalled();
+
+      // If GitHub is enabled and gh is installed, ensure git is configured to use gh credentials
+      if (settings.enabled && ghInstalled) {
+        await githubManager.setupGitAuth();
+      }
+
       res.json({ ...settings, ghInstalled });
     } catch (err) {
       console.error('[Orchestrator] Failed to get GitHub settings:', err);
@@ -424,10 +430,16 @@ async function main() {
   });
 
   // POST /api/github/settings - Update GitHub global settings
-  ui.app.post('/api/github/settings', (req, res) => {
+  ui.app.post('/api/github/settings', async (req, res) => {
     try {
       const updates = req.body;
       const settings = githubManager.updateSettings(updates);
+
+      // When GitHub is enabled, configure git to use gh credentials
+      if (settings.enabled) {
+        await githubManager.setupGitAuth();
+      }
+
       res.json(settings);
     } catch (err) {
       console.error('[Orchestrator] Failed to update GitHub settings:', err);
@@ -2097,6 +2109,12 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
               resolvedProjects = workspaceManager.getWorkspaceProjectNames(workspaceId);
+            } else if (isOrchyManaged) {
+              // For orchyManaged workspaces, always include the workspace root project
+              // even if specific projects were provided
+              if (!resolvedProjects.includes(WORKSPACE_ROOT_PROJECT)) {
+                resolvedProjects = [...resolvedProjects, WORKSPACE_ROOT_PROJECT];
+              }
             }
             // Prepend workspace context to feature
             if (workspace.context) {
@@ -2252,9 +2270,20 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
                 const mainBranchForProject = projectConfig.mainBranch || 'main';
                 await gitManager.initRepo(projectPath, mainBranchForProject);
 
-                // For managed git: checkout main and pull latest before creating feature branch
+                // For managed git: stash changes, checkout main and pull latest before creating feature branch
                 if (isManagedGit) {
                   console.log(`[Orchestrator] Managed git: checking out ${mainBranchForProject} and pulling latest for ${project}...`);
+
+                  // Check for uncommitted changes and stash if needed
+                  const uncommitted = await gitManager.hasUncommittedChanges(projectPath);
+                  if (uncommitted.hasChanges) {
+                    console.log(`[Orchestrator] Stashing uncommitted changes for ${project} before branch switch (${uncommitted.staged} staged, ${uncommitted.unstaged} unstaged, ${uncommitted.untracked} untracked)`);
+                    const stashResult = await gitManager.stashChanges(projectPath, `orchy-session-start-${project}`);
+                    if (!stashResult.success) {
+                      console.warn(`[Orchestrator] Failed to stash changes for ${project}: ${stashResult.message}`);
+                    }
+                  }
+
                   // Checkout main branch
                   const checkoutResult = await gitManager.createAndCheckoutBranch(projectPath, mainBranchForProject);
                   if (!checkoutResult.success) {
@@ -2456,6 +2485,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // Orchy Managed workspace support
         isOrchyManaged: () => isOrchyManagedExecution,
         getWorkspaceRoot: () => workspaceRootPath,
+        getWorkspaceGitHub: () => session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId)?.github : undefined,
       });
 
       // Clear task summaries from any previous session
@@ -2889,6 +2919,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Orchy Managed workspace support
             isOrchyManaged: () => isOrchyManagedResume,
             getWorkspaceRoot: () => workspaceRootPathResume,
+            getWorkspaceGitHub: () => restoredSession?.workspaceId ? workspaceManager.getWorkspace(restoredSession.workspaceId)?.github : undefined,
           });
 
           taskExecutor.clearTaskSummaries();
@@ -3594,8 +3625,12 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         socket.emit('workspaces', workspaceManager.getWorkspaces());
 
         // Now start the session with this workspace
+        // Include workspace root project for orchyManaged workspaces
         const createdProjectNames = createdProjectConfigs.map(p => p.name);
-        const session = sessionManager.createSession(feature, createdProjectNames, workspace.id);
+        const sessionProjects = workspace.orchyManaged
+          ? [...createdProjectNames, WORKSPACE_ROOT_PROJECT]
+          : createdProjectNames;
+        const session = sessionManager.createSession(feature, sessionProjects, workspace.id);
 
         // Initialize git branch at workspace root (Orchy Managed monorepo)
         const gitBranches: Record<string, string> = {};

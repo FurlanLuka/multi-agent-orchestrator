@@ -11,16 +11,16 @@ import {
 } from '@mantine/core';
 import {
   IconCheck,
-  IconRefresh,
   IconGitBranch,
   IconUpload,
   IconGitMerge,
   IconExternalLink,
-  IconPlayerStop,
   IconGitPullRequest,
-  IconCircleCheck,
-  IconInfoCircle,
+  IconSparkles,
   IconX,
+  IconAlertTriangle,
+  IconRefresh,
+  IconTrash,
   IconHome,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
@@ -29,9 +29,10 @@ import type { ProjectConfig } from '@orchy/types';
 
 interface CompletionPanelProps {
   onBackToHome?: () => void;
+  failed?: boolean;
 }
 
-export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
+export function CompletionPanel({ onBackToHome, failed = false }: CompletionPanelProps) {
   const {
     session,
     workspaces,
@@ -47,7 +48,6 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
     approveChanges,
     approvingChanges,
     approveChangesResults,
-    mergeSessionStatus,
     creatingPR,
     prResults,
     createPR,
@@ -58,11 +58,9 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
   } = useOrchestrator();
 
   // Derive project configs and workspace settings
-  const { projectConfigs, isManagedGit, isAutoMerge, isOrchyManaged } = useMemo(() => {
+  const { projectConfigs, isManagedGit } = useMemo(() => {
     const configs: Record<string, ProjectConfig> = {};
     let managedGit = false;
-    let autoMerge = false;
-    let orchyManaged = false;
 
     if (session?.workspaceId && workspaces[session.workspaceId]) {
       const workspace = workspaces[session.workspaceId];
@@ -70,18 +68,21 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
         const { name, ...config } = proj;
         configs[name] = config;
       }
-      // Check if managed git is enabled (default: true for new workspaces)
       managedGit = workspace.managedGit !== false;
-      autoMerge = workspace.autoMerge !== false;
-      orchyManaged = workspace.orchyManaged === true;
     }
-    return { projectConfigs: configs, isManagedGit: managedGit, isAutoMerge: autoMerge, isOrchyManaged: orchyManaged };
+    return { projectConfigs: configs, isManagedGit: managedGit };
   }, [session?.workspaceId, workspaces]);
 
   // Check if all changes have been approved/merged
   const allChangesApproved = useMemo(() => {
     if (!approveChangesResults) return false;
     return Object.values(approveChangesResults).every(r => r.success);
+  }, [approveChangesResults]);
+
+  // Check if any merge failed
+  const hasMergeFailure = useMemo(() => {
+    if (!approveChangesResults) return false;
+    return Object.values(approveChangesResults).some(r => !r.success);
   }, [approveChangesResults]);
 
   // Selected base branch for PR creation per project
@@ -95,159 +96,165 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
     }
   };
 
+  // ============================================
+  // FAILED STATE - Session failed (task/e2e failed)
+  // ============================================
+  if (failed) {
+    return (
+      <Stack gap="md" mb="md">
+        <GlassCard p="lg">
+          <Stack gap="md" align="center" py="sm">
+            <ThemeIcon size={48} radius="xl" color="red" variant="light">
+              <IconAlertTriangle size={28} />
+            </ThemeIcon>
+            <Box ta="center">
+              <Text fw={600} size="lg" mb={4}>Something went wrong</Text>
+              <Text size="sm" c="dimmed" maw={320}>
+                The session couldn't be completed. Your work has been saved
+                in a separate branch so nothing is lost.
+              </Text>
+            </Box>
+            <Group gap="sm" mt="sm">
+              <Button
+                size="md"
+                variant="light"
+                color="gray"
+                leftSection={<IconHome size={18} />}
+                onClick={handleEndSession}
+              >
+                Back to Home
+              </Button>
+            </Group>
+            <Text size="xs" c="dimmed" ta="center" maw={300}>
+              You can review the changes manually or start a new session.
+            </Text>
+          </Stack>
+        </GlassCard>
+      </Stack>
+    );
+  }
+
+  // ============================================
+  // SUCCESS STATE - Session completed successfully
+  // ============================================
   return (
     <Stack gap="md" mb="md">
-      {/* Card 1: Approve Changes (Managed Git) */}
+      {/* Managed Git: User-friendly Save/Discard Card */}
       {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && isManagedGit && (
-        <GlassCard p="md">
+        <GlassCard p="lg">
           <Stack gap="md">
-            {/* Header */}
-            <Group gap="xs">
-              <ThemeIcon size="sm" radius="md" color="sage" variant="light">
-                <IconCircleCheck size={14} />
-              </ThemeIcon>
-              <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>Approve Changes</Text>
-            </Group>
-
-            {/* Auto-merged status */}
-            {isAutoMerge && allChangesApproved && (
-              <Group gap="sm" align="center">
-                <ThemeIcon size="lg" radius="md" color="sage" variant="light">
-                  <IconCheck size={18} />
+            {/* Success state - changes merged */}
+            {allChangesApproved && (
+              <Stack gap="sm" align="center" py="md">
+                <ThemeIcon size={48} radius="xl" color="sage" variant="light">
+                  <IconCheck size={28} />
                 </ThemeIcon>
-                <Box>
-                  <Text fw={500} size="sm">Changes approved and merged</Text>
-                  <Text size="xs" c="dimmed">All feature branches have been merged to main.</Text>
-                </Box>
-              </Group>
-            )}
-
-            {/* Manual approval UI (when autoMerge is disabled or merge not yet done) */}
-            {(!isAutoMerge || !allChangesApproved) && !approvingChanges && (
-              <>
-                {/* Help text */}
-                <Box
-                  p="sm"
-                  style={{
-                    background: 'rgba(250, 247, 245, 0.8)',
-                    borderRadius: 8,
-                    border: '1px solid rgba(160, 130, 110, 0.08)',
-                  }}
-                >
-                  <Group gap="xs" mb={6}>
-                    <IconInfoCircle size={14} style={{ color: 'var(--mantine-color-peach-6)' }} />
-                    <Text size="xs" fw={500}>What happens when you approve?</Text>
-                  </Group>
-                  <Text size="xs" c="dimmed">
-                    {isOrchyManaged
-                      ? 'Your feature branch will be pushed to remote and merged into main. All project changes are committed to a single repository.'
-                      : 'Your feature branches will be pushed to remote and merged into the main branch across all projects.'}
-                  </Text>
-                  <Text size="xs" c="dimmed" mt={4}>
-                    <strong>Not ready yet?</strong> You can close this and approve later from the session history.
-                  </Text>
-                </Box>
-
-                {/* Branch list */}
-                <Stack gap="xs">
-                  {Object.entries(session.gitBranches).map(([projectName, branchName]) => {
-                    // Handle _workspace key for Orchy Managed workspaces
-                    const isWorkspaceBranch = projectName === '_workspace';
-                    const displayName = isWorkspaceBranch ? 'Workspace' : projectName;
-                    const mainBranch = isWorkspaceBranch ? 'main' : (projectConfigs[projectName]?.mainBranch || 'main');
-                    const result = approveChangesResults?.[projectName];
-
-                    return (
-                      <Group key={projectName} gap="xs" wrap="wrap">
-                        <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
-                          {isWorkspaceBranch ? branchName : `${displayName}: ${branchName}`}
-                        </Badge>
-                        <Text size="xs" c="dimmed">→ {mainBranch}</Text>
-                        {isWorkspaceBranch && (
-                          <Badge size="xs" variant="light" color="peach">
-                            All projects
-                          </Badge>
-                        )}
-                        {result?.success && (
-                          <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>
-                            Merged
-                          </Badge>
-                        )}
-                        {result && !result.success && (
-                          <Badge color="rose" variant="light" size="xs">
-                            Failed
-                          </Badge>
-                        )}
-                      </Group>
-                    );
-                  })}
-                </Stack>
-
-                {/* Approve/Reject buttons */}
-                {!allChangesApproved && (
-                  <Group gap="sm">
-                    <Button
-                      color="sage"
-                      leftSection={<IconCircleCheck size={16} />}
-                      onClick={() => session?.id && approveChanges(session.id)}
-                    >
-                      Approve Changes
-                    </Button>
-                    <Button
-                      variant="light"
-                      color="gray"
-                      leftSection={<IconX size={16} />}
-                      onClick={handleEndSession}
-                    >
-                      Reject Changes
-                    </Button>
-                  </Group>
-                )}
-
-                {/* Error display */}
-                {approveChangesResults && !allChangesApproved && (
-                  <Text size="xs" c="rose">
-                    Some merge operations failed. Check the status above for details.
-                  </Text>
-                )}
-              </>
+                <Text fw={600} size="lg" ta="center">All Done!</Text>
+                <Text size="sm" c="dimmed" ta="center">
+                  Your changes have been saved to the project.
+                </Text>
+              </Stack>
             )}
 
             {/* Loading state */}
             {approvingChanges && (
               <Stack gap="sm" align="center" py="md">
-                <Loader size="sm" />
-                <Text size="sm" c="dimmed">
-                  {isOrchyManaged ? 'Pushing and merging workspace branch...' : 'Pushing and merging branches...'}
+                <Loader size="md" />
+                <Text fw={500} size="md">Saving your changes...</Text>
+                <Text size="xs" c="dimmed">This will only take a moment</Text>
+              </Stack>
+            )}
+
+            {/* Error state - merge failed */}
+            {hasMergeFailure && !approvingChanges && (
+              <Stack gap="md" align="center" py="sm">
+                <ThemeIcon size={48} radius="xl" color="orange" variant="light">
+                  <IconAlertTriangle size={28} />
+                </ThemeIcon>
+                <Box ta="center">
+                  <Text fw={600} size="md" mb={4}>Couldn't save changes</Text>
+                  <Text size="sm" c="dimmed">
+                    Don't worry - your work is safe in a separate branch.
+                  </Text>
+                </Box>
+                <Box
+                  p="xs"
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.03)',
+                    borderRadius: 6,
+                    maxWidth: '100%',
+                  }}
+                >
+                  {Object.entries(approveChangesResults || {})
+                    .filter(([, r]) => !r.success)
+                    .map(([project, result]) => (
+                      <Text key={project} size="xs" c="dimmed" style={{ wordBreak: 'break-word' }}>
+                        {result.message}
+                      </Text>
+                    ))}
+                </Box>
+                <Group gap="sm">
+                  <Button
+                    variant="filled"
+                    color="sage"
+                    leftSection={<IconRefresh size={16} />}
+                    onClick={() => session?.id && approveChanges(session.id)}
+                  >
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="light"
+                    color="gray"
+                    leftSection={<IconX size={16} />}
+                    onClick={handleEndSession}
+                  >
+                    Close Session
+                  </Button>
+                </Group>
+              </Stack>
+            )}
+
+            {/* Initial state - Save/Discard */}
+            {!approveChangesResults && !approvingChanges && (
+              <Stack gap="md" align="center" py="sm">
+                <ThemeIcon size={48} radius="xl" color="peach" variant="light">
+                  <IconSparkles size={28} />
+                </ThemeIcon>
+                <Box ta="center">
+                  <Text fw={600} size="lg" mb={4}>Ready to save!</Text>
+                  <Text size="sm" c="dimmed">
+                    Your feature is complete. Save your changes to keep them.
+                  </Text>
+                </Box>
+                <Group gap="sm">
+                  <Button
+                    size="md"
+                    color="sage"
+                    leftSection={<IconCheck size={18} />}
+                    onClick={() => session?.id && approveChanges(session.id)}
+                  >
+                    Save Changes
+                  </Button>
+                  <Button
+                    size="md"
+                    variant="light"
+                    color="gray"
+                    leftSection={<IconTrash size={18} />}
+                    onClick={handleEndSession}
+                  >
+                    Discard
+                  </Button>
+                </Group>
+                <Text size="xs" c="dimmed" ta="center" maw={300}>
+                  Saving will add your changes to the main codebase. Discarding will remove them.
                 </Text>
-                <Stack gap="xs" w="100%">
-                  {Object.entries(session.gitBranches).map(([projectName]) => {
-                    const status = mergeSessionStatus[projectName];
-                    const isWorkspaceBranch = projectName === '_workspace';
-                    const displayName = isWorkspaceBranch ? 'Workspace' : projectName;
-                    return (
-                      <Group key={projectName} gap="xs" wrap="wrap">
-                        <Badge variant="light" color="lavender" leftSection={<IconGitBranch size={12} />}>
-                          {displayName}
-                        </Badge>
-                        {isWorkspaceBranch && (
-                          <Badge size="xs" variant="light" color="peach">All projects</Badge>
-                        )}
-                        {status === 'pushing' && <Badge color="peach" variant="light" size="xs">Pushing...</Badge>}
-                        {status === 'merging' && <Badge color="honey" variant="light" size="xs">Merging...</Badge>}
-                        {status === 'completed' && <Badge color="sage" variant="filled" size="xs" leftSection={<IconCheck size={10} />}>Done</Badge>}
-                        {status === 'failed' && <Badge color="rose" variant="light" size="xs">Failed</Badge>}
-                      </Group>
-                    );
-                  })}
-                </Stack>
               </Stack>
             )}
           </Stack>
         </GlassCard>
       )}
 
-      {/* Card 2b: Git Operations (non-managed git) */}
+      {/* Non-managed Git: Manual git operations (for advanced users) */}
       {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && !isManagedGit && (
         <GlassCard p="md">
           <Stack gap="md">
@@ -272,7 +279,6 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
               const isLoadingBranches = loadingBranches[projectName];
               const selectedBaseBranch = prBaseBranch[projectName] || mainBranch;
 
-              // Build branch options for PR
               const branchOptions = branches.length > 0
                 ? branches.map(b => ({ value: b, label: b }))
                 : [{ value: mainBranch, label: mainBranch }];
@@ -284,18 +290,15 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                       {projectName}: {branchName}
                     </Badge>
 
-                    {/* If merge succeeded, show merged badge */}
                     {mergeResult?.success ? (
                       <Badge color="sage" variant="filled" leftSection={<IconGitMerge size={12} />}>
                         Merged to {mainBranch}
                       </Badge>
                     ) : pushResult?.success ? (
-                      // Push succeeded - show status and merge/PR options
                       <>
                         <Badge color="sage" variant="light" leftSection={<IconCheck size={12} />}>
                           Pushed
                         </Badge>
-                        {/* Only show merge button for non-GitHub projects */}
                         {!isGitHubProject && (
                           <>
                             <Button
@@ -314,7 +317,6 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                             )}
                           </>
                         )}
-                        {/* GitHub PR creation */}
                         {isGitHubProject && !prResult?.success && (
                           <>
                             <GlassSelect
@@ -366,7 +368,6 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
                         )}
                       </>
                     ) : (
-                      // Show push button
                       <>
                         <Button
                           variant="filled"
@@ -394,89 +395,6 @@ export function CompletionPanel({ onBackToHome }: CompletionPanelProps = {}) {
           </Stack>
         </GlassCard>
       )}
-
-      {/* Card 3: Dev Servers */}
-      {session?.projects.some(p => projectConfigs[p]?.devServer?.url) && (
-        <GlassCard p="md">
-          <Stack gap="md">
-            <Group gap="xs">
-              <ThemeIcon size="sm" radius="md" color="peach" variant="light">
-                <IconExternalLink size={14} />
-              </ThemeIcon>
-              <Text size="sm" fw={600} style={{ color: 'var(--text-heading)' }}>Dev Servers</Text>
-            </Group>
-
-            <Group gap="sm" align="center" wrap="wrap">
-              {session?.projects.map(projectName => {
-                const config = projectConfigs[projectName];
-                if (!config?.devServer?.url) return null;
-                return (
-                  <Button
-                    key={projectName}
-                    component="a"
-                    href={config.devServer.url}
-                    target="_blank"
-                    variant="light"
-                    color="peach"
-                    size="xs"
-                    leftSection={<IconExternalLink size={14} />}
-                  >
-                    {projectName}
-                  </Button>
-                );
-              })}
-              <Button
-                variant="light"
-                color="rose"
-                size="xs"
-                leftSection={<IconPlayerStop size={14} />}
-                onClick={stopSession}
-              >
-                Stop Dev Servers
-              </Button>
-            </Group>
-          </Stack>
-        </GlassCard>
-      )}
-
-      {/* Card: End Session */}
-      <GlassCard p="md">
-        <Group justify="space-between" align="center">
-          <Group gap="sm">
-            <ThemeIcon size="lg" radius="md" color="sage" variant="light">
-              <IconCheck size={20} />
-            </ThemeIcon>
-            <div>
-              <Text fw={600} size="md" style={{ color: 'var(--text-heading)' }}>
-                {allChangesApproved ? 'All Done!' : 'Session Complete'}
-              </Text>
-              <Text size="sm" c="dimmed">
-                {allChangesApproved
-                  ? 'Changes have been merged. You can start a new session.'
-                  : 'End this session and return to workspace.'}
-              </Text>
-            </div>
-          </Group>
-          <Group gap="sm">
-            <Button
-              variant="light"
-              color="gray"
-              leftSection={<IconHome size={16} />}
-              onClick={handleEndSession}
-            >
-              End Session
-            </Button>
-            <Button
-              variant="filled"
-              color="peach"
-              leftSection={<IconRefresh size={16} />}
-              onClick={startNewSession}
-            >
-              New Session
-            </Button>
-          </Group>
-        </Group>
-      </GlassCard>
     </Stack>
   );
 }

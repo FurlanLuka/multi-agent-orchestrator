@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, TaskCompleteRequest, TaskCompleteResponse } from '@orchy/types';
+import { TaskDefinition, TaskVerificationContext, TaskAnalysisResult, Config, TaskCompleteRequest, TaskCompleteResponse, GitHubConfig, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import { ProcessManager } from './process-manager';
 import { StatusMonitor } from './status-monitor';
 import { StateMachine } from './state-machine';
@@ -29,6 +29,7 @@ export interface TaskExecutorConfig {
   // Orchy Managed workspace support
   isOrchyManaged?: () => boolean;
   getWorkspaceRoot?: () => string | null;
+  getWorkspaceGitHub?: () => GitHubConfig | undefined;
 }
 
 /**
@@ -55,6 +56,7 @@ export class TaskExecutor extends EventEmitter {
   // Orchy Managed workspace support
   private isOrchyManaged?: () => boolean;
   private getWorkspaceRoot?: () => string | null;
+  private getWorkspaceGitHub?: () => GitHubConfig | undefined;
 
   // Persistent session state - tracks fix attempts per task
   private fixAttemptsPerTask: Map<number, number> = new Map();
@@ -108,6 +110,7 @@ export class TaskExecutor extends EventEmitter {
     this.sessionLogger = deps.sessionLogger;
     this.isOrchyManaged = deps.isOrchyManaged;
     this.getWorkspaceRoot = deps.getWorkspaceRoot;
+    this.getWorkspaceGitHub = deps.getWorkspaceGitHub;
   }
 
   /**
@@ -133,6 +136,7 @@ Please fix the issue and try again.`;
   /**
    * Collects all verification context for Planning Agent intelligent analysis.
    * Only runs steps for features that are enabled in project config.
+   * Skips all verification for the workspace root project (no runnable code).
    */
   private async collectVerificationContext(
     project: string,
@@ -145,6 +149,12 @@ Please fix the issue and try again.`;
       taskName,
       taskDescription
     };
+
+    // Skip all verification for workspace root project - it has no runnable code
+    if (project === WORKSPACE_ROOT_PROJECT) {
+      console.log(`[TaskExecutor] [Context] Skipping verification for ${WORKSPACE_ROOT_PROJECT} (no runnable code)`);
+      return context;
+    }
 
     const projectConfig = this.config.projects[project];
 
@@ -827,22 +837,47 @@ When you need actual values from the user:
 Returns: \`{"GOOGLE_CLIENT_ID": "...", "GOOGLE_CLIENT_SECRET": "..."}\`
 
 ### 2. Confirmation dialogs (type: "confirmation")
-When you need user acknowledgment for manual steps (e.g., CI/CD secrets that must be added manually to GitHub):
+When you need user acknowledgment for manual steps:
 \`\`\`json
 {
   "inputs": [
     {
       "type": "confirmation",
-      "label": "GitHub Secrets Required",
-      "description": "Please add these secrets to your GitHub repo Settings > Secrets:\\n\\n- **HETZNER_HOST**: Your server IP\\n- **HETZNER_USERNAME**: SSH username\\n- **HETZNER_SSH_KEY**: Private SSH key\\n\\nClick Confirm when done."
+      "label": "Manual Step Required",
+      "description": "Please complete the following steps:\\n\\n1. Step one\\n2. Step two\\n\\nClick Confirm when done."
     }
   ]
 }
 \`\`\`
 Returns: \`{"confirmed": true}\` or \`{"confirmed": false}\`
+`;
 
-Use confirmation for CI/CD secrets because these must be added via GitHub UI - you cannot add them programmatically.
+    // Add GitHub secrets section if GitHub integration is enabled
+    const githubConfig = this.getWorkspaceGitHub?.();
+    if (githubConfig?.enabled && githubConfig?.repo) {
+      prompt += `
+### 3. GitHub Actions secrets (type: "github_secret")
+When you need to set secrets for CI/CD workflows (e.g., deployment credentials, API keys for GitHub Actions):
+\`\`\`json
+{
+  "inputs": [
+    {
+      "type": "github_secret",
+      "name": "HETZNER_TOKEN",
+      "label": "Hetzner API Token",
+      "description": "API token for Hetzner Cloud deployments",
+      "repo": "${githubConfig.repo}"
+    }
+  ]
+}
+\`\`\`
+Returns: \`{"success": true, "secretName": "HETZNER_TOKEN", "repo": "${githubConfig.repo}"}\`
 
+**IMPORTANT**: Use \`github_secret\` type for any secrets needed by GitHub Actions workflows (CI/CD, deployment, etc.). This will securely set the secret on GitHub via \`gh secret set\`. Request each secret individually.
+`;
+    }
+
+    prompt += `
 ## Critical Rules
 
 1. **DO NOT skip calling mcp__orchestrator-permission__task_complete** - the orchestrator needs it to verify your work

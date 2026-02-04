@@ -1,3 +1,7 @@
+// Reserved project name for workspace root in orchyManaged workspaces
+// This name is reserved and cannot be used for regular projects
+export const WORKSPACE_ROOT_PROJECT = 'workspace';
+
 // Project permission configuration
 export interface ProjectPermissions {
   dangerouslyAllowAll?: boolean;  // If true, uses --dangerously-skip-permissions (not recommended)

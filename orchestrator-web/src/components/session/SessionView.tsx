@@ -74,6 +74,11 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     [streamingMessages]
   );
 
+  // Check if session has failed (any project in FAILED state)
+  const sessionFailed = useMemo(() => {
+    return Object.values(statuses).some(s => s.status === 'FAILED');
+  }, [statuses]);
+
   const logsByProject = useMemo(() => {
     const grouped: Record<string, typeof logs> = {};
     for (const log of logs) {
@@ -165,8 +170,8 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
             </Title>
             <Group gap="xs">
               <NotificationSettingsPopover />
-              {/* Hide Stop button when session is complete - use CompletionPanel actions instead */}
-              {!allComplete && (
+              {/* Hide Stop button when session is complete or failed - use CompletionPanel actions instead */}
+              {!allComplete && !sessionFailed && (
                 <Button
                   variant="subtle"
                   color="rose"
@@ -179,7 +184,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
             </Group>
           </Group>
 
-          {allComplete && <CompletionPanel onBackToHome={onBackToHome} />}
+          {(allComplete || sessionFailed) && <CompletionPanel onBackToHome={onBackToHome} failed={sessionFailed} />}
 
           {session && (
             <Grid gutter="lg" style={{ flex: 1, minHeight: 0 }}>
