@@ -872,7 +872,12 @@ Returns: \`{"success": true, "secretName": "HETZNER_TOKEN", "repo": "${githubCon
 6. **DO NOT use browser automation tools** to test your work
 7. Focus ONLY on implementing the feature code
 8. **When setting environment variables for commands, ALWAYS use the \`env\` command** - e.g. \`env NODE_ENV=test npx prisma migrate\` instead of \`NODE_ENV=test npx prisma migrate\`
-9. **If you need API keys, secrets, or config values** - use \`request_user_input\` instead of hardcoding or guessing
+9. **Handle secrets correctly:**
+   - **Auto-generate internal/cryptographic secrets** (JWT_SECRET, SESSION_SECRET, encryption keys, internal service tokens): Generate secure random values using \`openssl rand -base64 32\`
+   - **Request from user** via \`request_user_input\`:
+     - **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME): User needs to know these to log in!
+     - **External/third-party credentials** (OAuth keys, Stripe/Google/AWS API tokens)
+   - **NEVER use placeholder values** like "your-secret-here" or "changeme" - either generate a real value or ask the user
 
 ## Status Reporting
 

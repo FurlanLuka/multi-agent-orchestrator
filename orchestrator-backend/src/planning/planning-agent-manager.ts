@@ -479,6 +479,19 @@ User: ${newMessage}`;
                       contentBlock = { type: 'text', text: block.text };
                       this.emit('output', block.text);
 
+                      // If we're still in exploring but getting substantial text output (not tool calls),
+                      // transition to analyzing. This fixes the status getting "stuck" on last file read.
+                      if (this.isPlanningRequest && this.currentPlanningPhase === 'exploring') {
+                        // Only transition if the text is substantial (not just status markers)
+                        const isSubstantialText = block.text.length > 50 && !block.text.includes('[PLANNER_STATUS]');
+                        if (isSubstantialText) {
+                          this.currentPlanningPhase = 'analyzing';
+                          console.log(`[PlanningAgent] Status: Analyzing requirements...`);
+                          const statusEvent: PlanningStatusEvent = { phase: 'analyzing', message: 'Analyzing requirements...' };
+                          this.emit('planningStatus', statusEvent);
+                        }
+                      }
+
                       // Parse [PLANNER_STATUS] messages for real-time status updates (match all occurrences)
                       const statusMatches = block.text.matchAll(/\[PLANNER_STATUS\]\s*(\{[^}]+\})/g);
                       for (const statusMatch of statusMatches) {
@@ -1100,7 +1113,12 @@ Each task MUST include:
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
    - List ALL required secrets with their names and purposes
    - Specify WHERE they need to be configured (e.g., .env file, GitHub Secrets, CI/CD)
-   - Example: \\"**Required Secrets (GitHub Actions):** HETZNER_HOST, HETZNER_USERNAME, HETZNER_SSH_KEY\\"
+   - **Distinguish between auto-generated vs user-provided secrets:**
+     - **Auto-generate** internal/cryptographic secrets that users never see or type: JWT_SECRET, SESSION_SECRET, encryption keys, internal API keys between services - use \`openssl rand -base64 32\`
+     - **Request from user** these types of secrets:
+       1. **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME) - user needs to know these to log in!
+       2. **External/third-party credentials** (OAuth client IDs/secrets, Stripe API keys, AWS keys)
+   - Example: \\"**Secrets:** Generate JWT_SECRET using openssl rand. Use \`request_user_input\` to collect ADMIN_PASSWORD (user needs this to log in) and GOOGLE_CLIENT_ID from the user.\\"
 
 ## RULES:
 

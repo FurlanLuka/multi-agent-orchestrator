@@ -3,6 +3,7 @@ import { Group, Badge, Text, Loader, Stack, Button, Radio, Checkbox } from '@man
 import { IconCheck, IconQuestionMark } from '@tabler/icons-react';
 import type { RequestFlow, PlanningQuestion, PlanningStatusEvent, PlanningQuestionItem } from '@orchy/types';
 import { GlassCard, GlassTextarea, GlassTextInput } from '../theme';
+import { PlanningHelperText } from './planning/PlanningHelperText';
 
 interface ActiveFlowCardProps {
   flow: RequestFlow;
@@ -291,6 +292,14 @@ export function ActiveFlowCard({ flow, pendingQuestion, onAnswerQuestion, planni
             <Text size="xs" c="dimmed" ml={28}>
               {flow.taskName}
             </Text>
+          )}
+          {/* Helper text for long-running planning operations */}
+          {flow.type === 'planning' && planningStatus &&
+           !['awaiting_approval', 'complete', 'error'].includes(planningStatus.phase) && (
+            <PlanningHelperText
+              phase={planningStatus.phase}
+              startedAt={flow.startedAt}
+            />
           )}
         </Stack>
       )}
