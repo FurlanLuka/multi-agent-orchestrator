@@ -57,7 +57,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.workspaces[id];
   }
 
-  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; orchyManaged?: boolean; github?: GitHubConfig }): WorkspaceConfig {
+  createWorkspace(opts: { name: string; projects: WorkspaceProjectConfig[]; context?: string; orchyManaged?: boolean; github?: GitHubConfig; mainBranch?: string }): WorkspaceConfig {
     const id = this.generateId(opts.name);
 
     const now = Date.now();
@@ -66,10 +66,9 @@ export class WorkspaceManager extends EventEmitter {
       name: opts.name,
       projects: opts.projects,
       context: opts.context,
-      managedGit: opts.managedGit ?? true,   // Default: true for new workspaces
-      autoMerge: opts.autoMerge ?? true,     // Default: true for new workspaces
       orchyManaged: opts.orchyManaged,       // True for template-created monorepo workspaces
       github: opts.github,                   // GitHub integration config
+      mainBranch: opts.mainBranch || 'main', // Default: 'main'
       createdAt: now,
       updatedAt: now,
     };
@@ -81,7 +80,7 @@ export class WorkspaceManager extends EventEmitter {
     return workspace;
   }
 
-  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig }): WorkspaceConfig {
+  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; github?: GitHubConfig; mainBranch?: string }): WorkspaceConfig {
     const workspace = this.workspaces[id];
     if (!workspace) {
       throw new Error(`Workspace "${id}" does not exist`);
@@ -90,9 +89,8 @@ export class WorkspaceManager extends EventEmitter {
     if (updates.name !== undefined) workspace.name = updates.name;
     if (updates.projects !== undefined) workspace.projects = updates.projects;
     if (updates.context !== undefined) workspace.context = updates.context;
-    if (updates.managedGit !== undefined) workspace.managedGit = updates.managedGit;
-    if (updates.autoMerge !== undefined) workspace.autoMerge = updates.autoMerge;
     if (updates.github !== undefined) workspace.github = updates.github;
+    if (updates.mainBranch !== undefined) workspace.mainBranch = updates.mainBranch;
     workspace.updatedAt = Date.now();
 
     this.saveConfig();
@@ -214,7 +212,6 @@ export class WorkspaceManager extends EventEmitter {
         hasE2E: false,
         devServerEnabled: false,
         buildEnabled: false,
-        gitEnabled: true,
         e2eInstructions: `CRITICAL RESTRICTION: You are working at the workspace root level.
 
 You MUST NOT enter or modify any project directories:

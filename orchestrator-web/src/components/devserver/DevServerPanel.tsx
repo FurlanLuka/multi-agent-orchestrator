@@ -18,9 +18,11 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconX,
+  IconExternalLink,
 } from '@tabler/icons-react';
 import type { DevServerState } from '@orchy/types';
 import { glass, radii } from '../../theme/tokens';
+import { openUrl } from '../../lib/tauri';
 
 interface DevServerPanelProps {
   servers: DevServerState[];
@@ -157,6 +159,22 @@ export function DevServerPanel({
                             <Badge size="xs" color={getStatusColor(server.status)} variant="light">
                               :{server.port}
                             </Badge>
+                          )}
+
+                          {server.port && server.status === 'running' && (
+                            <Tooltip label="Open in browser" position="top" withArrow>
+                              <ActionIcon
+                                variant="subtle"
+                                size="xs"
+                                color="gray"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openUrl(`http://localhost:${server.port}`);
+                                }}
+                              >
+                                <IconExternalLink size={14} />
+                              </ActionIcon>
+                            </Tooltip>
                           )}
 
                           <Tooltip label="View logs" position="top" withArrow>

@@ -32,7 +32,6 @@ interface ProjectManagerProps {
   templates: ProjectTemplateConfig[];
   creatingProject: boolean;
   addingProject: boolean;
-  gitAvailable?: boolean;
   port?: number | null;
   onCreateProject: (options: CreateProjectOptions) => void;
   onAddProject: (options: AddProjectOptions) => void;
@@ -45,7 +44,6 @@ export function ProjectManager({
   templates,
   creatingProject,
   addingProject,
-  gitAvailable = true,
   port,
   onCreateProject,
   onAddProject,
@@ -193,9 +191,6 @@ export function ProjectManager({
                         {config.hasE2E && (
                           <Badge size="xs" variant="light" color="peach">E2E</Badge>
                         )}
-                        {config.gitEnabled && (
-                          <Badge size="xs" variant="light" color="lavender">Git</Badge>
-                        )}
                         {config.attachedDesign && (
                           <Tooltip label={`Design: ${config.attachedDesign}`}>
                             <Badge
@@ -248,7 +243,6 @@ export function ProjectManager({
         projects={projects}
         creatingProject={creatingProject}
         addingProject={addingProject}
-        gitAvailable={gitAvailable}
         port={effectivePort}
         permissionsConfig={permissionsConfig}
         onCreateProject={onCreateProject}
@@ -262,7 +256,6 @@ export function ProjectManager({
         projectName={editingProject}
         projectConfig={editingProject ? projects[editingProject] : null}
         projects={projects}
-        gitAvailable={gitAvailable}
         permissionsConfig={permissionsConfig}
         savedDesigns={savedDesigns}
         onSave={onUpdateProject}

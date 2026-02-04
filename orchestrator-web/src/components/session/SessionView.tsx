@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Stack,
@@ -38,6 +39,7 @@ interface SessionViewProps {
 }
 
 export function SessionView({ onBackToHome }: SessionViewProps) {
+  const navigate = useNavigate();
   const {
     session,
     statuses,
@@ -56,6 +58,15 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
 
   // Activate notification system
   useNotifications();
+
+  // Navigate back to workspace prompt screen (or home if no workspace)
+  const navigateToWorkspace = useCallback(() => {
+    if (session?.workspaceId) {
+      navigate(`/prompt/${session.workspaceId}`);
+    } else {
+      onBackToHome();
+    }
+  }, [session?.workspaceId, navigate, onBackToHome]);
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const [showInitialPrompt, setShowInitialPrompt] = useState(false);
@@ -155,9 +166,9 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
 
   const handleStopSession = useCallback(() => {
     startNewSession();
-    onBackToHome();
+    navigateToWorkspace();
     setStopModalOpen(false);
-  }, [startNewSession, onBackToHome]);
+  }, [startNewSession, navigateToWorkspace]);
 
   return (
     <Box style={{ minHeight: '100vh' }}>
@@ -184,7 +195,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
             </Group>
           </Group>
 
-          {(allComplete || sessionFailed) && <CompletionPanel onBackToHome={onBackToHome} failed={sessionFailed} />}
+          {(allComplete || sessionFailed) && <CompletionPanel onBackToHome={navigateToWorkspace} failed={sessionFailed} />}
 
           {session && (
             <Grid gutter="lg" style={{ flex: 1, minHeight: 0 }}>

@@ -43,6 +43,7 @@ import type {
   DevServerState,
   PortConflict,
   DevServerLogEntry,
+  GitHubConfig,
 } from '@orchy/types';
 
 // Default port for standalone mode (fallback only)
@@ -157,7 +158,7 @@ export function useSocket() {
   // Branch check state (for checking if projects are on default branch before session start)
   const [branchCheckResult, setBranchCheckResult] = useState<Array<{
     project: string;
-    gitEnabled: boolean;
+    hasGitRepo: boolean;
     currentBranch: string | null;
     mainBranch: string;
     isOnMainBranch: boolean;
@@ -894,7 +895,7 @@ export function useSocket() {
     socket.on('branchStatus', ({ results }: {
       results: Array<{
         project: string;
-        gitEnabled: boolean;
+        hasGitRepo: boolean;
         currentBranch: string | null;
         mainBranch: string;
         isOnMainBranch: boolean;
@@ -1239,7 +1240,7 @@ export function useSocket() {
     }
   }, []);
 
-  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean }) => {
+  const updateWorkspace = useCallback((id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; github?: GitHubConfig }) => {
     if (socketRef.current) {
       socketRef.current.emit('updateWorkspace', { id, updates });
     }

@@ -16,7 +16,6 @@ import { useForm } from '@mantine/form';
 import {
   IconFolder,
   IconDeviceFloppy,
-  IconGitBranch,
   IconAlertTriangle,
   IconPackage,
   IconHammer,
@@ -47,8 +46,6 @@ interface EditProjectFormValues {
   hasE2E: boolean;
   e2eInstructions: string;
   dependsOn: string[];
-  gitEnabled: boolean;
-  mainBranch: string;
   dangerouslyAllowAll: boolean;
   permissions: string[];
   attachedDesign: string | null;
@@ -60,7 +57,6 @@ interface EditProjectModalProps {
   projectName: string | null;
   projectConfig: ProjectConfig | null;
   projects: Record<string, ProjectConfig>;
-  gitAvailable: boolean;
   permissionsConfig: PermissionsConfig | null;
   savedDesigns?: SavedDesignFolder[];
   onSave: (name: string, updates: Partial<ProjectConfig>) => void;
@@ -74,7 +70,6 @@ export function EditProjectModal({
   projectName,
   projectConfig,
   projects,
-  gitAvailable,
   permissionsConfig,
   savedDesigns = [],
   onSave,
@@ -100,8 +95,6 @@ export function EditProjectModal({
       hasE2E: false,
       e2eInstructions: '',
       dependsOn: [],
-      gitEnabled: false,
-      mainBranch: 'main',
       dangerouslyAllowAll: false,
       permissions: [],
       attachedDesign: null,
@@ -112,7 +105,6 @@ export function EditProjectModal({
       devServerCommand: (value, values) => values.devServerEnabled && !value.trim() ? 'Command is required' : null,
       devServerUrl: (value, values) => values.devServerEnabled && !value.trim() ? 'URL is required' : null,
       setupCommand: (value, values) => values.setupEnabled && !value.trim() ? 'Command is required' : null,
-      mainBranch: (value, values) => values.gitEnabled && !value.trim() ? 'Main branch is required' : null,
     },
   });
 
@@ -135,8 +127,6 @@ export function EditProjectModal({
         hasE2E: projectConfig.hasE2E || false,
         e2eInstructions: projectConfig.e2eInstructions || '',
         dependsOn: projectConfig.dependsOn || [],
-        gitEnabled: projectConfig.gitEnabled || false,
-        mainBranch: projectConfig.mainBranch || 'main',
         permissions: projectConfig.permissions?.allow || [],
         dangerouslyAllowAll: projectConfig.permissions?.dangerouslyAllowAll || false,
         attachedDesign: projectConfig.attachedDesign || null,
@@ -164,8 +154,6 @@ export function EditProjectModal({
       hasE2E: values.hasE2E,
       e2eInstructions: values.e2eInstructions.trim() || undefined,
       dependsOn: values.dependsOn.length > 0 ? values.dependsOn : undefined,
-      gitEnabled: values.gitEnabled,
-      mainBranch: values.mainBranch.trim() || 'main',
       permissions: {
         dangerouslyAllowAll: values.dangerouslyAllowAll,
         allow: values.permissions,
@@ -327,27 +315,6 @@ export function EditProjectModal({
               label="Command"
               placeholder="claude mcp add playwright -- npx @playwright/mcp@latest"
               {...form.getInputProps('setupCommand')}
-              size="xs"
-              required
-            />
-          </FeatureSection>
-
-          <FeatureSection
-            label="Git Integration"
-            description="Feature branches and auto-commit"
-            icon={<IconGitBranch size={16} color="var(--mantine-color-grape-6)" />}
-            enabled={form.values.gitEnabled}
-            onToggle={(v) => form.setFieldValue('gitEnabled', v)}
-          >
-            {!gitAvailable && (
-              <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light">
-                Git CLI not found.
-              </Alert>
-            )}
-            <TextInput
-              label="Main Branch"
-              placeholder="main"
-              {...form.getInputProps('mainBranch')}
               size="xs"
               required
             />

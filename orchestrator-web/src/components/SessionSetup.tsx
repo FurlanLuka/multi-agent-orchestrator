@@ -5,10 +5,8 @@ import {
   Text,
   Loader,
 } from '@mantine/core';
-import { IconRocket, IconGitBranch } from '@tabler/icons-react';
-import type { ProjectConfig } from '@orchy/types';
+import { IconRocket } from '@tabler/icons-react';
 import {
-  GlassTextInput,
   GlassMultiSelect,
   GlassRichTextEditor,
   useGlassEditor,
@@ -16,32 +14,22 @@ import {
 
 interface SessionSetupProps {
   availableProjects: string[];
-  projectConfigs?: Record<string, ProjectConfig>;
   onStartSession: (feature: string, projects: string[], branchName?: string) => void;
   connected: boolean;
   startingSession?: boolean;
-  managedGit?: boolean;  // When true, hide branch name input (auto-generated)
 }
 
 export function SessionSetup({
   availableProjects,
-  projectConfigs = {},
   onStartSession,
   connected,
   startingSession = false,
-  managedGit = false,
 }: SessionSetupProps) {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
-  const [branchName, setBranchName] = useState('');
 
   const editor = useGlassEditor({
     placeholder: 'Describe the feature you want to build...',
   });
-
-  // Check if any selected project has git enabled
-  const hasGitEnabledProject = selectedProjects.some(
-    p => projectConfigs[p]?.gitEnabled
-  );
 
   // Check if editor has content
   const hasContent = editor ? editor.getText().trim().length > 0 : false;
@@ -52,7 +40,7 @@ export function SessionSetup({
       onStartSession(
         featureText,
         selectedProjects,
-        hasGitEnabledProject ? branchName.trim() || undefined : undefined
+        undefined  // Branch name is auto-generated for orchyManaged workspaces
       );
       // Clear editor after starting
       editor?.commands.clearContent();
@@ -85,18 +73,6 @@ export function SessionSetup({
         searchable
         size="md"
       />
-
-      {hasGitEnabledProject && !managedGit && (
-        <GlassTextInput
-          label="Branch Name"
-          placeholder="e.g., feature/my-feature (auto-generated if empty)"
-          description="Feature branch will be created for git-enabled projects"
-          value={branchName}
-          onChange={(e) => setBranchName(e.target.value)}
-          size="md"
-          leftSection={<IconGitBranch size={16} />}
-        />
-      )}
 
       <Button
         leftSection={startingSession ? <Loader size={18} /> : <IconRocket size={18} />}

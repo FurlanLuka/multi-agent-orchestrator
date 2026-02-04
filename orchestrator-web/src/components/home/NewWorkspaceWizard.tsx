@@ -23,7 +23,6 @@ interface NewWorkspaceWizardProps {
   projects: Record<string, ProjectConfig>;
   creatingProject: boolean;
   addingProject: boolean;
-  gitAvailable: boolean;
   port: number;
   onBack: () => void;
   onCreate: (name: string, projects: WorkspaceProjectConfig[], context?: string) => void;
@@ -57,7 +56,6 @@ export function NewWorkspaceWizard({
   projects,
   creatingProject,
   addingProject,
-  gitAvailable,
   port,
   onBack,
   onCreate,
@@ -126,7 +124,6 @@ export function NewWorkspaceWizard({
         setupCommand: rest.setupCommand,
         e2eInstructions: rest.e2eInstructions,
         dependsOn: rest.dependsOn,
-        gitEnabled: rest.gitEnabled,
         mainBranch: rest.mainBranch,
         permissions: rest.permissions,
       },
@@ -382,7 +379,6 @@ export function NewWorkspaceWizard({
         projects={projects}
         creatingProject={creatingProject}
         addingProject={addingProject}
-        gitAvailable={gitAvailable}
         port={port}
         permissionsConfig={null}
         onCreateProject={onCreateProject}

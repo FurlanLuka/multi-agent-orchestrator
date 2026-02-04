@@ -110,3 +110,24 @@ export async function getSocketUrl(): Promise<string> {
   // Default fallback
   return 'http://localhost:3456';
 }
+
+/**
+ * Open a URL in the system browser.
+ * Uses Tauri shell plugin when in Tauri, falls back to window.open otherwise.
+ */
+export async function openUrl(url: string): Promise<void> {
+  if (isTauri() && window.__TAURI__) {
+    try {
+      // Tauri v2: use @tauri-apps/plugin-shell
+      const { open } = await import('@tauri-apps/plugin-shell');
+      await open(url);
+      return;
+    } catch (e) {
+      console.error('[Tauri] Failed to open URL via shell plugin:', e);
+      // Fall through to window.open
+    }
+  }
+
+  // Fallback for non-Tauri or if shell plugin fails
+  window.open(url, '_blank');
+}

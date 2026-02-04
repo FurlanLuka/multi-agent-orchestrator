@@ -33,8 +33,7 @@ export interface ProjectConfig {
   hasE2E: boolean;
   e2eInstructions?: string;  // Custom E2E testing instructions (markdown). If set, overrides default E2E behavior
   dependsOn?: string[];  // Projects that must complete E2E before this one starts (e.g., frontend depends on backend)
-  gitEnabled?: boolean;  // Enable git features (feature branches, auto-commits)
-  mainBranch?: string;   // Main branch name (default: 'main')
+  mainBranch?: string;   // Main branch name (default: 'main') - only used at workspace level for orchyManaged
   permissions?: ProjectPermissions;  // Claude Code agent permissions for this project
   attachedDesign?: string;  // Name of design from library (singular - one per project)
 }
@@ -98,10 +97,9 @@ export interface WorkspaceConfig {
   name: string;            // "Blog"
   projects: WorkspaceProjectConfig[];  // inline project configs
   context?: string;        // planning context/rules (markdown)
-  managedGit?: boolean;    // Auto-generate branches, hide branch input. Default: true
-  autoMerge?: boolean;     // Auto-merge on completion. Default: true
   orchyManaged?: boolean;  // True for template-created monorepo workspaces (single git repo at workspace root)
   github?: GitHubConfig;   // GitHub integration settings (only for orchyManaged workspaces)
+  mainBranch?: string;     // Main branch name (default: 'main') - used for orchyManaged workspaces
   createdAt: number;
   updatedAt: number;
 }

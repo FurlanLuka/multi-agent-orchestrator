@@ -39,9 +39,7 @@ const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
       installEnabled: true,
       installCommand: 'npm install',
       setupCommand: 'claude mcp add playwright -- npx @playwright/mcp@latest',
-      hasE2E: true,
-      gitEnabled: true,
-      mainBranch: 'main'
+      hasE2E: true
     }
   },
   'nestjs-backend': {
@@ -60,9 +58,7 @@ const TEMPLATES: Record<ProjectTemplate, ProjectTemplateConfig> = {
       buildCommand: 'npm run build',
       installEnabled: true,
       installCommand: 'npm install',
-      hasE2E: true,
-      gitEnabled: true,
-      mainBranch: 'main'
+      hasE2E: true
     }
   }
 };
@@ -326,29 +322,8 @@ ${fullCommand}
       await this.runSetupCommand(expandedPath, name, projectConfig.setupCommand);
     }
 
-    // Initialize git repo and commit all files (template + hooks) if git is enabled
-    // Skip if skipGitInit is true (for Orchy Managed monorepo workspaces - git is handled at workspace level)
-    if (projectConfig.gitEnabled && !skipGitInit) {
-      const gitManager = new GitManager();
-      const mainBranch = projectConfig.mainBranch || 'main';
-      console.log(`[TemplateManager] Initializing git repository for ${name}...`);
-
-      // Init repo (ensures main branch exists)
-      const initResult = await gitManager.initRepo(expandedPath, mainBranch);
-      if (initResult.success) {
-        // Commit all files (template files + hooks setup)
-        const commitResult = await gitManager.commit(expandedPath, `Initial commit from ${template} template`);
-        if (commitResult.success) {
-          console.log(`[TemplateManager] Git initialized and project committed for ${name}`);
-        } else {
-          console.warn(`[TemplateManager] Git init succeeded but commit failed: ${commitResult.message}`);
-        }
-      } else {
-        console.warn(`[TemplateManager] Failed to initialize git for ${name}: ${initResult.message}`);
-      }
-    } else if (skipGitInit && projectConfig.gitEnabled) {
-      console.log(`[TemplateManager] Skipping git init for ${name} (Orchy Managed workspace)`);
-    }
+    // Note: Git initialization is handled at the workspace level for orchyManaged workspaces
+    // Non-orchyManaged workspaces don't have git features
 
     return projectConfig;
   }

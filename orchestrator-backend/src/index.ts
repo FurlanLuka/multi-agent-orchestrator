@@ -106,7 +106,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
+import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig, WORKSPACE_ROOT_PROJECT, GitHubConfig } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -1509,13 +1509,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     await processManager.stopAllDevServers();
     ui.io.emit('devServerStatus', { servers: [] });
 
-    // Check if auto-merge is enabled for this workspace
+    // Check if auto-merge is enabled for this workspace (orchyManaged = auto-merge)
     const session = sessionManager.getCurrentSession();
     if (session?.workspaceId) {
       const workspace = workspaceManager.getWorkspace(session.workspaceId);
-      // Auto-merge if enabled (default: true) and there are git branches
-      if (workspace?.autoMerge !== false && session.gitBranches && Object.keys(session.gitBranches).length > 0) {
-        console.log('[Orchestrator] Auto-merge enabled, triggering automatic approval...');
+      // Auto-merge for orchyManaged workspaces when there are git branches
+      if (workspace?.orchyManaged && session.gitBranches && Object.keys(session.gitBranches).length > 0) {
+        console.log('[Orchestrator] Orchy Managed workspace: triggering automatic merge...');
         await executeMergeSession(session.id);
       }
     }
@@ -2083,7 +2083,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         let resolvedFeature = feature;
         let resolvedProjects = projects;
         let workspaceProjectConfigs: Record<string, ProjectConfig> = {};
-        let isManagedGit = false;
         let isOrchyManaged = false;
 
         if (workspaceId) {
@@ -2092,10 +2091,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Get project configs from workspace (inline storage)
             workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
 
-            // Check if managed git is enabled (default: true for new workspaces)
-            isManagedGit = workspace.managedGit !== false;
-
-            // Check if this is an Orchy Managed workspace (monorepo)
+            // Check if this is an Orchy Managed workspace (monorepo with git features)
             isOrchyManaged = workspace.orchyManaged === true;
 
             // MERGE workspace configs into config.projects so all managers have access
@@ -2134,9 +2130,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         // Initialize git branches for git-enabled projects
         const gitBranches: Record<string, string> = {};
 
-        // For managed git: generate branch name with AI if not provided
+        // For orchyManaged: generate branch name with AI if not provided
         let actualBranchName: string | undefined;
-        if (isManagedGit && !branchName?.trim()) {
+        if (isOrchyManaged && !branchName?.trim()) {
           try {
             console.log('[Orchestrator] Managed git: generating branch name with AI...');
             actualBranchName = await generateBranchName(feature);
@@ -2254,70 +2250,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               chatHandler.systemMessage(`Git setup error: ${err}. Session will continue but git features may not work.`);
             }
           }
-        } else {
-          // Regular workspaces: per-project git repos
-          for (const project of resolvedProjects) {
-            const projectConfig = getProjectConfig(project);
-            if (projectConfig?.gitEnabled) {
-              try {
-                // Expand path
-                let projectPath = projectConfig.path;
-                if (projectPath.startsWith('~')) {
-                  projectPath = projectPath.replace('~', process.env.HOME || '');
-                }
-
-                // Initialize git repo (non-destructive, ensures main branch exists)
-                const mainBranchForProject = projectConfig.mainBranch || 'main';
-                await gitManager.initRepo(projectPath, mainBranchForProject);
-
-                // For managed git: stash changes, checkout main and pull latest before creating feature branch
-                if (isManagedGit) {
-                  console.log(`[Orchestrator] Managed git: checking out ${mainBranchForProject} and pulling latest for ${project}...`);
-
-                  // Check for uncommitted changes and stash if needed
-                  const uncommitted = await gitManager.hasUncommittedChanges(projectPath);
-                  if (uncommitted.hasChanges) {
-                    console.log(`[Orchestrator] Stashing uncommitted changes for ${project} before branch switch (${uncommitted.staged} staged, ${uncommitted.unstaged} unstaged, ${uncommitted.untracked} untracked)`);
-                    const stashResult = await gitManager.stashChanges(projectPath, `orchy-session-start-${project}`);
-                    if (!stashResult.success) {
-                      console.warn(`[Orchestrator] Failed to stash changes for ${project}: ${stashResult.message}`);
-                    }
-                  }
-
-                  // Checkout main branch
-                  const checkoutResult = await gitManager.createAndCheckoutBranch(projectPath, mainBranchForProject);
-                  if (!checkoutResult.success) {
-                    console.warn(`[Orchestrator] Failed to checkout ${mainBranchForProject} for ${project}: ${checkoutResult.message}`);
-                  }
-                  // Pull latest (ignore errors for repos without remote)
-                  try {
-                    const pullResult = await gitManager.pullBranch(projectPath, mainBranchForProject);
-                    if (pullResult.success) {
-                      console.log(`[Orchestrator] Pulled latest ${mainBranchForProject} for ${project}`);
-                    }
-                  } catch (pullErr) {
-                    // Pull may fail if no remote configured, which is fine
-                    console.log(`[Orchestrator] Pull skipped for ${project} (no remote or error): ${pullErr}`);
-                  }
-                }
-
-                // Use branch name from: 1) user input, 2) AI-generated (managed git), 3) fallback
-                const finalBranchName = branchName?.trim() || actualBranchName || gitManager.generateBranchName(resolvedFeature);
-
-                // Create and checkout branch
-                const branchResult = await gitManager.createAndCheckoutBranch(projectPath, finalBranchName);
-                if (branchResult.success) {
-                  gitBranches[project] = finalBranchName;
-                  console.log(`[Orchestrator] Git branch '${finalBranchName}' ${branchResult.created ? 'created' : 'checked out'} for ${project}`);
-                } else {
-                  console.error(`[Orchestrator] Failed to setup git branch for ${project}: ${branchResult.message}`);
-                }
-              } catch (err) {
-                console.error(`[Orchestrator] Git setup failed for ${project}:`, err);
-              }
-            }
-          }
         }
+        // Non-orchyManaged workspaces: no git features
 
         // Store git branches in session
         if (Object.keys(gitBranches).length > 0) {
@@ -2999,8 +2933,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         return;
       }
 
-      if (!projectConfig.gitEnabled) {
-        socket.emit('pushBranchError', { project, error: 'Git is not enabled for this project' });
+      // Git operations only available for orchyManaged workspaces
+      const session = sessionManager.getCurrentSession();
+      const workspace = session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : undefined;
+      if (!workspace?.orchyManaged) {
+        socket.emit('pushBranchError', { project, error: 'Git features are only available for Orchy Managed workspaces' });
         return;
       }
 
@@ -3034,8 +2971,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         return;
       }
 
-      if (!projectConfig.gitEnabled) {
-        socket.emit('mergeBranchError', { project, error: 'Git is not enabled for this project' });
+      // Git operations only available for orchyManaged workspaces
+      const session = sessionManager.getCurrentSession();
+      const workspace = session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : undefined;
+      if (!workspace?.orchyManaged) {
+        socket.emit('mergeBranchError', { project, error: 'Git features are only available for Orchy Managed workspaces' });
         return;
       }
 
@@ -3061,12 +3001,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Check branch status for projects before starting a session
+    // Note: This is now only called for orchyManaged workspaces from the frontend
     socket.on('checkBranchStatus', async ({ projects }: { projects: string[] }) => {
       console.log(`[Orchestrator] Checking branch status for: ${projects.join(', ')}`);
 
       const results: Array<{
         project: string;
-        gitEnabled: boolean;
+        hasGitRepo: boolean;
         currentBranch: string | null;
         mainBranch: string;
         isOnMainBranch: boolean;
@@ -3078,22 +3019,24 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         const projectConfig = getProjectConfigForSession(projectName);
         if (!projectConfig) continue;
 
-        if (!projectConfig.gitEnabled) {
-          results.push({
-            project: projectName,
-            gitEnabled: false,
-            currentBranch: null,
-            mainBranch: 'main',
-            isOnMainBranch: true,
-            hasUncommittedChanges: false,
-          });
-          continue;
-        }
-
         try {
           let projectPath = projectConfig.path;
           if (projectPath.startsWith('~')) {
             projectPath = projectPath.replace('~', process.env.HOME || '');
+          }
+
+          // Check if this path has a git repo
+          const hasGitRepo = await gitManager.isGitRepo(projectPath);
+          if (!hasGitRepo) {
+            results.push({
+              project: projectName,
+              hasGitRepo: false,
+              currentBranch: null,
+              mainBranch: 'main',
+              isOnMainBranch: true,
+              hasUncommittedChanges: false,
+            });
+            continue;
           }
 
           const currentBranch = await gitManager.getCurrentBranch(projectPath);
@@ -3105,7 +3048,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
           results.push({
             project: projectName,
-            gitEnabled: true,
+            hasGitRepo: true,
             currentBranch,
             mainBranch,
             isOnMainBranch,
@@ -3120,7 +3063,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           console.error(`[Orchestrator] Error checking branch for ${projectName}:`, err);
           results.push({
             project: projectName,
-            gitEnabled: true,
+            hasGitRepo: false,
             currentBranch: null,
             mainBranch: projectConfig.mainBranch || 'main',
             isOnMainBranch: false,
@@ -3134,6 +3077,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
     // Checkout main branch for projects
     // If stashFirst is true, stash uncommitted changes before checkout
+    // Note: This is only called for orchyManaged workspaces from the frontend
     socket.on('checkoutMainBranch', async ({ projects, stashFirst }: { projects: string[]; stashFirst?: boolean }) => {
       console.log(`[Orchestrator] Checking out main branch for: ${projects.join(', ')}${stashFirst ? ' (stashing first)' : ''}`);
 
@@ -3141,7 +3085,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
       for (const projectName of projects) {
         const projectConfig = getProjectConfigForSession(projectName);
-        if (!projectConfig || !projectConfig.gitEnabled) continue;
+        if (!projectConfig) continue;
 
         try {
           let projectPath = projectConfig.path;
@@ -3187,11 +3131,20 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Handle GitHub info request (check if project is a GitHub project)
+    // Only for orchyManaged workspaces
     socket.on('getGitHubInfo', async ({ project }: { project: string }) => {
       console.log(`[Orchestrator] GitHub info requested for ${project}`);
       const projectConfig = getProjectConfigForSession(project);
 
-      if (!projectConfig || !projectConfig.gitEnabled) {
+      if (!projectConfig) {
+        socket.emit('gitHubInfo', { project, isGitHub: false });
+        return;
+      }
+
+      // Git features only for orchyManaged workspaces
+      const session = sessionManager.getCurrentSession();
+      const workspace = session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : undefined;
+      if (!workspace?.orchyManaged) {
         socket.emit('gitHubInfo', { project, isGitHub: false });
         return;
       }
@@ -3211,11 +3164,20 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Handle get branches request (for PR base branch selection)
+    // Only for orchyManaged workspaces
     socket.on('getBranches', async ({ project }: { project: string }) => {
       console.log(`[Orchestrator] Branches requested for ${project}`);
       const projectConfig = getProjectConfigForSession(project);
 
-      if (!projectConfig || !projectConfig.gitEnabled) {
+      if (!projectConfig) {
+        socket.emit('branches', { project, branches: [] });
+        return;
+      }
+
+      // Git features only for orchyManaged workspaces
+      const session = sessionManager.getCurrentSession();
+      const workspace = session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : undefined;
+      if (!workspace?.orchyManaged) {
         socket.emit('branches', { project, branches: [] });
         return;
       }
@@ -3235,6 +3197,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     });
 
     // Handle create PR request
+    // Only for orchyManaged workspaces
     socket.on('createPR', async ({
       project,
       branchName,
@@ -3256,8 +3219,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         return;
       }
 
-      if (!projectConfig.gitEnabled) {
-        socket.emit('createPRError', { project, error: 'Git is not enabled for this project' });
+      // Git features only for orchyManaged workspaces
+      const session = sessionManager.getCurrentSession();
+      const workspace = session?.workspaceId ? workspaceManager.getWorkspace(session.workspaceId) : undefined;
+      if (!workspace?.orchyManaged) {
+        socket.emit('createPRError', { project, error: 'Git features are only available for Orchy Managed workspaces' });
         return;
       }
 
@@ -3634,8 +3600,8 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
         // Initialize git branch at workspace root (Orchy Managed monorepo)
         const gitBranches: Record<string, string> = {};
-        const hasGitEnabledProject = createdProjectConfigs.some(p => p.gitEnabled);
-        if (hasGitEnabledProject) {
+        // Always create git branch for orchyManaged workspaces
+        if (workspace.orchyManaged) {
           try {
             // Generate branch name with AI
             let actualBranchName: string;
@@ -3962,7 +3928,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
     });
 
-    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; managedGit?: boolean; autoMerge?: boolean } }) => {
+    socket.on('updateWorkspace', ({ id, updates }: { id: string; updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; github?: GitHubConfig; mainBranch?: string } }) => {
       try {
         workspaceManager.updateWorkspace(id, updates);
         socket.emit('workspaces', workspaceManager.getWorkspaces());

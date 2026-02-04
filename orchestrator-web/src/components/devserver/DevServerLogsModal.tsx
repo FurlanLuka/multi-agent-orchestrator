@@ -17,6 +17,7 @@ import {
   IconExternalLink,
 } from '@tabler/icons-react';
 import type { DevServerLogEntry, DevServerState } from '@orchy/types';
+import { openUrl } from '../../lib/tauri';
 
 interface DevServerLogsModalProps {
   opened: boolean;
@@ -60,7 +61,7 @@ export function DevServerLogsModal({
 
   const handleOpenInBrowser = () => {
     if (server?.url) {
-      window.open(server.url, '_blank');
+      openUrl(server.url);
     }
   };
 

@@ -217,7 +217,6 @@ function AppRoutes() {
             checkoutingBranches={checkoutingBranches}
             addingProject={addingProject}
             creatingProject={creatingProject}
-            gitAvailable={dependencyCheck?.git.available ?? true}
             port={port}
             onStart={handleStartFromWorkspace}
             onCheckBranchStatus={checkBranchStatus}
@@ -283,7 +282,6 @@ function PromptScreenWrapper({
   checkoutingBranches,
   addingProject,
   creatingProject,
-  gitAvailable,
   port,
   onStart,
   onCheckBranchStatus,
@@ -303,7 +301,7 @@ function PromptScreenWrapper({
   startingSession: boolean;
   branchCheckResult: Array<{
     project: string;
-    gitEnabled: boolean;
+    hasGitRepo: boolean;
     currentBranch: string | null;
     mainBranch: string;
     isOnMainBranch: boolean;
@@ -314,7 +312,6 @@ function PromptScreenWrapper({
   checkoutingBranches: boolean;
   addingProject: boolean;
   creatingProject: boolean;
-  gitAvailable: boolean;
   port: number | null;
   onStart: (feature: string, workspaceId: string, branchName?: string) => void;
   onCheckBranchStatus: (projects: string[]) => void;
@@ -364,7 +361,6 @@ function PromptScreenWrapper({
         checkoutingBranches={checkoutingBranches}
         addingProject={addingProject}
         creatingProject={creatingProject}
-        gitAvailable={gitAvailable}
         port={port}
         forceEditMode={isEmptyWorkspace}
         onBack={() => navigate('/home')}

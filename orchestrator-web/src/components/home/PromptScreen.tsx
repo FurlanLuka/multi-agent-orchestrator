@@ -21,7 +21,6 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconRocket,
-  IconGitBranch,
   IconPlus,
   IconEdit,
   IconTrash,
@@ -44,7 +43,6 @@ import type {
 } from '@orchy/types';
 import {
   FormCard,
-  GlassTextInput,
   GlassRichTextEditor,
   GlassTextarea,
   useGlassEditor,
@@ -62,7 +60,7 @@ import { useOrchestrator } from '../../context/OrchestratorContext';
 
 interface BranchCheckResult {
   project: string;
-  gitEnabled: boolean;
+  hasGitRepo: boolean;
   currentBranch: string | null;
   mainBranch: string;
   isOnMainBranch: boolean;
@@ -80,7 +78,6 @@ interface PromptScreenProps {
   checkoutingBranches: boolean;
   addingProject: boolean;
   creatingProject: boolean;
-  gitAvailable: boolean;
   port: number | null;
   forceEditMode?: boolean;  // Force edit mode (e.g., for empty workspaces)
   onBack: () => void;
@@ -99,7 +96,7 @@ interface PromptScreenProps {
   onAddProjectToWorkspace: (workspaceId: string, project: WorkspaceProjectConfig) => void;
   onUpdateWorkspaceProject: (workspaceId: string, projectName: string, updates: Partial<ProjectConfig>) => void;
   onRemoveProjectFromWorkspace: (workspaceId: string, projectName: string) => void;
-  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig }) => void;
+  onUpdateWorkspace: (id: string, updates: { name?: string; context?: string; github?: GitHubConfig }) => void;
   onCreateProjectFromTemplate: (options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
   createProjectError?: string | null;
   onClearCreateProjectError?: () => void;
@@ -115,7 +112,6 @@ export function PromptScreen({
   checkoutingBranches,
   addingProject,
   creatingProject,
-  gitAvailable,
   port,
   forceEditMode = false,
   onBack,
@@ -134,7 +130,8 @@ export function PromptScreen({
   onClearCreateProjectError,
 }: PromptScreenProps) {
   const { startDevServers, devServers, startingDevServers, stopAllDevServers } = useOrchestrator();
-  const [branchName, setBranchName] = useState('');
+  // Branch name is auto-generated for orchyManaged workspaces
+  const [branchName] = useState('');
 
   // GitHub verification state
   const [githubStatus, setGithubStatus] = useState<{
@@ -174,8 +171,6 @@ export function PromptScreen({
   }, [hasProjects, isEditMode]);
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [contextValue, setContextValue] = useState(workspace.context || '');
-  const [managedGitValue, setManagedGitValue] = useState(workspace.managedGit !== false);
-  const [autoMergeValue, setAutoMergeValue] = useState(workspace.autoMerge !== false);
   const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfig | null>(null);
 
   // GitHub settings state for edit mode
@@ -300,25 +295,19 @@ export function PromptScreen({
   // Sync context and git settings when workspace changes
   useEffect(() => {
     setContextValue(workspace.context || '');
-    setManagedGitValue(workspace.managedGit !== false);
-    setAutoMergeValue(workspace.autoMerge !== false);
-  }, [workspace.context, workspace.managedGit, workspace.autoMerge]);
+  }, [workspace.context]);
 
-  const hasGitEnabledProject = workspace.projects.some(
-    p => p.gitEnabled
-  );
-
-  // Check if managed git is enabled (default: true for new workspaces)
-  const isManagedGit = workspace.managedGit !== false;
+  // Git features are only available for orchyManaged workspaces
+  const isOrchyManaged = workspace.orchyManaged === true;
 
   const hasContent = editorContent.trim().length > 0;
 
-  // Get list of included git-enabled projects
-  const getIncludedGitProjects = useCallback(() => {
+  // For orchyManaged workspaces, all projects share the workspace git
+  const getIncludedProjects = useCallback(() => {
     return sessionProjectConfigs
-      .filter(c => c.included && workspaceProjectConfigs[c.name]?.gitEnabled)
+      .filter(c => c.included)
       .map(c => c.name);
-  }, [sessionProjectConfigs, workspaceProjectConfigs]);
+  }, [sessionProjectConfigs]);
 
   const handleStart = () => {
     // Check if dev servers are running - must stop them first
@@ -334,19 +323,19 @@ export function PromptScreen({
     if (text) {
       // Filter to only included projects
       const includedConfigs = sessionProjectConfigs.filter(c => c.included);
-      const gitProjects = getIncludedGitProjects();
+      const includedProjects = getIncludedProjects();
 
-      // If there are git-enabled projects, check their branch status first
-      if (gitProjects.length > 0) {
+      // For orchyManaged workspaces, check branch status first
+      if (isOrchyManaged && includedProjects.length > 0) {
         setPendingStartParams({
           feature: text,
           workspaceId: workspace.id,
-          branchName: hasGitEnabledProject ? branchName.trim() || undefined : undefined,
+          branchName: branchName.trim() || undefined,
           includedConfigs,
         });
-        onCheckBranchStatus(gitProjects);
+        onCheckBranchStatus(includedProjects);
       } else {
-        // No git projects, start immediately
+        // Non-orchyManaged workspaces: start immediately (no git features)
         onStart(
           text,
           workspace.id,
@@ -368,7 +357,7 @@ export function PromptScreen({
     if (branchCheckResult && pendingStartParams) {
       // Check if any projects are NOT on their main branch
       const hasProjectsOffMain = branchCheckResult.some(
-        r => r.gitEnabled && !r.isOnMainBranch && r.currentBranch
+        r => r.hasGitRepo && !r.isOnMainBranch && r.currentBranch
       );
 
       if (!hasProjectsOffMain) {
@@ -406,8 +395,8 @@ export function PromptScreen({
   };
 
   const handleBranchCheckCheckout = (stashFirst: boolean) => {
-    const gitProjects = getIncludedGitProjects();
-    onCheckoutMainBranch(gitProjects, stashFirst);
+    const includedProjects = getIncludedProjects();
+    onCheckoutMainBranch(includedProjects, stashFirst);
   };
 
   // When checkout completes, start the session
@@ -426,7 +415,7 @@ export function PromptScreen({
 
   // Show modal when we have branch check results with projects off main
   const showBranchModal = branchCheckResult !== null && pendingStartParams !== null &&
-    branchCheckResult.some(r => r.gitEnabled && !r.isOnMainBranch && r.currentBranch);
+    branchCheckResult.some(r => r.hasGitRepo && !r.isOnMainBranch && r.currentBranch);
 
   // Edit mode handlers
   const handleToggleEditMode = () => {
@@ -436,15 +425,9 @@ export function PromptScreen({
         return;
       }
       // Exiting edit mode - save changes if any
-      const updates: { context?: string; managedGit?: boolean; autoMerge?: boolean; github?: GitHubConfig } = {};
+      const updates: { context?: string; github?: GitHubConfig } = {};
       if (contextValue !== workspace.context) {
         updates.context = contextValue;
-      }
-      if (managedGitValue !== (workspace.managedGit !== false)) {
-        updates.managedGit = managedGitValue;
-      }
-      if (autoMergeValue !== (workspace.autoMerge !== false)) {
-        updates.autoMerge = autoMergeValue;
       }
       // Save GitHub settings for Orchy managed workspaces
       if (workspace.orchyManaged) {
@@ -512,7 +495,6 @@ export function PromptScreen({
       hasE2E: options.hasE2E || false,
       e2eInstructions: options.e2eInstructions,
       dependsOn: options.dependsOn,
-      gitEnabled: options.gitEnabled,
       mainBranch: options.mainBranch,
       permissions: options.permissions,
     };
@@ -590,9 +572,6 @@ export function PromptScreen({
                           {project.hasE2E && (
                             <Badge size="xs" variant="light" color="peach">E2E</Badge>
                           )}
-                          {project.gitEnabled && (
-                            <Badge size="xs" variant="light" color="lavender">Git</Badge>
-                          )}
                         </Group>
 
                         {/* Action buttons */}
@@ -648,66 +627,29 @@ export function PromptScreen({
             </Text>
           </Stack>
 
-          {/* Git Settings section */}
-          {hasGitEnabledProject && (
+          {/* Git Settings section - only for Orchy Managed workspaces */}
+          {isOrchyManaged && (
             <Stack gap="sm">
               <Group gap="xs" align="center">
                 <IconGitMerge size={18} style={{ color: 'var(--mantine-color-lavender-6)' }} />
                 <Title order={4}>Git Settings</Title>
               </Group>
               <GlassCard p="md">
-                <Stack gap="md">
-                  {/* Orchy Managed info - show when orchyManaged is true */}
-                  {workspace.orchyManaged && (
-                    <Box
-                      p="sm"
-                      style={{
-                        background: 'rgba(183, 166, 234, 0.1)',
-                        borderRadius: 8,
-                        border: '1px solid rgba(183, 166, 234, 0.2)',
-                      }}
-                    >
-                      <Group gap="xs" mb={4}>
-                        <Badge size="xs" variant="light" color="lavender">Orchy Managed</Badge>
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        All projects share a single git repository at the workspace root. Git settings are managed automatically.
-                      </Text>
-                    </Box>
-                  )}
-
-                  {/* Managed Git toggle - hidden for Orchy Managed workspaces */}
-                  {!workspace.orchyManaged && (
-                    <Group justify="space-between" align="flex-start">
-                      <Stack gap={2} style={{ flex: 1 }}>
-                        <Text size="sm" fw={500}>Managed Git</Text>
-                        <Text size="xs" c="dimmed">
-                          Automatically generate branch names from feature descriptions. When disabled, you can manually enter branch names.
-                        </Text>
-                      </Stack>
-                      <Switch
-                        checked={managedGitValue}
-                        onChange={(e) => setManagedGitValue(e.currentTarget.checked)}
-                        color="lavender"
-                      />
-                    </Group>
-                  )}
-
-                  {/* Auto Merge toggle */}
-                  <Group justify="space-between" align="flex-start">
-                    <Stack gap={2} style={{ flex: 1 }}>
-                      <Text size="sm" fw={500}>Auto Merge</Text>
-                      <Text size="xs" c="dimmed">
-                        Automatically merge feature branches when all tasks and E2E tests complete successfully.
-                      </Text>
-                    </Stack>
-                    <Switch
-                      checked={autoMergeValue}
-                      onChange={(e) => setAutoMergeValue(e.currentTarget.checked)}
-                      color="lavender"
-                    />
+                <Box
+                  p="sm"
+                  style={{
+                    background: 'rgba(183, 166, 234, 0.1)',
+                    borderRadius: 8,
+                    border: '1px solid rgba(183, 166, 234, 0.2)',
+                  }}
+                >
+                  <Group gap="xs" mb={4}>
+                    <Badge size="xs" variant="light" color="lavender">Orchy Managed</Badge>
                   </Group>
-                </Stack>
+                  <Text size="xs" c="dimmed">
+                    All projects share a single git repository at the workspace root. Branch names are generated automatically and changes are merged on completion.
+                  </Text>
+                </Box>
               </GlassCard>
             </Stack>
           )}
@@ -847,7 +789,6 @@ export function PromptScreen({
           projects={workspaceProjectConfigs}
           creatingProject={creatingProject}
           addingProject={addingProject}
-          gitAvailable={gitAvailable}
           port={effectivePort}
           permissionsConfig={permissionsConfig}
           createProjectError={createProjectError}
@@ -864,7 +805,6 @@ export function PromptScreen({
           projectName={editingProject}
           projectConfig={editingProject ? workspaceProjectConfigs[editingProject] : null}
           projects={workspaceProjectConfigs}
-          gitAvailable={gitAvailable}
           permissionsConfig={permissionsConfig}
           onSave={handleSaveProject}
         />
@@ -1054,16 +994,6 @@ export function PromptScreen({
                   editor={editor}
                 />
 
-                {hasGitEnabledProject && !isManagedGit && (
-                  <GlassTextInput
-                    label="Branch Name"
-                    placeholder="e.g., feature/my-feature (auto-generated if empty)"
-                    description="Feature branch will be created for git-enabled projects"
-                    value={branchName}
-                    onChange={(e) => setBranchName(e.target.value)}
-                    leftSection={<IconGitBranch size={16} />}
-                  />
-                )}
               </Stack>
             </FormCard>
           </Grid.Col>

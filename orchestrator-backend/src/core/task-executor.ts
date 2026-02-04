@@ -636,38 +636,22 @@ Please fix the issue and try again.`;
         this.activeTaskFlows.delete(taskIndex);
       }
 
-      // Git commit if enabled
-      const projectConfig = this.config.projects[project];
-      if (projectConfig?.gitEnabled && this.gitManager) {
+      // Git commit for orchyManaged workspaces (git at workspace root)
+      const orchyManaged = this.isOrchyManaged?.() ?? false;
+      if (orchyManaged && this.gitManager && this.getWorkspaceRoot) {
         try {
-          // For Orchy Managed workspaces, commit at workspace root (single git repo)
-          // For regular workspaces, commit at project path
-          let gitPath: string;
-          const orchyManaged = this.isOrchyManaged?.() ?? false;
+          const workspaceRoot = this.getWorkspaceRoot();
+          if (workspaceRoot) {
+            const gitPath = workspaceRoot.startsWith('~')
+              ? workspaceRoot.replace('~', process.env.HOME || '')
+              : workspaceRoot;
+            console.log(`[TaskExecutor] Orchy Managed: committing at workspace root ${gitPath}`);
 
-          if (orchyManaged && this.getWorkspaceRoot) {
-            const workspaceRoot = this.getWorkspaceRoot();
-            if (workspaceRoot) {
-              gitPath = workspaceRoot.startsWith('~')
-                ? workspaceRoot.replace('~', process.env.HOME || '')
-                : workspaceRoot;
-              console.log(`[TaskExecutor] Orchy Managed: committing at workspace root ${gitPath}`);
-            } else {
-              // Fallback to project path if workspace root not available
-              gitPath = projectConfig.path.startsWith('~')
-                ? projectConfig.path.replace('~', process.env.HOME || '')
-                : projectConfig.path;
+            const commitMessage = `feat: ${task.name}`;
+            const commitResult = await this.gitManager.commit(gitPath, commitMessage);
+            if (commitResult.success && commitResult.commitHash) {
+              console.log(`[TaskExecutor] Git commit: ${commitResult.commitHash}`);
             }
-          } else {
-            gitPath = projectConfig.path.startsWith('~')
-              ? projectConfig.path.replace('~', process.env.HOME || '')
-              : projectConfig.path;
-          }
-
-          const commitMessage = `feat: ${task.name}`;
-          const commitResult = await this.gitManager.commit(gitPath, commitMessage);
-          if (commitResult.success && commitResult.commitHash) {
-            console.log(`[TaskExecutor] Git commit: ${commitResult.commitHash}`);
           }
         } catch (err) {
           console.warn(`[TaskExecutor] Git commit failed:`, err);

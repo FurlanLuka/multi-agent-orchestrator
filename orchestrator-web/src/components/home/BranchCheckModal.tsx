@@ -16,7 +16,7 @@ import { GlassCard } from '../../theme';
 
 interface BranchCheckResult {
   project: string;
-  gitEnabled: boolean;
+  hasGitRepo: boolean;
   currentBranch: string | null;
   mainBranch: string;
   isOnMainBranch: boolean;
@@ -45,7 +45,7 @@ export function BranchCheckModal({
 
   // Filter to only show projects that are NOT on their main branch
   const projectsNotOnMain = results.filter(
-    r => r.gitEnabled && !r.isOnMainBranch && r.currentBranch
+    r => r.hasGitRepo && !r.isOnMainBranch && r.currentBranch
   );
 
   // Check if any project has uncommitted changes

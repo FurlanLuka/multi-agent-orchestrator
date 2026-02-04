@@ -290,7 +290,18 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // HTTP endpoint for MCP server to call when agent submits plan for approval
   app.post('/api/plan-approval', async (req: Request, res: Response) => {
-    const { plan } = req.body;
+    let { plan } = req.body;
+
+    // Parse plan if it's a JSON string (agent may submit as string)
+    if (typeof plan === 'string') {
+      try {
+        plan = JSON.parse(plan);
+      } catch (err) {
+        console.error('[UIServer] Failed to parse plan JSON string:', err);
+        res.status(400).json({ error: 'Invalid plan JSON' });
+        return;
+      }
+    }
 
     // Generate unique approval ID
     const approvalId = `approval_${Date.now()}`;

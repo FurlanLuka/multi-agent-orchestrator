@@ -27,7 +27,6 @@ import {
   IconServer,
   IconBrowser,
   IconFolderPlus,
-  IconGitBranch,
   IconAlertTriangle,
   IconPackage,
   IconHammer,
@@ -59,8 +58,6 @@ interface AddProjectFormValues {
   hasE2E: boolean;
   e2eInstructions: string;
   dependsOn: string[];
-  gitEnabled: boolean;
-  mainBranch: string;
   dangerouslyAllowAll: boolean;
   permissions: string[];
 }
@@ -89,7 +86,6 @@ export interface AddProjectOptions {
   hasE2E?: boolean;
   e2eInstructions?: string;
   dependsOn?: string[];
-  gitEnabled?: boolean;
   mainBranch?: string;
   permissions?: {
     dangerouslyAllowAll?: boolean;
@@ -115,7 +111,6 @@ interface AddProjectModalProps {
   projects: Record<string, ProjectConfig>;
   creatingProject: boolean;
   addingProject: boolean;
-  gitAvailable: boolean;
   port: number;
   permissionsConfig: PermissionsConfig | null;
   createProjectError?: string | null;
@@ -132,7 +127,6 @@ export function AddProjectModal({
   projects,
   creatingProject,
   addingProject,
-  gitAvailable,
   port,
   permissionsConfig,
   createProjectError,
@@ -166,8 +160,6 @@ export function AddProjectModal({
       hasE2E: false,
       e2eInstructions: '',
       dependsOn: [],
-      gitEnabled: false,
-      mainBranch: 'main',
       dangerouslyAllowAll: false,
       permissions: [],
     },
@@ -179,7 +171,6 @@ export function AddProjectModal({
       devServerCommand: (value, values) => values.devServerEnabled && !value.trim() ? 'Command is required' : null,
       devServerUrl: (value, values) => values.devServerEnabled && !value.trim() ? 'URL is required' : null,
       setupCommand: (value, values) => values.setupEnabled && !value.trim() ? 'Command is required' : null,
-      mainBranch: (value, values) => values.gitEnabled && !value.trim() ? 'Main branch is required' : null,
     },
   });
 
@@ -259,8 +250,6 @@ export function AddProjectModal({
         hasE2E: values.hasE2E,
         e2eInstructions: values.e2eInstructions.trim() || undefined,
         dependsOn: values.dependsOn.length > 0 ? values.dependsOn : undefined,
-        gitEnabled: values.gitEnabled,
-        mainBranch: values.mainBranch.trim() || 'main',
         permissions: values.dangerouslyAllowAll
           ? { dangerouslyAllowAll: true, allow: [] }
           : { allow: values.permissions },
@@ -477,27 +466,6 @@ export function AddProjectModal({
             </FeatureSection>
 
             <FeatureSection
-              label="Git Integration"
-              description="Feature branches and auto-commit"
-              icon={<IconGitBranch size={16} color="var(--mantine-color-grape-6)" />}
-              enabled={addForm.values.gitEnabled}
-              onToggle={(v) => addForm.setFieldValue('gitEnabled', v)}
-            >
-              {!gitAvailable && (
-                <Alert icon={<IconAlertTriangle size={16} />} color="orange" variant="light">
-                  Git CLI not found.
-                </Alert>
-              )}
-              <GlassTextInput
-                label="Main Branch"
-                placeholder="main"
-                {...addForm.getInputProps('mainBranch')}
-                size="xs"
-                required
-              />
-            </FeatureSection>
-
-            <FeatureSection
               label="Dangerously Allow All"
               description="Skip all permission checks (not recommended)"
               icon={<IconShieldOff size={16} color="var(--mantine-color-red-6)" />}
@@ -546,9 +514,6 @@ export function AddProjectModal({
                   )}
                   {selectedTemplateConfig.config.hasE2E && (
                     <Badge size="xs" variant="outline" color="peach">E2E</Badge>
-                  )}
-                  {selectedTemplateConfig.config.gitEnabled && (
-                    <Badge size="xs" variant="outline" color="grape">Git</Badge>
                   )}
                 </Group>
               </Card>

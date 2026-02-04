@@ -58,9 +58,9 @@ export function CompletionPanel({ onBackToHome, failed = false }: CompletionPane
   } = useOrchestrator();
 
   // Derive project configs and workspace settings
-  const { projectConfigs, isManagedGit } = useMemo(() => {
+  const { projectConfigs, isOrchyManaged } = useMemo(() => {
     const configs: Record<string, ProjectConfig> = {};
-    let managedGit = false;
+    let orchyManaged = false;
 
     if (session?.workspaceId && workspaces[session.workspaceId]) {
       const workspace = workspaces[session.workspaceId];
@@ -68,9 +68,9 @@ export function CompletionPanel({ onBackToHome, failed = false }: CompletionPane
         const { name, ...config } = proj;
         configs[name] = config;
       }
-      managedGit = workspace.managedGit !== false;
+      orchyManaged = workspace.orchyManaged === true;
     }
-    return { projectConfigs: configs, isManagedGit: managedGit };
+    return { projectConfigs: configs, isOrchyManaged: orchyManaged };
   }, [session?.workspaceId, workspaces]);
 
   // Check if all changes have been approved/merged
@@ -140,7 +140,7 @@ export function CompletionPanel({ onBackToHome, failed = false }: CompletionPane
   return (
     <Stack gap="md" mb="md">
       {/* Managed Git: User-friendly Save/Discard Card */}
-      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && isManagedGit && (
+      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && isOrchyManaged && (
         <GlassCard p="lg">
           <Stack gap="md">
             {/* Success state - changes merged */}
@@ -153,6 +153,16 @@ export function CompletionPanel({ onBackToHome, failed = false }: CompletionPane
                 <Text size="sm" c="dimmed" ta="center">
                   Your changes have been saved to the project.
                 </Text>
+                <Button
+                  size="md"
+                  variant="light"
+                  color="sage"
+                  leftSection={<IconHome size={18} />}
+                  onClick={handleEndSession}
+                  mt="sm"
+                >
+                  Back to Workspace
+                </Button>
               </Stack>
             )}
 
@@ -255,7 +265,7 @@ export function CompletionPanel({ onBackToHome, failed = false }: CompletionPane
       )}
 
       {/* Non-managed Git: Manual git operations (for advanced users) */}
-      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && !isManagedGit && (
+      {session?.gitBranches && Object.keys(session.gitBranches).length > 0 && !isOrchyManaged && (
         <GlassCard p="md">
           <Stack gap="md">
             <Group gap="xs">
