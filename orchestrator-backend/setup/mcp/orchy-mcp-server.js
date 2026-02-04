@@ -707,6 +707,21 @@ function getDeploymentInstructions(provider) {
 4. **Check Provider Docs** - Use WebSearch to verify current instance types/APIs
 5. **Generate Config** - Everything in \`.github/\` folder
 
+## CRITICAL: CLOUD PROVIDER VERIFICATION (MANDATORY)
+
+**Cloud provider specs change frequently.** Instance types, pricing, and APIs are updated regularly.
+
+**BEFORE generating ANY deployment config, you MUST:**
+1. Use WebSearch to verify current instance types: "hetzner cloud instance types 2026" or "digitalocean droplet sizes 2026"
+2. Never use hardcoded instance types from templates without verification
+3. The current year is 2026 - always include this in search queries for up-to-date results
+4. If WebSearch is unavailable, ask the user to confirm the instance type before proceeding
+
+**Example WebSearch queries:**
+- "hetzner cloud server types pricing 2026"
+- "digitalocean droplet sizes specs 2026"
+- "aws ec2 instance types 2026"
+
 ## PROVIDER RECOMMENDATION
 
 | App Type | Recommended Provider | Why |
@@ -854,7 +869,8 @@ resource "hcloud_ssh_key" "deploy" {
 
 resource "hcloud_server" "app" {
   name = "app-server"
-  server_type = "cx22"  # VERIFY WITH DOCS
+  # PLACEHOLDER - Use WebSearch "hetzner instance types 2026" to find current valid types
+  server_type = "VERIFY_WITH_WEBSEARCH"
   image = "ubuntu-22.04"
   location = "fsn1"
   ssh_keys = [hcloud_ssh_key.deploy.id]
@@ -961,10 +977,11 @@ Request sensitive tokens/keys that will be stored in GitHub Secrets:
 
 ## KEY PRINCIPLES
 
-1. **Verify with docs** - Use WebSearch before generating (instance types change)
+1. **ALWAYS VERIFY INSTANCE TYPES** - MANDATORY: Use WebSearch with year 2026 (e.g., "hetzner instance types 2026") BEFORE generating any deployment config. Never trust hardcoded values.
 2. **Everything in .github/** - Self-contained deployment
 3. **Idempotent** - Safe to run repeatedly
 4. **Instructions with secrets** - Show step-by-step for each secret request
+5. **Current year is 2026** - Always include this in search queries for up-to-date documentation
 `;
 
   // If specific provider requested, filter to just that section

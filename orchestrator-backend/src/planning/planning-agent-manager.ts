@@ -1015,7 +1015,14 @@ ${exploreCommands}
    - Provider-specific GitHub Actions configs
    - Terraform templates for VPS providers
    - **Secret request format** - you MUST use this format to request secrets from user
-3. Use the guide to inform your clarifying questions
+3. **MANDATORY: VERIFY INSTANCE TYPES WITH WEBSEARCH**
+   - Cloud provider specs (instance types, pricing, APIs) change frequently
+   - **The current year is 2026** - ALWAYS include this in search queries
+   - Before generating ANY deployment config, use WebSearch to verify instance types:
+     - "hetzner cloud instance types 2026"
+     - "digitalocean droplet sizes 2026"
+   - NEVER use hardcoded instance types from templates without verification
+4. Use the guide to inform your clarifying questions
 
 **DO NOT skip this step for deployment features - the guide contains required secret request formats.**
 
@@ -1138,6 +1145,11 @@ Each task MUST include implementation-ready detail:
    - Edge cases to handle
 
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
+
+6. **For deployment/infrastructure tasks:**
+   - **MANDATORY**: Use WebSearch to verify current instance types BEFORE generating config
+   - The current year is 2026 - include this in search queries
+   - Cloud provider specs change frequently - never trust hardcoded values from templates
    - List ALL required secrets with their names and purposes
    - Specify WHERE they need to be configured (e.g., .env file, GitHub Secrets, CI/CD)
    - **Distinguish between auto-generated vs user-provided secrets:**
@@ -1347,6 +1359,10 @@ Consider carefully:
 2. **Runtime errors**: Check dev server logs for crashes, Prisma errors, module not found, unhandled exceptions
 3. **Health check context**: Is it failing due to code issues or just timing? Check if dev server logs show the app started successfully
 4. **Hidden issues**: Warnings that might cause problems, deprecated APIs, potential runtime issues
+5. **Deployment/Infrastructure tasks** (if task involves Terraform, GitHub workflows, CI/CD):
+   - Check for placeholder values like "VERIFY_WITH_WEBSEARCH" - these MUST be replaced with actual instance types
+   - Verify instance types look valid (e.g., "cx22", "cpx11", "s-1vcpu-1gb") - not placeholders or obviously invalid values
+   - If Terraform files contain "VERIFY_WITH_WEBSEARCH", the task FAILED - agent should have used WebSearch to find valid types
 
 Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
 

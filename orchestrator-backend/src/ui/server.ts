@@ -702,6 +702,10 @@ Each task MUST include:
    - Include a concrete example request/response pair
 4. **For UIs:** component props, state, behavior, and the exact API endpoints it calls
 5. **Dependencies:** what to import or install
+6. **For deployment/infrastructure tasks:**
+   - **MANDATORY**: Use WebSearch to verify current instance types BEFORE generating config
+   - The current year is 2026 - include this in search queries
+   - Cloud provider specs change frequently - never trust hardcoded values from templates
 
 ## Architecture Diagram
 
