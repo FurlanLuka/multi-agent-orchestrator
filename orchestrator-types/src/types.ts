@@ -81,6 +81,8 @@ export interface GitHubGlobalSettings {
 export interface GitHubAuthStatus {
   authenticated: boolean;
   username?: string;
+  scopes?: string[];          // Token scopes (e.g., ['repo', 'workflow'])
+  hasWorkflowScope?: boolean; // True if token has 'workflow' scope (needed for .github/workflows)
   error?: string;
 }
 
@@ -91,6 +93,17 @@ export interface GitHubRepoAccessResult {
   error?: string;
 }
 
+// Deployment state (persisted on workspace for day-2 management)
+export interface DeploymentState {
+  provider: string;        // "hetzner"
+  serverName: string;      // "myapp-server"
+  serverIp: string;        // "1.2.3.4"
+  sshKeyName: string;      // "myapp-deploy"
+  instanceType: string;    // "cx22"
+  location: string;        // "fsn1"
+  provisionedAt: number;   // Date.now()
+}
+
 // Workspace configuration (stored in workspaces.json)
 export interface WorkspaceConfig {
   id: string;              // slug, e.g. "blog"
@@ -99,6 +112,7 @@ export interface WorkspaceConfig {
   context?: string;        // planning context/rules (markdown)
   orchyManaged?: boolean;  // True for template-created monorepo workspaces (single git repo at workspace root)
   github?: GitHubConfig;   // GitHub integration settings (only for orchyManaged workspaces)
+  deployment?: DeploymentState;  // Persisted deployment state for day-2 management
   mainBranch?: string;     // Main branch name (default: 'main') - used for orchyManaged workspaces
   createdAt: number;
   updatedAt: number;
@@ -130,13 +144,16 @@ export interface Session {
 
 // User input request (MCP tool: request_user_input)
 export interface UserInputField {
-  type?: 'input' | 'confirmation' | 'github_secret';  // Type: "input" (default) for text fields, "confirmation" for yes/no dialogs, "github_secret" for GitHub secrets
+  type?: 'input' | 'confirmation' | 'github_secret' | 'install_cli';  // Type: "input" (default) for text fields, "confirmation" for yes/no dialogs, "github_secret" for GitHub secrets, "install_cli" for CLI installation verification
   name?: string;          // Variable name (e.g., GOOGLE_CLIENT_ID) - required for type: "input"
   label: string;          // Display label (input field label OR confirmation dialog title)
   description?: string;   // Help text (input) OR detailed message (confirmation, supports markdown)
   sensitive?: boolean;    // If true, mask input (only for type: "input")
   required?: boolean;     // If true, must provide value (only for type: "input")
   repo?: string;          // For github_secret type: the repo to set the secret on (owner/repo)
+  installCommand?: string;  // For install_cli type: shell command to install (e.g., "brew install hcloud")
+  verifyCommand?: string;   // For install_cli type: command to verify installation (e.g., "hcloud version")
+  installUrl?: string;      // For install_cli type: URL with installation instructions
 }
 
 export interface UserInputRequest {

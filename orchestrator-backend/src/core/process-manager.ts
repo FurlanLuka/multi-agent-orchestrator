@@ -94,6 +94,7 @@ export class ProcessManager extends EventEmitter {
     return [
       'mcp__orchestrator-planning__task_complete',
       'mcp__orchestrator-planning__request_user_input',
+      'mcp__orchestrator-planning__save_deployment_state',
     ].join(',');
   }
 

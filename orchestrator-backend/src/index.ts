@@ -112,6 +112,7 @@ import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
 import { TemplateManager, CreateFromTemplateOptions } from './core/template-manager';
 import { WorkspaceManager } from './core/workspace-manager';
+import { DeploymentManager } from './deployment/deployment-manager';
 import { StatusMonitor } from './core/status-monitor';
 import { LogAggregator } from './core/log-aggregator';
 import { StateMachine } from './core/state-machine';
@@ -329,6 +330,7 @@ async function main() {
   const processManager = new ProcessManager(config);
   const templateManager = new TemplateManager();
   const workspaceManager = new WorkspaceManager(getWorkspacesConfigPath());
+  const deploymentManager = new DeploymentManager(workspaceManager);
   const statusMonitor = new StatusMonitor();
   const logAggregator = new LogAggregator();
   const gitManager = new GitManager();
@@ -371,6 +373,9 @@ async function main() {
 
   // Set orchestrator port for MCP permission server communication
   processManager.setOrchestratorPort(orchestratorPort);
+
+  // Set deployment manager on UI server for deployment API endpoints
+  ui.setDeploymentManager(deploymentManager);
 
   // ═══════════════════════════════════════════════════════════════
   // Set up kill planning agent handler (called when plan is approved)
@@ -2100,6 +2105,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Also update PlanningAgent's project config and GitHub settings
             planningAgent.setProjectConfig(config.projects);
             planningAgent.setWorkspaceGitHub(workspace?.github);
+            // Set deployment availability based on workspace config
+            const deploymentCheck = deploymentManager.isDeploymentEnabled(workspaceId);
+            planningAgent.setDeploymentEnabled(deploymentCheck.enabled);
 
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
@@ -2727,6 +2735,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             Object.assign(config.projects, workspaceProjectConfigs);
             planningAgent.setProjectConfig(config.projects);
             planningAgent.setWorkspaceGitHub(workspace?.github);
+            // Set deployment availability based on workspace config
+            const deploymentCheck = deploymentManager.isDeploymentEnabled(fullData.session.workspaceId);
+            planningAgent.setDeploymentEnabled(deploymentCheck.enabled);
             // Check if Orchy Managed and get workspace root
             isOrchyManagedResume = workspace.orchyManaged === true;
             if (isOrchyManagedResume) {

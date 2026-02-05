@@ -120,7 +120,7 @@ export class GitHubManager {
   }
 
   /**
-   * Checks GitHub CLI authentication status
+   * Checks GitHub CLI authentication status including token scopes
    */
   async checkAuthStatus(): Promise<GitHubAuthStatus> {
     try {
@@ -132,9 +132,14 @@ export class GitHubManager {
         const match = result.stderr.match(/Logged in to github\.com account (\S+)/);
         const username = match ? match[1] : undefined;
 
+        // Check for workflow scope (needed for pushing .github/workflows changes)
+        const scopes = await this.getTokenScopes();
+
         return {
           authenticated: true,
           username,
+          scopes,
+          hasWorkflowScope: scopes.includes('workflow'),
         };
       }
 
@@ -146,6 +151,52 @@ export class GitHubManager {
       return {
         authenticated: false,
         error: err instanceof Error ? err.message : 'Failed to check auth status',
+      };
+    }
+  }
+
+  /**
+   * Gets the token scopes from gh auth status
+   */
+  async getTokenScopes(): Promise<string[]> {
+    try {
+      const result = await execWithShellEnv('gh auth status 2>&1', { cwd: os.homedir(), timeout: 5000 });
+      // Parse scopes from output - format: "Token scopes: 'repo', 'workflow', ..."
+      const scopeMatch = result.stdout.match(/Token scopes?:\s*['"]?([^'\n]+)/i) ||
+                         result.stderr.match(/Token scopes?:\s*['"]?([^'\n]+)/i);
+      if (scopeMatch) {
+        return scopeMatch[1].split(',').map(s => s.trim().replace(/['"]/g, ''));
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Refreshes the gh token to add workflow scope (needed for pushing .github/workflows)
+   */
+  async refreshWorkflowScope(): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log('[GitHubManager] Refreshing token with workflow scope...');
+      const result = await execWithShellEnv('gh auth refresh -s workflow', {
+        cwd: os.homedir(),
+        timeout: 60000  // May require user interaction
+      });
+
+      if (result.exitCode === 0) {
+        console.log('[GitHubManager] Token refreshed with workflow scope');
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: result.stderr || 'Failed to refresh token with workflow scope'
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to refresh token'
       };
     }
   }
@@ -367,7 +418,7 @@ export class GitHubManager {
     repoPath: string,
     branch: string,
     repo: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; needsWorkflowScope?: boolean }> {
     try {
       const expandedPath = repoPath.startsWith('~')
         ? repoPath.replace('~', os.homedir())
@@ -382,6 +433,20 @@ export class GitHubManager {
       if (result.exitCode === 0) {
         console.log(`[GitHubManager] Pushed ${branch} to origin for ${repo}`);
         return { success: true };
+      }
+
+      // Check for workflow scope error (when pushing .github/workflows changes)
+      const errorLower = result.stderr.toLowerCase();
+      if (errorLower.includes('workflow') ||
+          errorLower.includes('refusing to allow') ||
+          errorLower.includes('permission to') ||
+          errorLower.includes('ghs_')) {
+        console.log('[GitHubManager] Push failed - likely missing workflow scope');
+        return {
+          success: false,
+          needsWorkflowScope: true,
+          error: `Push failed: Token is missing 'workflow' scope required for pushing .github/workflows changes. Run: gh auth refresh -s workflow`,
+        };
       }
 
       return {

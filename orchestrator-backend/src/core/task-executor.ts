@@ -879,16 +879,16 @@ Returns: \`{"success": true, "secretName": "HETZNER_TOKEN", "repo": "${githubCon
      - Internal service tokens, API keys between your own services
    - **Request from user** via \`request_user_input\`:
      - **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME): User needs to log in!
-     - **External API tokens** (HCLOUD_TOKEN, TF_API_TOKEN, VERCEL_TOKEN, AWS keys)
+     - **External API tokens** (HCLOUD_TOKEN, VERCEL_TOKEN, AWS keys)
      - **Third-party credentials** (OAuth keys, Stripe/Google API tokens)
-     - **Organization names** (TF_CLOUD_ORGANIZATION)
    - **NEVER use placeholder values** like "your-secret-here" or "changeme" - either generate a real value or ask the user
-10. **For deployment/infrastructure tasks (Terraform, CI/CD, cloud providers):**
+10. **For deployment/infrastructure tasks (hcloud CLI, CI/CD, cloud providers):**
    - **MANDATORY: Use WebSearch to verify current instance types** before generating any deployment config
-   - Search queries MUST include the current year 2026 (e.g., "hetzner cloud instance types 2026", "digitalocean droplet sizes 2026")
+   - Search queries MUST include the current year 2026 (e.g., "hetzner cloud server types 2026")
    - Cloud provider specs change frequently - NEVER trust hardcoded instance types from templates or task descriptions
    - If you see a placeholder like "VERIFY_WITH_WEBSEARCH", you MUST call WebSearch to find valid instance types
    - If WebSearch is unavailable, use \`request_user_input\` to ask the user to confirm the instance type
+   - **After any infrastructure changes** (provisioning, upgrades, DNS, etc.), call \`mcp__orchestrator-planning__save_deployment_state\` to persist the updated state
 
 ## Status Reporting
 

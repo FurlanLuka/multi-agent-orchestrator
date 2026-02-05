@@ -5,9 +5,14 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 import { StatusMonitor } from '../core/status-monitor';
 import { LogAggregator } from '../core/log-aggregator';
 import { SessionManager } from '../core/session-manager';
+import { DeploymentManager } from '../deployment/deployment-manager';
 import { Session, Plan, LogEntry, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, TechnicalSpecData } from '@orchy/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@orchy/types';
 import { getWebDistPath, getPlannerPermissionsPath } from '../config/paths';
@@ -32,6 +37,8 @@ export interface UIServerDependencies {
   onKillPlanningAgent?: () => void;
   // Callback to set GitHub secret (set when GitHubManager is available)
   onSetGitHubSecret?: (repo: string, name: string, value: string) => Promise<{ success: boolean; error?: string }>;
+  // Deployment manager for provider discovery and requirements
+  deploymentManager?: DeploymentManager;
 }
 
 // Handler type for generating next-stage prompts
@@ -56,6 +63,7 @@ export interface UIServer {
   setPlanApprovalHandler: (handler: (plan: Plan) => Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>) => void;
   setKillPlanningAgentHandler: (handler: () => void) => void;
   setGetNextPromptHandler: (handler: GetNextPromptHandler) => void;
+  setDeploymentManager: (manager: DeploymentManager) => void;
 }
 
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
@@ -414,6 +422,7 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
       res.json({
         success: allSuccess,
         secrets: results,
+        values: response.values,
         totalSet: results.filter(r => r.success).length,
         totalFailed: results.filter(r => !r.success).length
       });
@@ -436,6 +445,26 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Expose pendingUserInputs for socket handler
   (io as any).pendingUserInputs = pendingUserInputs;
+
+  // ═══════════════════════════════════════════════════════════════
+  // CLI Verification Endpoint (for install_cli user input type)
+  // ═══════════════════════════════════════════════════════════════
+
+  app.post('/api/verify-cli', async (req: Request, res: Response) => {
+    const { verifyCommand } = req.body;
+
+    if (!verifyCommand || typeof verifyCommand !== 'string') {
+      res.json({ installed: false, error: 'No verify command provided' });
+      return;
+    }
+
+    try {
+      const { stdout } = await execPromise(verifyCommand);
+      res.json({ installed: true, version: stdout.trim() });
+    } catch {
+      res.json({ installed: false, error: 'CLI not found. Please install and try again.' });
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════
   // Multi-Stage Planning Endpoints (6-stage workflow)
@@ -816,6 +845,14 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     const { project, toolName, toolInput } = req.body;
 
     console.log(`[UIServer] Permission prompt for ${project}: ${toolName}`);
+
+    // AUTO-APPROVE: All orchestrator internal MCP tools
+    if (toolName.startsWith('mcp__orchestrator-planning__') ||
+        toolName.startsWith('mcp__orchestrator-permission__')) {
+      console.log(`[UIServer] Auto-approved orchestrator MCP tool: ${toolName}`);
+      res.send('allow');
+      return;
+    }
 
     // Check if this permission is already in the project's allow list
     const projectConfig = deps?.config?.projects?.[project];
@@ -1515,6 +1552,112 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     designSessionPhases.set(sessionId, targetPhase);
     return true;
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Deployment API Endpoints
+  // ═══════════════════════════════════════════════════════════════
+
+  // Check if deployment is available for the current workspace
+  app.post('/api/deployment/available', (req: Request, res: Response) => {
+    const { project } = req.body;
+
+    console.log(`[UIServer] Deployment availability check for project: ${project}`);
+
+    if (!deps.deploymentManager) {
+      res.json({ enabled: false, reason: 'Deployment manager not initialized' });
+      return;
+    }
+
+    // Get the workspace ID from the session manager based on the project
+    // For now, we get the current session's workspace
+    const session = deps.sessionManager?.getCurrentSession();
+    if (!session?.workspaceId) {
+      res.json({ enabled: false, reason: 'No active workspace' });
+      return;
+    }
+
+    const availability = deps.deploymentManager.isDeploymentEnabled(session.workspaceId);
+    res.json(availability);
+  });
+
+  // List available deployment providers
+  app.get('/api/deployment/providers', (req: Request, res: Response) => {
+    console.log('[UIServer] Listing deployment providers');
+
+    if (!deps.deploymentManager) {
+      res.json({ error: 'Deployment manager not initialized' });
+      return;
+    }
+
+    const providers = deps.deploymentManager.listProviders();
+    res.json(providers);
+  });
+
+  // Get provider requirements
+  app.get('/api/deployment/provider/:providerId', (req: Request, res: Response) => {
+    const { providerId } = req.params;
+
+    console.log(`[UIServer] Getting requirements for provider: ${providerId}`);
+
+    if (!deps.deploymentManager) {
+      res.json({ error: 'Deployment manager not initialized' });
+      return;
+    }
+
+    const session = deps.sessionManager?.getCurrentSession();
+    const requirements = deps.deploymentManager.getProviderRequirements(providerId, session?.workspaceId);
+    if (!requirements) {
+      res.status(404).json({ error: `Provider '${providerId}' not found` });
+      return;
+    }
+
+    res.json(requirements);
+  });
+
+  // Save deployment state (called by agent after provisioning or infra changes)
+  app.post('/api/deployment/save-state', (req: Request, res: Response) => {
+    const { provider, serverName, serverIp, sshKeyName, instanceType, location } = req.body;
+
+    console.log(`[UIServer] Saving deployment state: ${serverName} (${serverIp})`);
+
+    if (!deps.deploymentManager) {
+      res.status(500).json({ error: 'Deployment manager not initialized' });
+      return;
+    }
+
+    const session = deps.sessionManager?.getCurrentSession();
+    if (!session?.workspaceId) {
+      res.status(400).json({ error: 'No active workspace' });
+      return;
+    }
+
+    if (!provider || !serverName || !serverIp) {
+      res.status(400).json({ error: 'Missing required fields: provider, serverName, serverIp' });
+      return;
+    }
+
+    try {
+      deps.deploymentManager.saveDeploymentState(session.workspaceId, {
+        provider,
+        serverName,
+        serverIp,
+        sshKeyName: sshKeyName || '',
+        instanceType: instanceType || '',
+        location: location || '',
+        provisionedAt: Date.now()
+      });
+
+      res.json({ success: true, message: 'Deployment state saved' });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[UIServer] Failed to save deployment state:', errorMsg);
+      res.status(500).json({ error: errorMsg });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Designer Endpoints
+  // ═══════════════════════════════════════════════════════════════
 
   // Store pending designer requests (key -> resolver)
   const pendingDesignerInputs = new Map<string, {
@@ -2534,6 +2677,9 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     },
     setGitHubSecretHandler: (handler: (repo: string, name: string, value: string) => Promise<{ success: boolean; error?: string }>) => {
       deps.onSetGitHubSecret = handler;
+    },
+    setDeploymentManager: (manager: DeploymentManager) => {
+      deps.deploymentManager = manager;
     },
     finalize,
   };

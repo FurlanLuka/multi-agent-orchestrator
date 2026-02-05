@@ -139,15 +139,18 @@ async function handleMessage(msg) {
                   properties: {
                     type: {
                       type: 'string',
-                      enum: ['input', 'confirmation', 'github_secret'],
-                      description: 'Type of input: "input" for text fields (default), "confirmation" for yes/no dialog, "github_secret" for GitHub Actions secrets'
+                      enum: ['input', 'confirmation', 'github_secret', 'install_cli'],
+                      description: 'Type of input: "input" for text fields (default), "confirmation" for yes/no dialog, "github_secret" for GitHub Actions secrets, "install_cli" for CLI installation verification'
                     },
-                    name: { type: 'string', description: 'Variable name for input type (e.g., GOOGLE_CLIENT_ID) or secret name for github_secret' },
+                    name: { type: 'string', description: 'Variable name for input type (e.g., GOOGLE_CLIENT_ID) or secret name for github_secret, or CLI name for install_cli' },
                     label: { type: 'string', description: 'Display label for input field OR title for confirmation dialog' },
                     description: { type: 'string', description: 'Help text for input OR detailed message for confirmation (supports markdown)' },
                     sensitive: { type: 'boolean', description: 'If true, mask input (for passwords/secrets). Only for type: "input"' },
                     required: { type: 'boolean', description: 'If true, user must provide a value. Only for type: "input"' },
-                    repo: { type: 'string', description: 'Repository in "owner/repo" format. Required for type: "github_secret"' }
+                    repo: { type: 'string', description: 'Repository in "owner/repo" format. Required for type: "github_secret"' },
+                    installCommand: { type: 'string', description: 'Shell command to install the CLI (e.g., "brew install hcloud"). Only for type: "install_cli"' },
+                    verifyCommand: { type: 'string', description: 'Command to verify installation (e.g., "hcloud version"). Only for type: "install_cli"' },
+                    installUrl: { type: 'string', description: 'URL with installation instructions. Only for type: "install_cli"' }
                   },
                   required: ['label']
                 }
@@ -210,17 +213,53 @@ async function handleMessage(msg) {
             required: ['apiContracts', 'executionOrder']
           }
         },
+        // ═══════════════════════════════════════════════════════════════
+        // Deployment Tools (new structured deployment system)
+        // ═══════════════════════════════════════════════════════════════
         {
-          name: 'get_deployment_instructions',
-          description: 'Get comprehensive deployment automation instructions. Call this when user requests deployment (e.g., "deploy to X", "add deployment", "set up CI/CD"). Returns detailed guide for all supported providers including Vercel, Netlify, Hetzner, AWS, etc.',
+          name: 'check_deployment_available',
+          description: 'Check if deployment is available for the current workspace. Call this FIRST before any deployment-related planning. Returns { enabled: true/false, reason?: string }. Deployment requires orchyManaged workspace with GitHub integration.',
+          inputSchema: {
+            type: 'object',
+            properties: {}
+          }
+        },
+        {
+          name: 'list_deployment_providers',
+          description: 'List all available deployment providers. Returns array of providers with id, name, category, and description. Call this after check_deployment_available returns enabled: true.',
+          inputSchema: {
+            type: 'object',
+            properties: {}
+          }
+        },
+        {
+          name: 'get_provider_requirements',
+          description: 'Get detailed requirements for a specific provider including: required secrets, configuration values, provisioning commands, GitHub workflow templates, and setup instructions. Call this after user selects a provider.',
           inputSchema: {
             type: 'object',
             properties: {
-              provider: {
+              providerId: {
                 type: 'string',
-                description: 'Optional: specific provider to get instructions for (vercel, netlify, hetzner, digitalocean, aws, railway, fly). If omitted, returns full guide with all providers.'
+                description: 'Provider ID (e.g., "hetzner")'
               }
-            }
+            },
+            required: ['providerId']
+          }
+        },
+        {
+          name: 'save_deployment_state',
+          description: 'Save deployment state after provisioning or infrastructure changes. This persists server details (name, IP, instance type, location, SSH key) to the workspace for future day-2 management operations. Call this after successful provisioning or after any infrastructure change (upgrade, DNS, etc.).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              provider: { type: 'string', description: 'Provider ID (e.g., "hetzner")' },
+              serverName: { type: 'string', description: 'Server name (e.g., "myapp-server")' },
+              serverIp: { type: 'string', description: 'Server IP address (e.g., "1.2.3.4")' },
+              sshKeyName: { type: 'string', description: 'SSH key name on provider (e.g., "myapp-deploy")' },
+              instanceType: { type: 'string', description: 'Instance type (e.g., "cx23")' },
+              location: { type: 'string', description: 'Server location/region (e.g., "fsn1")' }
+            },
+            required: ['provider', 'serverName', 'serverIp', 'sshKeyName', 'instanceType', 'location']
           }
         }
       ]
@@ -354,12 +393,40 @@ async function handleMessage(msg) {
       content: [{ type: 'text', text: result }]
     });
   }
-  else if (method === 'tools/call' && params?.name === 'get_deployment_instructions') {
-    const provider = params.arguments?.provider || null;
-    const instructions = getDeploymentInstructions(provider);
-
+  // ═══════════════════════════════════════════════════════════════
+  // Deployment Tool Handlers
+  // ═══════════════════════════════════════════════════════════════
+  else if (method === 'tools/call' && params?.name === 'check_deployment_available') {
+    const result = await checkDeploymentAvailable();
     respond(id, {
-      content: [{ type: 'text', text: instructions }]
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'list_deployment_providers') {
+    const result = await listDeploymentProviders();
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'get_provider_requirements') {
+    const providerId = params.arguments?.providerId || '';
+    const result = await getProviderRequirements(providerId);
+    respond(id, {
+      content: [{ type: 'text', text: result }]
+    });
+  }
+  else if (method === 'tools/call' && params?.name === 'save_deployment_state') {
+    const state = {
+      provider: params.arguments?.provider || '',
+      serverName: params.arguments?.serverName || '',
+      serverIp: params.arguments?.serverIp || '',
+      sshKeyName: params.arguments?.sshKeyName || '',
+      instanceType: params.arguments?.instanceType || '',
+      location: params.arguments?.location || ''
+    };
+    const result = await saveDeploymentState(state);
+    respond(id, {
+      content: [{ type: 'text', text: result }]
     });
   }
   else if (method === 'notifications/initialized') {
@@ -693,322 +760,134 @@ function submitTechnicalSpec(apiContracts, architectureDecisions, executionOrder
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Deployment Instructions (returned by get_deployment_instructions tool)
+// Deployment HTTP Functions (new structured deployment system)
 // ═══════════════════════════════════════════════════════════════
 
-function getDeploymentInstructions(provider) {
-  const fullGuide = `# DEPLOYMENT AUTOMATION GUIDE
+function checkDeploymentAvailable() {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({ project: PROJECT });
 
-## WORKFLOW OVERVIEW
+    const url = new URL(`${ORCHESTRATOR_URL}/api/deployment/available`);
 
-1. **Analyze Codebase** - Detect frameworks, database needs, app type
-2. **Recommend Provider** - Based on app type (see table below)
-3. **Ask Clarifying Questions** - Provider choice, domain, database options
-4. **Check Provider Docs** - Use WebSearch to verify current instance types/APIs
-5. **Generate Config** - Everything in \`.github/\` folder
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 30000
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve(body || JSON.stringify({ enabled: false, reason: 'No response from orchestrator' }));
+      });
+    });
 
-## CRITICAL: CLOUD PROVIDER VERIFICATION (MANDATORY)
+    req.on('error', () => resolve(JSON.stringify({ enabled: false, reason: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ enabled: false, reason: 'Request timeout' }));
+    });
 
-**Cloud provider specs change frequently.** Instance types, pricing, and APIs are updated regularly.
-
-**BEFORE generating ANY deployment config, you MUST:**
-1. Use WebSearch to verify current instance types: "hetzner cloud instance types 2026" or "digitalocean droplet sizes 2026"
-2. Never use hardcoded instance types from templates without verification
-3. The current year is 2026 - always include this in search queries for up-to-date results
-4. If WebSearch is unavailable, ask the user to confirm the instance type before proceeding
-
-**Example WebSearch queries:**
-- "hetzner cloud server types pricing 2026"
-- "digitalocean droplet sizes specs 2026"
-- "aws ec2 instance types 2026"
-
-## PROVIDER RECOMMENDATION
-
-| App Type | Recommended Provider | Why |
-|----------|---------------------|-----|
-| Static site (React, Vue) | Cloudflare Pages / Vercel | Free, global CDN |
-| Next.js (SSR) | Vercel | Built for Next.js |
-| Frontend + simple API | Vercel + Functions | All-in-one |
-| Full-stack + database | Hetzner / DigitalOcean | Cost-effective |
-| Microservices | Railway / Fly.io | Easy multi-service |
-| Enterprise | AWS | Flexibility, scale |
-
-## DEPLOYMENT CATEGORIES
-
-### CATEGORY 1: Platform CLI (No Terraform)
-Vercel, Netlify, Cloudflare Pages, Railway, Fly.io
-- Simple CLI-based deployment
-- Platform handles state internally
-- Just need API token
-
-### CATEGORY 2: Cloud Providers (Terraform)
-Hetzner, DigitalOcean, AWS, GCP
-- Use Terraform for infrastructure
-- Terraform Cloud for state management
-- Can provision VPS, databases, load balancers
-
-## PROVIDER CONFIGS
-
-### Vercel (Next.js, React, static)
-\`\`\`yaml
-# Secrets: VERCEL_TOKEN
-- name: Deploy to Vercel
-  env:
-    VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
-  run: |
-    npm i -g vercel
-    vercel pull --yes --environment=production
-    vercel build --prod
-    vercel deploy --prebuilt --prod
-\`\`\`
-
-### Netlify (Static, JAMstack)
-\`\`\`yaml
-# Secrets: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID
-- name: Deploy to Netlify
-  env:
-    NETLIFY_AUTH_TOKEN: \${{ secrets.NETLIFY_AUTH_TOKEN }}
-    NETLIFY_SITE_ID: \${{ secrets.NETLIFY_SITE_ID }}
-  run: |
-    npm i -g netlify-cli
-    netlify deploy --prod --dir=dist
-\`\`\`
-
-### Cloudflare Pages (Static + edge)
-\`\`\`yaml
-# Secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
-- name: Deploy to Cloudflare
-  env:
-    CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
-    CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-  run: |
-    npm i -g wrangler
-    wrangler pages deploy dist --project-name=\${{ github.event.repository.name }}
-\`\`\`
-
-### Railway (Full-stack, easy)
-\`\`\`yaml
-# Secrets: RAILWAY_TOKEN
-- name: Deploy to Railway
-  env:
-    RAILWAY_TOKEN: \${{ secrets.RAILWAY_TOKEN }}
-  run: |
-    npm i -g @railway/cli
-    railway up --detach
-\`\`\`
-
-### Fly.io (Containers, global)
-\`\`\`yaml
-# Secrets: FLY_API_TOKEN
-- name: Deploy to Fly.io
-  env:
-    FLY_API_TOKEN: \${{ secrets.FLY_API_TOKEN }}
-  run: |
-    curl -L https://fly.io/install.sh | sh
-    flyctl deploy --remote-only
-\`\`\`
-
-### Hetzner/DigitalOcean/AWS (Terraform)
-\`\`\`yaml
-# Secrets: TF_API_TOKEN, HETZNER_API_TOKEN (or provider-specific)
-- name: Deploy via Terraform
-  env:
-    TF_TOKEN_app_terraform_io: \${{ secrets.TF_API_TOKEN }}
-    TF_VAR_hcloud_token: \${{ secrets.HETZNER_API_TOKEN }}
-  run: |
-    cd .github/infrastructure
-    terraform init
-    terraform apply -auto-approve
-\`\`\`
-
-## DATABASE OPTIONS
-
-**Detection:** Look for Prisma, TypeORM, Drizzle, SQLAlchemy, pg/mysql drivers
-
-| Provider | Managed DB | Self-hosted | SQLite |
-|----------|-----------|-------------|--------|
-| Hetzner | - | Docker PostgreSQL | ✅ |
-| DigitalOcean | Managed PostgreSQL/MySQL | Docker | ✅ |
-| AWS | RDS, Aurora | Docker on EC2 | ✅ |
-| Railway | Built-in PostgreSQL | - | ✅ |
-
-## TERRAFORM STRUCTURE (VPS deployments)
-
-\`\`\`
-.github/
-  workflows/deploy.yml
-  infrastructure/
-    main.tf
-    variables.tf
-    outputs.tf
-\`\`\`
-
-Example main.tf for Hetzner:
-\`\`\`hcl
-terraform {
-  cloud {
-    organization = "your-org"
-    workspaces { name = "app-production" }
-  }
-  required_providers {
-    hcloud = { source = "hetznercloud/hcloud", version = "~> 1.45" }
-  }
+    req.write(postData);
+    req.end();
+  });
 }
 
-variable "hcloud_token" { sensitive = true }
-variable "github_token" { sensitive = true }
-variable "github_repository" {}
+function listDeploymentProviders() {
+  return new Promise((resolve) => {
+    const url = new URL(`${ORCHESTRATOR_URL}/api/deployment/providers`);
 
-provider "hcloud" { token = var.hcloud_token }
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'GET',
+      timeout: 30000
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve(body || JSON.stringify({ error: 'No response from orchestrator' }));
+      });
+    });
 
-resource "tls_private_key" "deploy" { algorithm = "ED25519" }
-resource "hcloud_ssh_key" "deploy" {
-  name = "deploy-key"
-  public_key = tls_private_key.deploy.public_key_openssh
+    req.on('error', () => resolve(JSON.stringify({ error: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: 'Request timeout' }));
+    });
+
+    req.end();
+  });
 }
 
-resource "hcloud_server" "app" {
-  name = "app-server"
-  # PLACEHOLDER - Use WebSearch "hetzner instance types 2026" to find current valid types
-  server_type = "VERIFY_WITH_WEBSEARCH"
-  image = "ubuntu-22.04"
-  location = "fsn1"
-  ssh_keys = [hcloud_ssh_key.deploy.id]
-  user_data = <<-EOF
-    #cloud-config
-    packages: [docker.io]
-    runcmd:
-      - systemctl enable docker && systemctl start docker
-  EOF
+function getProviderRequirements(providerId) {
+  return new Promise((resolve) => {
+    const url = new URL(`${ORCHESTRATOR_URL}/api/deployment/provider/${providerId}`);
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'GET',
+      timeout: 30000
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve(body || JSON.stringify({ error: 'No response from orchestrator' }));
+      });
+    });
+
+    req.on('error', () => resolve(JSON.stringify({ error: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: 'Request timeout' }));
+    });
+
+    req.end();
+  });
 }
 
-resource "null_resource" "deploy_app" {
-  triggers = { always_run = timestamp() }
-  connection {
-    type = "ssh"
-    user = "root"
-    private_key = tls_private_key.deploy.private_key_openssh
-    host = hcloud_server.app.ipv4_address
-  }
-  provisioner "remote-exec" {
-    inline = [
-      "echo '\${var.github_token}' | docker login ghcr.io -u github --password-stdin",
-      "docker pull ghcr.io/\${var.github_repository}:latest",
-      "docker stop app || true && docker rm app || true",
-      "docker run -d --name app --restart always -p 3000:3000 ghcr.io/\${var.github_repository}:latest"
-    ]
-  }
-}
+function saveDeploymentState(state) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      project: PROJECT,
+      ...state
+    });
 
-output "server_ip" { value = hcloud_server.app.ipv4_address }
-\`\`\`
+    const url = new URL(`${ORCHESTRATOR_URL}/api/deployment/save-state`);
 
-## SECRETS AND CONFIGURATION
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 30000
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        resolve(body || JSON.stringify({ error: 'No response from orchestrator' }));
+      });
+    });
 
-### CRITICAL: Auto-Generate vs Request
+    req.on('error', () => resolve(JSON.stringify({ error: 'Could not reach orchestrator' })));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: 'Request timeout' }));
+    });
 
-**AUTO-GENERATE these (do NOT ask user):**
-- SSH keys - generate with: \`ssh-keygen -t ed25519 -f /tmp/deploy_key -N "" -C "deploy@github-actions"\`
-- JWT secrets, session secrets, encryption keys - generate with: \`openssl rand -base64 32\`
-- Internal service tokens
-- Any cryptographic material
-
-**REQUEST from user (they need to know these or get them from external services):**
-- Login credentials (ADMIN_PASSWORD, ADMIN_USERNAME) - user needs to log in!
-- External API tokens (HCLOUD_TOKEN, TF_API_TOKEN, VERCEL_TOKEN, etc.)
-- Third-party service credentials (OAuth keys, Stripe keys, etc.)
-- Organization/account names (TF_CLOUD_ORGANIZATION, TF_WORKSPACE)
-
-### 1. Configuration Values (use type: "input")
-Request non-sensitive config values that will be embedded in files:
-
-\`\`\`json
-{
-  "inputs": [
-    {
-      "type": "input",
-      "name": "TF_CLOUD_ORGANIZATION",
-      "label": "Terraform Cloud Organization",
-      "description": "Your Terraform Cloud organization name (from app.terraform.io)"
-    },
-    {
-      "type": "input",
-      "name": "TF_WORKSPACE",
-      "label": "Terraform Workspace Name",
-      "description": "Your Terraform Cloud workspace name (create one at app.terraform.io if needed)"
-    }
-  ]
-}
-\`\`\`
-
-### 2. GitHub Secrets (use type: "github_secret")
-Request sensitive tokens/keys that will be stored in GitHub Secrets:
-
-\`\`\`json
-{
-  "inputs": [{
-    "type": "github_secret",
-    "name": "HCLOUD_TOKEN",
-    "label": "Hetzner API Token",
-    "description": "Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)",
-    "repo": "owner/repo"
-  }]
-}
-\`\`\`
-
-**Required by provider:**
-
-| Provider | Config Values | GitHub Secrets |
-|----------|--------------|----------------|
-| Terraform Cloud | TF_CLOUD_ORGANIZATION, TF_WORKSPACE | TF_API_TOKEN |
-| Hetzner | - | HCLOUD_TOKEN |
-| Vercel | - | VERCEL_TOKEN |
-| Netlify | - | NETLIFY_AUTH_TOKEN |
-| AWS | - | AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY |
-
-**For Hetzner + Terraform deployments:**
-1. TF_CLOUD_ORGANIZATION (config) - request from user
-2. TF_WORKSPACE (config) - request from user
-3. TF_API_TOKEN (secret) - request from user
-4. HCLOUD_TOKEN (secret) - request from user
-5. SSH_PRIVATE_KEY (secret) - AUTO-GENERATE, store in GitHub secrets
-6. SSH_PUBLIC_KEY - AUTO-GENERATE, use in Terraform config
-7. ADMIN_PASSWORD (secret) - request from user (they need to log in!)
-
-## KEY PRINCIPLES
-
-1. **ALWAYS VERIFY INSTANCE TYPES** - MANDATORY: Use WebSearch with year 2026 (e.g., "hetzner instance types 2026") BEFORE generating any deployment config. Never trust hardcoded values.
-2. **Everything in .github/** - Self-contained deployment
-3. **Idempotent** - Safe to run repeatedly
-4. **Instructions with secrets** - Show step-by-step for each secret request
-5. **Current year is 2026** - Always include this in search queries for up-to-date documentation
-`;
-
-  // If specific provider requested, filter to just that section
-  if (provider) {
-    const providerLower = provider.toLowerCase();
-    const providerSections = {
-      'vercel': 'Vercel',
-      'netlify': 'Netlify',
-      'cloudflare': 'Cloudflare',
-      'railway': 'Railway',
-      'fly': 'Fly.io',
-      'fly.io': 'Fly.io',
-      'hetzner': 'Hetzner',
-      'digitalocean': 'DigitalOcean',
-      'aws': 'AWS',
-      'gcp': 'GCP'
-    };
-
-    if (providerSections[providerLower]) {
-      return `# ${providerSections[providerLower]} Deployment Instructions\n\n` +
-        `See full guide for details. Key points:\n` +
-        `- Use WebSearch to verify current instance types/APIs\n` +
-        `- Request secrets via request_user_input with instructions\n` +
-        `- Put all config in .github/ folder\n\n` +
-        fullGuide;
-    }
-  }
-
-  return fullGuide;
+    req.write(postData);
+    req.end();
+  });
 }

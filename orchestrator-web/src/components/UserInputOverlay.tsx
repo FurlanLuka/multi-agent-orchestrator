@@ -9,8 +9,14 @@ import {
   Group,
   Paper,
   ThemeIcon,
+  Loader,
+  Anchor,
+  CopyButton,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
-import { IconKey, IconCheck, IconX, IconAlertCircle, IconBrandGithub, IconShield } from '@tabler/icons-react';
+import { IconKey, IconCheck, IconX, IconAlertCircle, IconBrandGithub, IconShield, IconTerminal2, IconCopy, IconExternalLink } from '@tabler/icons-react';
+import { useOrchestrator } from '../context/OrchestratorContext';
 import type { UserInputRequest } from '@orchy/types';
 
 interface UserInputOverlayProps {
@@ -20,18 +26,21 @@ interface UserInputOverlayProps {
 }
 
 export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverlayProps) {
+  const { port } = useOrchestrator();
+
   // Check if this is a confirmation dialog
   const isConfirmation = request.inputs.length > 0 && request.inputs[0].type === 'confirmation';
   const confirmationInput = isConfirmation ? request.inputs[0] : null;
 
+  // Check if this is a CLI install dialog
+  const isInstallCli = request.inputs.length > 0 && request.inputs[0].type === 'install_cli';
+  const cliInput = isInstallCli ? request.inputs[0] : null;
+
   // Check if ALL inputs are GitHub secrets (for special styling)
   const allGitHubSecrets = request.inputs.length > 0 && request.inputs.every(input => input.type === 'github_secret');
-  const isGitHubSecret = request.inputs.length > 0 && request.inputs[0].type === 'github_secret';
-  const githubSecretInput = isGitHubSecret ? request.inputs[0] : null;
-
   const [values, setValues] = useState<Record<string, string>>(() => {
-    if (isConfirmation) {
-      return {}; // No values needed for confirmation
+    if (isConfirmation || isInstallCli) {
+      return {}; // No values needed for confirmation or CLI install
     }
     // Initialize with empty strings for regular inputs
     const initial: Record<string, string> = {};
@@ -44,6 +53,10 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
   });
 
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // CLI verification state
+  const [cliVerifying, setCliVerifying] = useState(false);
+  const [cliVerifyResult, setCliVerifyResult] = useState<{ installed: boolean; version?: string; error?: string } | null>(null);
 
   const currentInput = request.inputs[currentIndex];
   const isLastInput = currentIndex === request.inputs.length - 1;
@@ -76,8 +89,199 @@ export function UserInputOverlay({ request, onSubmit, onCancel }: UserInputOverl
     onSubmit(request.requestId, { confirmed: 'false' });
   }, [onSubmit, request.requestId]);
 
+  const handleVerifyCli = useCallback(async () => {
+    if (!cliInput?.verifyCommand || !port) return;
+    setCliVerifying(true);
+    setCliVerifyResult(null);
+    try {
+      const res = await fetch(`http://localhost:${port}/api/verify-cli`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verifyCommand: cliInput.verifyCommand }),
+      });
+      const result = await res.json();
+      setCliVerifyResult(result);
+      if (result.installed) {
+        // Auto-submit after a brief delay so the user sees the success state
+        setTimeout(() => {
+          onSubmit(request.requestId, { [cliInput.name || 'cli']: 'installed', version: result.version || '' });
+        }, 1000);
+      }
+    } catch {
+      setCliVerifyResult({ installed: false, error: 'Failed to reach backend for verification.' });
+    } finally {
+      setCliVerifying(false);
+    }
+  }, [cliInput, port, onSubmit, request.requestId]);
+
   // For regular inputs, check if we can proceed
   const canProceed = !currentInput?.required || (currentInput?.name && values[currentInput.name]?.trim());
+
+  // Render install_cli dialog
+  if (isInstallCli && cliInput) {
+    const cliName = cliInput.name || 'CLI';
+    const installCmd = cliInput.installCommand || '';
+    const installUrl = cliInput.installUrl;
+
+    return (
+      <Box
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.92)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          borderRadius: 'inherit',
+          padding: '16px',
+        }}
+      >
+        <Paper
+          p="lg"
+          radius="md"
+          style={{
+            backgroundColor: 'var(--mantine-color-dark-7)',
+            border: '1px solid var(--mantine-color-dark-4)',
+            maxWidth: 500,
+            width: '100%',
+          }}
+        >
+          <Stack gap="md">
+            {/* Header */}
+            <Group gap="sm">
+              <ThemeIcon size="lg" radius="md" color="violet" variant="light">
+                <IconTerminal2 size={20} />
+              </ThemeIcon>
+              <div>
+                <Text fw={600} c="white" size="md">
+                  {cliInput.label}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {request.project}
+                </Text>
+              </div>
+            </Group>
+
+            {/* Description */}
+            {cliInput.description && (
+              <Text size="sm" c="gray.3">
+                {cliInput.description}
+              </Text>
+            )}
+
+            {/* Install command */}
+            {installCmd && (
+              <Box>
+                <Text size="xs" fw={500} c="dimmed" mb={4}>
+                  Install command
+                </Text>
+                <Group
+                  gap={0}
+                  style={{
+                    backgroundColor: 'var(--mantine-color-dark-8)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--mantine-color-dark-5)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Text
+                    size="sm"
+                    c="gray.3"
+                    style={{ fontFamily: 'monospace', padding: '10px 12px', flex: 1 }}
+                  >
+                    {installCmd}
+                  </Text>
+                  <CopyButton value={installCmd}>
+                    {({ copied, copy }) => (
+                      <Tooltip label={copied ? 'Copied' : 'Copy'} withArrow>
+                        <ActionIcon
+                          variant="subtle"
+                          color={copied ? 'teal' : 'gray'}
+                          onClick={copy}
+                          style={{ marginRight: 4 }}
+                        >
+                          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                  </CopyButton>
+                </Group>
+              </Box>
+            )}
+
+            {/* Install URL */}
+            {installUrl && (
+              <Group gap="xs">
+                <IconExternalLink size={14} color="var(--mantine-color-dimmed)" />
+                <Anchor href={installUrl} target="_blank" size="sm" c="blue.4">
+                  Installation instructions
+                </Anchor>
+              </Group>
+            )}
+
+            {/* Verify result */}
+            {cliVerifyResult && (
+              <Box
+                style={{
+                  backgroundColor: cliVerifyResult.installed
+                    ? 'var(--mantine-color-green-light)'
+                    : 'var(--mantine-color-red-light)',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                }}
+              >
+                {cliVerifyResult.installed ? (
+                  <Group gap="xs">
+                    <IconCheck size={16} color="var(--mantine-color-green-6)" />
+                    <Text size="sm" c="green.4" fw={500}>
+                      {cliName} installed{cliVerifyResult.version ? ` (${cliVerifyResult.version})` : ''}
+                    </Text>
+                  </Group>
+                ) : (
+                  <Group gap="xs">
+                    <IconX size={16} color="var(--mantine-color-red-6)" />
+                    <Text size="sm" c="red.4" fw={500}>
+                      {cliVerifyResult.error || `${cliName} not found`}
+                    </Text>
+                  </Group>
+                )}
+              </Box>
+            )}
+
+            {/* Actions */}
+            <Group justify="space-between" mt="sm">
+              {onCancel ? (
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<IconX size={14} />}
+                  onClick={onCancel}
+                >
+                  Cancel
+                </Button>
+              ) : (
+                <div />
+              )}
+              <Button
+                color="violet"
+                size="sm"
+                leftSection={cliVerifying ? <Loader size={14} color="white" /> : <IconTerminal2 size={14} />}
+                onClick={handleVerifyCli}
+                disabled={cliVerifying || (cliVerifyResult?.installed === true)}
+              >
+                {cliVerifying ? 'Verifying...' : cliVerifyResult?.installed ? 'Verified' : 'Verify Installation'}
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
 
   // Render confirmation dialog
   if (isConfirmation && confirmationInput) {

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig, GitHubConfig } from '@orchy/types';
+import type { WorkspaceConfig, WorkspaceProjectConfig, ProjectConfig, GitHubConfig, DeploymentState } from '@orchy/types';
 import { WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import * as path from 'path';
 
@@ -80,7 +80,7 @@ export class WorkspaceManager extends EventEmitter {
     return workspace;
   }
 
-  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; github?: GitHubConfig; mainBranch?: string }): WorkspaceConfig {
+  updateWorkspace(id: string, updates: { name?: string; projects?: WorkspaceProjectConfig[]; context?: string; github?: GitHubConfig; deployment?: DeploymentState; mainBranch?: string }): WorkspaceConfig {
     const workspace = this.workspaces[id];
     if (!workspace) {
       throw new Error(`Workspace "${id}" does not exist`);
@@ -90,6 +90,7 @@ export class WorkspaceManager extends EventEmitter {
     if (updates.projects !== undefined) workspace.projects = updates.projects;
     if (updates.context !== undefined) workspace.context = updates.context;
     if (updates.github !== undefined) workspace.github = updates.github;
+    if (updates.deployment !== undefined) workspace.deployment = updates.deployment;
     if (updates.mainBranch !== undefined) workspace.mainBranch = updates.mainBranch;
     workspace.updatedAt = Date.now();
 
@@ -212,6 +213,16 @@ export class WorkspaceManager extends EventEmitter {
         hasE2E: false,
         devServerEnabled: false,
         buildEnabled: false,
+        // Same permissions as template projects
+        permissions: {
+          allow: [
+            'Read', 'Write', 'Edit', 'Glob', 'Grep',
+            'Bash(npm run *)', 'Bash(npm install *)',
+            'Bash(git *)',
+            'Bash(mkdir *)', 'Bash(touch *)', 'Bash(ls *)',
+            'mcp__playwright__*',  // All playwright tools
+          ]
+        },
         e2eInstructions: `CRITICAL RESTRICTION: You are working at the workspace root level.
 
 You MUST NOT enter or modify any project directories:

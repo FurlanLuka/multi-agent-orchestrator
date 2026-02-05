@@ -60,6 +60,7 @@ export class PlanningAgentManager extends EventEmitter {
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
   private projectConfig: Record<string, ProjectConfig> = {};
   private workspaceGitHub: GitHubConfig | null = null;
+  private deploymentEnabled: boolean = false;
 
   // State tracking for user action requests
   private orchestratorState: OrchestratorState = 'IDLE';
@@ -108,6 +109,14 @@ export class PlanningAgentManager extends EventEmitter {
    */
   setWorkspaceGitHub(github: GitHubConfig | undefined): void {
     this.workspaceGitHub = github || null;
+  }
+
+  /**
+   * Sets whether deployment is enabled for this workspace
+   * (requires orchyManaged + GitHub integration)
+   */
+  setDeploymentEnabled(enabled: boolean): void {
+    this.deploymentEnabled = enabled;
   }
 
   /**
@@ -1006,25 +1015,48 @@ ${exploreCommands}
 
 **DO NOT proceed until you have explored ALL projects.**
 
-## STEP 1.5: DEPLOYMENT REQUESTS (MANDATORY for deployment features)
+${this.deploymentEnabled ? `## STEP 1.5: DEPLOYMENT REQUESTS (MANDATORY for deployment features)
 
-**CRITICAL:** If the feature involves deployment, CI/CD, infrastructure, or hosting (keywords: "deploy", "hetzner", "aws", "vercel", "CI/CD", "docker", "kubernetes"):
+**CRITICAL:** If the feature involves deployment, CI/CD, infrastructure, or hosting (keywords: "deploy", "hetzner", "CI/CD", "docker", "infrastructure"):
 
-1. **MUST CALL \`mcp__orchestrator-planning__get_deployment_instructions\`** BEFORE asking questions
-2. This returns the complete deployment guide including:
-   - Provider-specific GitHub Actions configs
-   - Terraform templates for VPS providers
-   - **Secret request format** - you MUST use this format to request secrets from user
-3. **MANDATORY: VERIFY INSTANCE TYPES WITH WEBSEARCH**
-   - Cloud provider specs (instance types, pricing, APIs) change frequently
-   - **The current year is 2026** - ALWAYS include this in search queries
-   - Before generating ANY deployment config, use WebSearch to verify instance types:
-     - "hetzner cloud instance types 2026"
-     - "digitalocean droplet sizes 2026"
-   - NEVER use hardcoded instance types from templates without verification
-4. Use the guide to inform your clarifying questions
+1. **Call \`mcp__orchestrator-planning__check_deployment_available\`** to confirm deployment is enabled
+2. **Call \`mcp__orchestrator-planning__list_deployment_providers\`** to see available providers (currently only Hetzner)
+3. **Call \`mcp__orchestrator-planning__get_provider_requirements('hetzner')\`** for detailed requirements
 
-**DO NOT skip this step for deployment features - the guide contains required secret request formats.**
+**CRITICAL: CHECK FOR EXISTING INFRASTRUCTURE:**
+- The response includes \`currentDeployment\` if infrastructure already exists
+- If \`currentDeployment\` is present: **SKIP provisioning entirely** — use the existing server name, IP, instance type, and location
+- The \`setupInstructions\` will automatically show existing infrastructure context instead of provisioning steps
+- For day-2 operations (upgrade, DNS, firewall, volumes), the agent uses hcloud CLI with the existing state
+
+**CRITICAL: FOLLOW THE RETURNED INSTRUCTIONS:**
+- The response includes \`provisionCommands\` - **FOLLOW THESE EXACTLY** (step-by-step hcloud CLI commands)
+- The response includes \`setupInstructions\` - **FOLLOW THESE EXACTLY** (they contain the correct provisioning flow)
+- The response includes \`cli\` - CLI requirements that must be verified first using \`install_cli\` type
+
+**MANDATORY: VERIFY CLI INSTALLED FIRST**
+- If provider has CLI requirements, call \`request_user_input\` with type "install_cli" BEFORE proceeding
+- This verifies the CLI is installed before any provisioning commands are run
+
+**MANDATORY: VERIFY INSTANCE TYPES WITH WEBSEARCH**
+- Cloud provider specs (instance types, pricing, APIs) change frequently
+- **The current year is 2026** - ALWAYS include this in search queries
+- Before using instance types from commands, verify they're still valid
+- Update the instance type with verified current value
+
+**MANDATORY: LOCAL-FIRST PROVISIONING**
+- The setupInstructions explain that the AGENT must run hcloud commands locally first
+- Do NOT create GitHub Actions until local provisioning is verified working
+- Tasks must include: \`hcloud server create\`, validate via SSH, then set GitHub secrets
+
+**DO NOT skip this step for deployment features.**` : `## DEPLOYMENT NOT AVAILABLE
+
+This workspace does not support deployment. To enable deployment:
+1. Create an orchyManaged workspace (using a template)
+2. Enable GitHub integration in workspace settings
+3. Configure the GitHub repository
+
+If user asks for deployment, explain these requirements.`}
 
 ## STEP 2: ASK CLARIFYING QUESTIONS
 
@@ -1146,17 +1178,33 @@ Each task MUST include implementation-ready detail:
 
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
 
-6. **For deployment/infrastructure tasks:**
-   - **MANDATORY**: Use WebSearch to verify current instance types BEFORE generating config
-   - The current year is 2026 - include this in search queries
-   - Cloud provider specs change frequently - never trust hardcoded values from templates
-   - List ALL required secrets with their names and purposes
-   - Specify WHERE they need to be configured (e.g., .env file, GitHub Secrets, CI/CD)
-   - **Distinguish between auto-generated vs user-provided secrets:**
-     - **Auto-generate** internal/cryptographic secrets that users never see or type: JWT_SECRET, SESSION_SECRET, encryption keys, internal API keys between services - use \`openssl rand -base64 32\`
-     - **Request from user** these types of secrets:
-       1. **Login credentials** (ADMIN_PASSWORD, ADMIN_USERNAME) - user needs to know these to log in!
-       2. **External/third-party credentials** (OAuth client IDs/secrets, Stripe API keys, Hetzner tokens, AWS keys)
+6. **For deployment/infrastructure tasks (hcloud CLI/VPS):**
+
+   **FOLLOW PROVISIONING COMMANDS FROM PROVIDER REQUIREMENTS:**
+   - You MUST have called \`mcp__orchestrator-planning__get_provider_requirements(providerId)\` in Step 1.5
+   - **FOLLOW the \`provisionCommands\`** from that response (step-by-step hcloud CLI commands)
+   - **FOLLOW the \`setupInstructions\`** for the correct provisioning flow
+   - The task executor needs these instructions - do not paraphrase or rewrite them
+
+   **VERIFY CLI INSTALLED FIRST:**
+   - Task must instruct agent to call \`request_user_input\` with type \\"install_cli\\" BEFORE running any hcloud commands
+   - This verifies the CLI is installed on the user's machine
+
+   **LOCAL-FIRST PROVISIONING (agent executes, not user):**
+   - Task must instruct agent to RUN \`hcloud server create\` locally
+   - Task must instruct agent to validate the server via SSH before proceeding
+   - Do NOT ask user to run hcloud commands manually - the agent executes them
+   - Only create GitHub Actions AFTER local provisioning is verified working
+
+   **VERIFY INSTANCE TYPES:**
+   - Use WebSearch to verify instance types are still valid (current year: 2026)
+   - Update the instance type with verified value
+
+   **SECRETS:**
+   - Use \`type: "github_secret"\` for provider credentials (sets on GitHub AND returns value)
+   - **Auto-generate** internal secrets: JWT_SECRET, SESSION_SECRET - use \`openssl rand -base64 32\`
+   - **Auto-generate** deployment secrets: SSH deploy keys, SERVER_IP - set via \`gh secret set\`
+   - **Request from user:** Login credentials, third-party API keys (Hetzner token, etc.)
 
    **For GitHub Secrets (CI/CD deployments):** Include EXPLICIT instructions in the task to request each secret:
    \`\`\`
@@ -1168,18 +1216,19 @@ Each task MUST include implementation-ready detail:
          \\"type\\": \\"github_secret\\",
          \\"name\\": \\"HCLOUD_TOKEN\\",
          \\"label\\": \\"Hetzner API Token\\",
-         \\"description\\": \\"Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)\\"
-       },
-       {
-         \\"type\\": \\"github_secret\\",
-         \\"name\\": \\"TF_API_TOKEN\\",
-         \\"label\\": \\"Terraform Cloud Token\\",
-         \\"description\\": \\"Go to app.terraform.io → User Settings → Tokens → Create API token\\"
+         \\"description\\": \\"Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)\\",
+         \\"repo\\": \\"owner/repo\\"
        }
      ]
    }
    \`\`\`
+   **IMPORTANT:** Replace \\"owner/repo\\" with the actual GitHub repository from the workspace GitHub config.
    The agent MUST call request_user_input to collect these secrets BEFORE creating the workflow file.
+   Note: DEPLOY_SSH_KEY and SERVER_IP are auto-generated during provisioning - do NOT ask the user for these.
+
+   **SAVE DEPLOYMENT STATE:** After provisioning validates successfully, the task MUST call
+   \`mcp__orchestrator-planning__save_deployment_state\` with server details (provider, serverName,
+   serverIp, sshKeyName, instanceType, location). This persists state for future day-2 management.
 
 ## RULES:
 
@@ -1359,10 +1408,10 @@ Consider carefully:
 2. **Runtime errors**: Check dev server logs for crashes, Prisma errors, module not found, unhandled exceptions
 3. **Health check context**: Is it failing due to code issues or just timing? Check if dev server logs show the app started successfully
 4. **Hidden issues**: Warnings that might cause problems, deprecated APIs, potential runtime issues
-5. **Deployment/Infrastructure tasks** (if task involves Terraform, GitHub workflows, CI/CD):
+5. **Deployment/Infrastructure tasks** (if task involves hcloud CLI, GitHub workflows, CI/CD):
    - Check for placeholder values like "VERIFY_WITH_WEBSEARCH" - these MUST be replaced with actual instance types
-   - Verify instance types look valid (e.g., "cx22", "cpx11", "s-1vcpu-1gb") - not placeholders or obviously invalid values
-   - If Terraform files contain "VERIFY_WITH_WEBSEARCH", the task FAILED - agent should have used WebSearch to find valid types
+   - Verify instance types look valid (e.g., "cx23", "cpx11", "s-1vcpu-1gb", "t3.micro") - not placeholders or obviously invalid values
+   - If provisioning commands contain "VERIFY_WITH_WEBSEARCH", the task FAILED - agent should have used WebSearch to find valid types
 
 Be intelligent - a passing build with runtime errors in logs should FAIL. A health check that fails but logs show app running might just need more time.
 
