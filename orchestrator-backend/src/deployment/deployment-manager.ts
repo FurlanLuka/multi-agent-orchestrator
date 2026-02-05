@@ -168,15 +168,15 @@ Example instance types (VERIFY BEFORE USING):
 ${provider.instanceTypes.examples.map(t => `- ${t}`).join('\n')}
 
 ` : ''}\
-${provider.cli ? `## Step 0: Verify CLI Installed
+${provider.cli && provider.cli.length > 0 ? `## Step 0: Verify CLIs Installed
 
-Use \`request_user_input\` with type: "install_cli" to verify the ${provider.cli.name} CLI is installed:
+${provider.cli.map(cli => `Use \`request_user_input\` with type: "install_cli" to verify the ${cli.name} CLI is installed:
 
 \`\`\`json
-${this.formatCliInstallJson(provider.cli)}
+${this.formatCliInstallJson(cli)}
 \`\`\`
-
-This prompts the user to install the CLI if not already present.
+`).join('\n')}
+This prompts the user to install each CLI if not already present.
 The system verifies installation before continuing.
 
 ` : ''}\
@@ -200,30 +200,25 @@ ${this.formatConfigJson(provider.requiredConfig)}
 ` : ''}\
 ## MANDATORY: Agent-Executed Local Provisioning
 
-**CRITICAL: YOU (the agent) must execute hcloud commands directly - do NOT ask the user to run them manually.**
-The agent provisions infrastructure locally first, then creates GitHub Actions for future CI/CD.
+**CRITICAL: YOU (the agent) must execute all commands directly — do NOT ask the user to run them manually.**
 
-### Step-by-Step Flow:
+The deployment has two clear phases with no overlap:
+- **Phase 1 (Local CLI):** Provision infrastructure, copy docker-compose.yml + .env to server.
+  Validate infra works. No app images built or deployed yet.
+- **Phase 2 (GitHub Actions):** Build Docker images → push to GHCR → SSH to server →
+  \`docker compose pull && docker compose up -d\`. This is the ONLY way apps get deployed.
 
-1. **Verify CLI installed** - Use \`request_user_input\` with type: "install_cli"
-   This prompts the user to install the hcloud CLI if not already present.
-   The system verifies installation before continuing.
+**The server never has source code.** Only: docker-compose.yml, .env, and optionally nginx config.
 
-2. **Request HCLOUD_TOKEN** - Use \`request_user_input\` with type: "github_secret"
+### Phase 1: Provision Infrastructure
+
+1. **Verify CLIs installed** — Use \`request_user_input\` with type: "install_cli" for each required CLI
+
+2. **Request HCLOUD_TOKEN** — Use \`request_user_input\` with type: "github_secret"
    - This BOTH sets the token on GitHub AND returns the value for local use
    - Export it: \`export HCLOUD_TOKEN="<token>"\`
 
-3. **Generate SSH deploy key**:
-   \`\`\`bash
-   ssh-keygen -t ed25519 -f /tmp/deploy_key -N "" -C "deploy@github-actions"
-   \`\`\`
-
-4. **Upload key to Hetzner**:
-   \`\`\`bash
-   hcloud ssh-key create --name "<project>-deploy" --public-key-from-file /tmp/deploy_key.pub
-   \`\`\`
-
-5. **Request user confirmation** - Use \`request_user_input\` with type: "confirmation"
+3. **Request user confirmation** — Use \`request_user_input\` with type: "confirmation"
    \`\`\`json
    {
      "inputs": [{
@@ -234,35 +229,33 @@ The agent provisions infrastructure locally first, then creates GitHub Actions f
    }
    \`\`\`
 
-6. **Create server with cloud-init** (do NOT ask user to run this):
-   \`\`\`bash
-   hcloud server create --name "<project>-server" --type cx23 --image ubuntu-24.04 \\
-     --ssh-key "<project>-deploy" --user-data-from-file /tmp/cloud-init.yaml --location fsn1
-   \`\`\`
-   - Cloud-init installs Docker via official apt repo (docker-ce + docker-compose-plugin)
-   - Verify instance type with WebSearch first
+4. **Follow provisionCommands from provider requirements** — execute each step in order:
+   - Generate SSH key, upload to Hetzner, create server with cloud-init
+   - Wait for cloud-init, validate Docker is running
+   - Create deploy directory on server
+   - Create docker-compose.yml with \`image: ghcr.io/...\` refs (NOT \`build:\`) and copy to server
+   - Create .env on server with production secrets
+   - Validate infrastructure: \`docker info\`, confirm Docker is working
+   - Set GitHub secrets (DEPLOY_SSH_KEY + SERVER_IP)
+   - Save deployment state via \`save_deployment_state\` (includes deployPath)
 
-7. **Wait for cloud-init + validate via SSH**:
-   \`\`\`bash
-   hcloud server describe "<project>-server" -o format='{{.PublicNet.IPv4.IP}}'
-   sleep 60
-   ssh -o StrictHostKeyChecking=no -i /tmp/deploy_key root@<SERVER_IP> "cloud-init status --wait && docker --version"
-   \`\`\`
+   Do NOT deploy the app yet — that happens exclusively through CI/CD.
 
-8. **Set auto-generated GitHub secrets** (DEPLOY_SSH_KEY + SERVER_IP):
-   \`\`\`bash
-   gh secret set DEPLOY_SSH_KEY --repo <owner/repo> < /tmp/deploy_key
-   gh secret set SERVER_IP --repo <owner/repo> --body "<SERVER_IP>"
-   \`\`\`
-   These are auto-generated - do NOT ask the user for these values.
+### Phase 2: Create CI/CD Workflow
 
-9. **Only after validation succeeds** - Create \`.github/workflows/deploy.yml\`
-   - Use the workflowTemplate from provider requirements
-   - HCLOUD_TOKEN is already on GitHub (from step 2)
-   - DEPLOY_SSH_KEY and SERVER_IP were set in step 8
+5. **Create \`.github/workflows/deploy.yml\`** — use the workflowTemplate from provider requirements
+   - Determine which services have Dockerfiles in the project
+   - Replace \`<owner>\`, \`<service>\`, \`<DEPLOY_PATH>\` placeholders with actual values
+   - Workflow builds + pushes each service to GHCR, then SSHs to login to GHCR on server + pull + restart
+   - Uses \`permissions: contents: read, packages: write\` for automatic GHCR auth in CI and on server
+   - GHCR login on the server uses the ephemeral \`GITHUB_TOKEN\` — no persistent PAT needed
+   - The server is already provisioned — CI/CD does NOT set up infrastructure, create .env, or install anything
 
-**WHY:** Running hcloud locally first catches credential issues, quota limits,
-region availability, and configuration errors before automating in CI/CD.
+**The CI/CD workflow must NOT:**
+- Copy source code to the server — server only has docker-compose.yml + .env
+- Run npm install or npm build outside of Docker — all building happens in Docker images
+- Create or overwrite .env — it was set up during provisioning
+- Regenerate secrets — that invalidates existing sessions/tokens
 `;
   }
 
@@ -313,6 +306,7 @@ region availability, and configuration errors before automating in CI/CD.
 
 Server: ${deployment.serverName} (${deployment.serverIp})
 Instance: ${deployment.instanceType} @ ${deployment.location}
+Deploy path: ${deployment.deployPath}
 SSH Key: ${deployment.sshKeyName}
 Provisioned: ${provisionedDate}
 
@@ -320,6 +314,7 @@ Provisioned: ${provisionedDate}
 
 - **hcloud CLI**: Available for server, firewall, volume, DNS operations
 - **SSH access**: \`ssh -i /tmp/deploy_key root@${deployment.serverIp}\` (may need to regenerate key if session expired)
+- **Deploy path**: \`${deployment.deployPath}\` on the server
 - **HCLOUD_TOKEN**: Request from user via \`request_user_input\` with type "github_secret" if not already exported
 
 After making infrastructure changes, call \`mcp__orchestrator-planning__save_deployment_state\` to update the stored state.

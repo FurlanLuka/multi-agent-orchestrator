@@ -38,7 +38,7 @@ export interface DeploymentProvider {
   requiredSecrets: SecretDefinition[];
   requiredConfig: ConfigDefinition[];
   instanceTypes?: InstanceTypeInfo;
-  cli?: CLIRequirement;
+  cli?: CLIRequirement[];
   provisionCommands: string;
   workflowTemplate: string;
 }
@@ -48,7 +48,7 @@ export interface ProviderRequirements {
   setupInstructions: string;
   provisionCommands: string;
   workflowTemplate: string;
-  cli?: CLIRequirement;
+  cli?: CLIRequirement[];
   currentDeployment?: DeploymentState;
 }
 

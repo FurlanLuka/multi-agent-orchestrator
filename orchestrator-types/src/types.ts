@@ -99,8 +99,9 @@ export interface DeploymentState {
   serverName: string;      // "myapp-server"
   serverIp: string;        // "1.2.3.4"
   sshKeyName: string;      // "myapp-deploy"
-  instanceType: string;    // "cx22"
+  instanceType: string;    // "cx23"
   location: string;        // "fsn1"
+  deployPath: string;      // "/opt/myapp" — where the app lives on the server
   provisionedAt: number;   // Date.now()
 }
 

@@ -76,7 +76,7 @@ function ProjectStatusBadge({ project, taskStates, testStates }: {
 }
 
 export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, testStates, isApproval }: Props) {
-  const tasks = plan?.tasks || [];
+  const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
   const projectsRaw = useMemo(() => [...new Set(tasks.map(t => t.project))], [tasks]);
 
   // Track completion order for stable sorting
@@ -158,9 +158,9 @@ export const TabbedPlanView = memo(function TabbedPlanView({ plan, taskStates, t
     () => tasks.map((task, idx) => ({ task, idx })).filter(({ task }) => task.project === activeTab),
     [tasks, activeTab]
   );
-  const testPlan = plan?.testPlan || {};
+  const testPlan = (plan?.testPlan && typeof plan.testPlan === 'object') ? plan.testPlan : {};
   const projectTests = useMemo(
-    () => activeTab ? (testPlan[activeTab] || []) : [],
+    () => activeTab ? (Array.isArray(testPlan[activeTab]) ? testPlan[activeTab] : []) : [],
     [testPlan, activeTab]
   );
 

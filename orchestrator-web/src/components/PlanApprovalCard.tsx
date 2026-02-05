@@ -10,7 +10,7 @@ interface PlanApprovalCardProps {
 }
 
 export function PlanApprovalCard({ plan, onApprove }: PlanApprovalCardProps) {
-  const tasks = plan?.tasks || [];
+  const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
   const taskCount = tasks.length;
   const projectCount = new Set(tasks.map(t => t.project)).size;
 

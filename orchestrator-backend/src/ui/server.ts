@@ -1616,7 +1616,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
 
   // Save deployment state (called by agent after provisioning or infra changes)
   app.post('/api/deployment/save-state', (req: Request, res: Response) => {
-    const { provider, serverName, serverIp, sshKeyName, instanceType, location } = req.body;
+    const { provider, serverName, serverIp, sshKeyName, instanceType, location, deployPath } = req.body;
 
     console.log(`[UIServer] Saving deployment state: ${serverName} (${serverIp})`);
 
@@ -1644,6 +1644,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         sshKeyName: sshKeyName || '',
         instanceType: instanceType || '',
         location: location || '',
+        deployPath: deployPath || '',
         provisionedAt: Date.now()
       });
 

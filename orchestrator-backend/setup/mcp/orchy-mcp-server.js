@@ -257,9 +257,10 @@ async function handleMessage(msg) {
               serverIp: { type: 'string', description: 'Server IP address (e.g., "1.2.3.4")' },
               sshKeyName: { type: 'string', description: 'SSH key name on provider (e.g., "myapp-deploy")' },
               instanceType: { type: 'string', description: 'Instance type (e.g., "cx23")' },
-              location: { type: 'string', description: 'Server location/region (e.g., "fsn1")' }
+              location: { type: 'string', description: 'Server location/region (e.g., "fsn1")' },
+              deployPath: { type: 'string', description: 'Path on server where app is deployed (e.g., "/opt/myapp")' }
             },
-            required: ['provider', 'serverName', 'serverIp', 'sshKeyName', 'instanceType', 'location']
+            required: ['provider', 'serverName', 'serverIp', 'sshKeyName', 'instanceType', 'location', 'deployPath']
           }
         }
       ]
@@ -422,7 +423,8 @@ async function handleMessage(msg) {
       serverIp: params.arguments?.serverIp || '',
       sshKeyName: params.arguments?.sshKeyName || '',
       instanceType: params.arguments?.instanceType || '',
-      location: params.arguments?.location || ''
+      location: params.arguments?.location || '',
+      deployPath: params.arguments?.deployPath || ''
     };
     const result = await saveDeploymentState(state);
     respond(id, {
