@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
+import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig, WORKSPACE_ROOT_PROJECT, DeploymentState } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
@@ -60,7 +60,6 @@ export class PlanningAgentManager extends EventEmitter {
   private readonly MAX_HISTORY = 10; // Keep last 10 exchanges for context
   private projectConfig: Record<string, ProjectConfig> = {};
   private workspaceGitHub: GitHubConfig | null = null;
-  private deploymentEnabled: boolean = false;
 
   // State tracking for user action requests
   private orchestratorState: OrchestratorState = 'IDLE';
@@ -109,14 +108,6 @@ export class PlanningAgentManager extends EventEmitter {
    */
   setWorkspaceGitHub(github: GitHubConfig | undefined): void {
     this.workspaceGitHub = github || null;
-  }
-
-  /**
-   * Sets whether deployment is enabled for this workspace
-   * (requires orchyManaged + GitHub integration)
-   */
-  setDeploymentEnabled(enabled: boolean): void {
-    this.deploymentEnabled = enabled;
   }
 
   /**
@@ -1015,48 +1006,11 @@ ${exploreCommands}
 
 **DO NOT proceed until you have explored ALL projects.**
 
-${this.deploymentEnabled ? `## STEP 1.5: DEPLOYMENT REQUESTS (MANDATORY for deployment features)
-
-**CRITICAL:** If the feature involves deployment, CI/CD, infrastructure, or hosting (keywords: "deploy", "hetzner", "CI/CD", "docker", "infrastructure"):
-
-1. **Call \`mcp__orchestrator-planning__check_deployment_available\`** to confirm deployment is enabled
-2. **Call \`mcp__orchestrator-planning__list_deployment_providers\`** to see available providers (currently only Hetzner)
-3. **Call \`mcp__orchestrator-planning__get_provider_requirements('hetzner')\`** for detailed requirements
-
-**CRITICAL: CHECK FOR EXISTING INFRASTRUCTURE:**
-- The response includes \`currentDeployment\` if infrastructure already exists
-- If \`currentDeployment\` is present: **SKIP provisioning entirely** — use the existing server name, IP, instance type, and location
-- The \`setupInstructions\` will automatically show existing infrastructure context instead of provisioning steps
-- For day-2 operations (upgrade, DNS, firewall, volumes), the agent uses hcloud CLI with the existing state
-
-**CRITICAL: FOLLOW THE RETURNED INSTRUCTIONS:**
-- The response includes \`provisionCommands\` - **FOLLOW THESE EXACTLY** (step-by-step hcloud CLI commands)
-- The response includes \`setupInstructions\` - **FOLLOW THESE EXACTLY** (they contain the correct provisioning flow)
-- The response includes \`cli\` - CLI requirements that must be verified first using \`install_cli\` type
-
-**MANDATORY: VERIFY CLI INSTALLED FIRST**
-- If provider has CLI requirements, call \`request_user_input\` with type "install_cli" BEFORE proceeding
-- This verifies the CLI is installed before any provisioning commands are run
-
-**MANDATORY: VERIFY INSTANCE TYPES WITH WEBSEARCH**
-- Cloud provider specs (instance types, pricing, APIs) change frequently
-- **The current year is 2026** - ALWAYS include this in search queries
-- Before using instance types from commands, verify they're still valid
-- Update the instance type with verified current value
-
-**MANDATORY: LOCAL-FIRST PROVISIONING**
-- The setupInstructions explain that the AGENT must run hcloud commands locally first
-- Do NOT create GitHub Actions until local provisioning is verified working
-- Tasks must include: \`hcloud server create\`, validate via SSH, then set GitHub secrets
-
-**DO NOT skip this step for deployment features.**` : `## DEPLOYMENT NOT AVAILABLE
-
-This workspace does not support deployment. To enable deployment:
-1. Create an orchyManaged workspace (using a template)
-2. Enable GitHub integration in workspace settings
-3. Configure the GitHub repository
-
-If user asks for deployment, explain these requirements.`}
+## DEPLOYMENT
+Deployment is handled separately via the Deployment tab. If the user asks about
+deployment, infrastructure provisioning, CI/CD, or hosting, inform them:
+"Use the Deployment tab in the workspace to set up infrastructure provisioning and CI/CD."
+Do NOT include deployment tasks in the feature plan.
 
 ## STEP 2: ASK CLARIFYING QUESTIONS
 
@@ -1072,8 +1026,6 @@ Use \`mcp__orchestrator-planning__ask_planning_question\` for questions.
 Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
 - refinedDescription: 1-2 paragraph summary
 - keyRequirements: Array of user-facing requirements
-  - **For deployment features:** Include "Required GitHub Secrets: SECRET_NAME1, SECRET_NAME2, ..." as a requirement
-  - This ensures the plan knows which secrets need to be requested from the user
 
 [PLANNER_STATUS] {"phase": "exploring", "message": "Launching project exploration..."}
 
@@ -1177,58 +1129,7 @@ Each task MUST include implementation-ready detail:
    - Edge cases to handle
 
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
-
-6. **For deployment/infrastructure tasks (hcloud CLI/VPS):**
-
-   **FOLLOW PROVISIONING COMMANDS FROM PROVIDER REQUIREMENTS:**
-   - You MUST have called \`mcp__orchestrator-planning__get_provider_requirements(providerId)\` in Step 1.5
-   - **FOLLOW the \`provisionCommands\`** from that response (step-by-step hcloud CLI commands)
-   - **FOLLOW the \`setupInstructions\`** for the correct provisioning flow
-   - The task executor needs these instructions - do not paraphrase or rewrite them
-
-   **VERIFY CLI INSTALLED FIRST:**
-   - Task must instruct agent to call \`request_user_input\` with type \\"install_cli\\" BEFORE running any hcloud commands
-   - This verifies the CLI is installed on the user's machine
-
-   **LOCAL-FIRST PROVISIONING (agent executes, not user):**
-   - Task must instruct agent to RUN \`hcloud server create\` locally
-   - Task must instruct agent to validate the server via SSH before proceeding
-   - Do NOT ask user to run hcloud commands manually - the agent executes them
-   - Only create GitHub Actions AFTER local provisioning is verified working
-
-   **VERIFY INSTANCE TYPES:**
-   - Use WebSearch to verify instance types are still valid (current year: 2026)
-   - Update the instance type with verified value
-
-   **SECRETS:**
-   - Use \`type: "github_secret"\` for provider credentials (sets on GitHub AND returns value)
-   - **Auto-generate** internal secrets: JWT_SECRET, SESSION_SECRET - use \`openssl rand -base64 32\`
-   - **Auto-generate** deployment secrets: SSH deploy keys, SERVER_IP - set via \`gh secret set\`
-   - **Request from user:** Login credentials, third-party API keys (Hetzner token, etc.)
-
-   **For GitHub Secrets (CI/CD deployments):** Include EXPLICIT instructions in the task to request each secret:
-   \`\`\`
-   **Request GitHub Secrets:**
-   Use \`request_user_input\` for EACH secret with type \\"github_secret\\":
-   {
-     \\"inputs\\": [
-       {
-         \\"type\\": \\"github_secret\\",
-         \\"name\\": \\"HCLOUD_TOKEN\\",
-         \\"label\\": \\"Hetzner API Token\\",
-         \\"description\\": \\"Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)\\",
-         \\"repo\\": \\"owner/repo\\"
-       }
-     ]
-   }
-   \`\`\`
-   **IMPORTANT:** Replace \\"owner/repo\\" with the actual GitHub repository from the workspace GitHub config.
-   The agent MUST call request_user_input to collect these secrets BEFORE creating the workflow file.
-   Note: DEPLOY_SSH_KEY and SERVER_IP are auto-generated during provisioning - do NOT ask the user for these.
-
-   **SAVE DEPLOYMENT STATE:** After provisioning validates successfully, the task MUST call
-   \`mcp__orchestrator-planning__save_deployment_state\` with server details (provider, serverName,
-   serverIp, sshKeyName, instanceType, location). This persists state for future day-2 management.
+   - Use \`request_user_input\` to collect secrets from the user
 
 ## RULES:
 
@@ -1249,6 +1150,281 @@ After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_
 [PLANNER_STATUS] {"phase": "planning", "message": "Generating implementation plan..."}
 
 **Call the Plan tool now.**`;
+  }
+
+  /**
+   * Starts a deployment planning workflow.
+   * Analogous to startPlanningWorkflow() but uses a deployment-focused prompt.
+   */
+  async startDeploymentWorkflow(
+    description: string,
+    provider: string,
+    projects: string[],
+    projectPaths?: Record<string, string>,
+    existingDeployment?: DeploymentState
+  ): Promise<void> {
+    const flowId = `deployment_workflow_${Date.now()}`;
+
+    this.isPlanningRequest = true;
+    this.currentPlanningPhase = 'exploring';
+
+    // Store context for later stages
+    this.pendingPlanContext = { feature: description, projects, projectPaths, flowId };
+
+    // Emit flow start for UI tracking
+    this.emitFlowStart(flowId);
+    this.emitFlowStep(flowId, 'deployment', 'active', 'Deployment Planning');
+
+    const initialStatus: PlanningStatusEvent = { phase: 'exploring', message: 'Starting deployment planning...' };
+    this.emit('planningStatus', initialStatus);
+
+    try {
+      const prompt = this.buildDeploymentPrompt(description, provider, projects, projectPaths || {}, existingDeployment);
+
+      const result = await this.executeOneShot(
+        prompt,
+        PlanningAgentManager.TIMEOUTS.PLAN_CREATION
+      );
+
+      console.log(`[PlanningAgent] Deployment workflow completed, result length: ${result.length}`);
+      this.processOutput(result);
+
+      this.emitFlowStep(flowId, 'complete', 'completed', 'Deployment planning complete');
+    } catch (err) {
+      this.emitFlowComplete(flowId, 'failed', {
+        passed: false,
+        summary: 'Deployment planning failed',
+        details: String(err)
+      });
+      throw err;
+    } finally {
+      this.isPlanningRequest = false;
+      this.pendingPlanContext = null;
+    }
+  }
+
+  /**
+   * Builds the deployment-focused prompt for the planning agent.
+   */
+  private buildDeploymentPrompt(
+    description: string,
+    provider: string,
+    projects: string[],
+    projectPaths: Record<string, string>,
+    existingDeployment?: DeploymentState
+  ): string {
+    const projectList = projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n');
+
+    // GitHub section
+    let githubSection = '';
+    if (this.workspaceGitHub?.enabled && this.workspaceGitHub?.repo) {
+      githubSection = `
+## GITHUB INTEGRATION
+
+This workspace is connected to GitHub repository: **${this.workspaceGitHub.repo}**
+Use this repo for CI/CD workflows and GitHub Actions.
+`;
+    }
+
+    // Existing deployment section
+    let existingDeploymentSection = '';
+    if (existingDeployment) {
+      existingDeploymentSection = `
+## EXISTING DEPLOYMENT (DAY-2 MANAGEMENT)
+
+Infrastructure already exists — **DO NOT re-provision**. Use the existing state:
+- **Provider:** ${existingDeployment.provider}
+- **Server Name:** ${existingDeployment.serverName}
+- **Server IP:** ${existingDeployment.serverIp}
+- **Instance Type:** ${existingDeployment.instanceType}
+- **Location:** ${existingDeployment.location}
+- **Deploy Path:** ${existingDeployment.deployPath}
+- **SSH Key:** ${existingDeployment.sshKeyName}
+- **Provisioned At:** ${new Date(existingDeployment.provisionedAt).toISOString()}
+
+For modifications (upgrade, DNS, firewall, volumes, etc.), use hcloud CLI with the existing server.
+`;
+    }
+
+    return `# Deployment Specialist
+
+You are a Deployment Specialist agent. Your job is to create a deployment plan for infrastructure provisioning and CI/CD setup.
+
+## Deployment Request
+${description}
+
+## Provider
+${provider}
+
+## Projects
+${projectList}
+${githubSection}
+${existingDeploymentSection}
+## STEP 1: GATHER PROVIDER REQUIREMENTS
+
+Call \`mcp__orchestrator-planning__get_provider_requirements('${provider}')\` to get:
+- CLI requirements (tools that must be installed)
+- Secret definitions (API tokens, credentials)
+- Config definitions (settings, parameters)
+- Provision commands (step-by-step CLI commands)
+- Setup instructions (complete provisioning flow)
+
+## STEP 2: EXPLORE PROJECTS
+
+Launch Explore agents for each project to understand:
+- Dockerfiles, docker-compose files
+- Ports and environment variables
+- Build processes and dependencies
+- Existing CI/CD configurations
+
+## STEP 3: GENERATE DEPLOYMENT PLAN
+
+### LOCAL-FIRST VERIFICATION PRINCIPLE
+
+**Everything that CAN be tested locally MUST be tested locally before deploying remotely.**
+The plan must include dedicated tasks for local verification BEFORE any remote deployment tasks.
+
+**Docker images:**
+- If a project has a Dockerfile, the plan MUST include a task that builds the image locally (\`docker build\`) and verifies it starts correctly (\`docker run\`) BEFORE pushing to any registry or deploying to a server.
+- If there is a docker-compose.yml, the plan MUST include a task that runs \`docker compose up\` locally and verifies all services start and can communicate.
+- If using nginx as a reverse proxy, the local docker-compose test MUST verify that requests through nginx reach the correct backend/frontend services.
+- Fix any build errors locally — do NOT push broken images to remote infrastructure.
+
+**Other local verifications:**
+- Config file syntax (nginx configs, env files, CI workflows) — validate locally before deploying.
+- Build scripts — run \`npm run build\`, \`go build\`, etc. locally to catch compilation errors.
+- Database migrations — if applicable, test migration scripts against a local DB.
+- Port bindings — verify the app listens on the expected port.
+- Health checks — if the app exposes a health endpoint, verify it responds after local startup.
+
+**Task ordering:**
+- Local verification tasks MUST come BEFORE remote provisioning/deployment tasks for the same project.
+- Only after local verification passes should the plan proceed to push images, SSH to servers, or configure remote infrastructure.
+
+Create a plan JSON and submit it via \`mcp__orchestrator-planning__submit_plan_for_approval\`.
+
+**CRITICAL: Use the correct task field names:**
+- \`name\` (NOT \`title\`) — short task name
+- \`task\` (NOT \`description\`) — detailed implementation instructions
+- \`project\` — ALWAYS set to \`${WORKSPACE_ROOT_PROJECT}\` (ALL deployment tasks run in workspace)
+
+**Plan JSON format:**
+{
+  "feature": "Deployment: ${description.slice(0, 50)}",
+  "description": "Infrastructure provisioning and CI/CD for ${provider}",
+  "overview": "...",
+  "tasks": [
+    {
+      "project": "${WORKSPACE_ROOT_PROJECT}",
+      "name": "Verify Docker builds locally",
+      "task": "Build and run each project's Docker image locally to ensure they work before any remote deployment..."
+    },
+    {
+      "project": "${WORKSPACE_ROOT_PROJECT}",
+      "name": "Provision server infrastructure",
+      "task": "Use provider CLI to create server, configure SSH access, and verify connectivity..."
+    },
+    {
+      "project": "${WORKSPACE_ROOT_PROJECT}",
+      "name": "Create CI/CD pipeline",
+      "task": "Create GitHub Actions workflow for automated deployment, set up secrets..."
+    },
+    {
+      "project": "${WORKSPACE_ROOT_PROJECT}",
+      "name": "Deploy and validate",
+      "task": "Push to trigger deployment, verify services are running, perform health checks..."
+    }
+  ],
+  "testPlan": {},
+  "e2eDependencies": {}
+}
+
+## TASK REQUIREMENTS:
+
+Each deployment task MUST include:
+
+1. **LOCAL VERIFICATION BEFORE REMOTE DEPLOYMENT:**
+   - If the project has a Dockerfile: task MUST run \`docker build -t <project>:local .\` and then \`docker run --rm -p <port>:<port> <project>:local\` to verify the image builds and starts.
+   - If there is a docker-compose.yml: task MUST run \`docker compose build && docker compose up -d\` and verify services start, then \`docker compose down\`.
+   - If the project has a build step: task MUST run the build locally and verify it succeeds.
+   - Any config files (nginx, env templates, CI workflows) MUST be syntax-checked locally.
+   - **Local verification tasks must be ordered BEFORE any remote deployment tasks for the same project.**
+   - If a local build fails, the task MUST fix the issue and re-verify before proceeding.
+
+2. **VERIFY CLI INSTALLED FIRST:**
+   - Task must instruct agent to call \`request_user_input\` with type "install_cli" BEFORE running any provider CLI commands
+   - This verifies the CLI is installed on the user's machine
+
+4. **FOLLOW PROVISIONING COMMANDS FROM PROVIDER REQUIREMENTS:**
+   - **FOLLOW the \`provisionCommands\`** from get_provider_requirements (step-by-step CLI commands)
+   - **FOLLOW the \`setupInstructions\`** for the correct provisioning flow
+   - The task executor needs these instructions — do not paraphrase or rewrite them
+
+5. **LOCAL-FIRST PROVISIONING (agent executes, not user):**
+   - Task must instruct agent to RUN provisioning commands locally (e.g., \`hcloud server create\`)
+   - Task must instruct agent to validate the server via SSH before proceeding
+   - Do NOT ask user to run CLI commands manually — the agent executes them
+   - Only create GitHub Actions AFTER local provisioning is verified working
+
+6. **VERIFY INSTANCE TYPES:**
+   - Use WebSearch to verify instance types are still valid (current year: 2026)
+   - Update the instance type with verified value
+
+7. **SECRETS:**
+   - Use \`type: "github_secret"\` for provider credentials (sets on GitHub AND returns value)
+   - **Auto-generate** internal secrets: JWT_SECRET, SESSION_SECRET — use \`openssl rand -base64 32\`
+   - **Auto-generate** deployment secrets: SSH deploy keys, SERVER_IP — set via \`gh secret set\`
+   - **Request from user:** Login credentials, third-party API keys (Hetzner token, etc.)
+
+   **For GitHub Secrets:** Include EXPLICIT instructions to request each secret:
+   \`\`\`
+   Use \`request_user_input\` for EACH secret with type "github_secret":
+   {
+     "inputs": [
+       {
+         "type": "github_secret",
+         "name": "HCLOUD_TOKEN",
+         "label": "Hetzner API Token",
+         "description": "Go to console.hetzner.cloud → Security → API Tokens → Generate (Read & Write)",
+         "repo": "${this.workspaceGitHub?.repo || 'owner/repo'}"
+       }
+     ]
+   }
+   \`\`\`
+
+8. **SAVE DEPLOYMENT STATE:** After provisioning validates successfully, the task MUST call
+   \`mcp__orchestrator-planning__save_deployment_state\` with server details (provider, serverName,
+   serverIp, sshKeyName, instanceType, location). This persists state for future day-2 management.
+   - **IMPORTANT:** Also include \`sshPrivateKey\` — read the contents of the deploy key file (e.g. \`cat /tmp/deploy_key\`) and pass it as a string. This persists the key locally so future management sessions can SSH to the server without regenerating keys.
+
+9. **NGINX REVERSE PROXY (multi-service deployments):**
+   - When deploying frontend AND backend as separate services, ALWAYS include an nginx reverse proxy
+   - Services MUST NOT bind directly to host ports — use \`expose\` in docker-compose, not \`ports\`
+   - Only nginx should bind to host port 80 (and 443 for HTTPS)
+   - The nginx config MUST route API requests (e.g. \`/api/\`) to the backend service and all other requests to the frontend
+   - Use Docker Compose service names in \`proxy_pass\` (e.g. \`http://backend:3000/\`)
+   - Inspect each project's Dockerfile EXPOSE directive to determine the correct internal port
+   - The nginx.conf file must be created locally, syntax-checked (\`docker run --rm -v $(pwd)/nginx.conf:/etc/nginx/conf.d/default.conf:ro nginx:alpine nginx -t\`), and copied to the server alongside docker-compose.yml
+
+## TASK GRANULARITY:
+- Split the deployment into multiple focused tasks, each handling ONE logical step
+- Each task should be completable and verifiable independently
+- Typical deployment task breakdown:
+  1. Local Docker verification (build & run images locally)
+  2. Infrastructure provisioning (create server, configure SSH)
+  3. CI/CD setup (GitHub Actions workflow, secrets)
+  4. Deploy & validate (push, monitor workflow, health check)
+- Day-2 operations may have fewer tasks but should still split distinct steps
+
+## RULES:
+- Assign ALL tasks to \`${WORKSPACE_ROOT_PROJECT}\` — deployment tasks NEVER use individual project names
+- Set \`testPlan: {}\` — no E2E tests for deployment
+- Since ALL deployment tasks use the same project (workspace), they ALL run SEQUENTIALLY in array order
+- NEVER include ${WORKSPACE_ROOT_PROJECT} in testPlan
+
+[PLANNER_STATUS] {"phase": "planning", "message": "Creating deployment plan..."}
+
+**START NOW: Call get_provider_requirements, explore the projects, then submit the deployment plan.**`;
   }
 
   /**

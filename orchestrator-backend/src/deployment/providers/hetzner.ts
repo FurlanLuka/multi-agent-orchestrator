@@ -114,56 +114,120 @@ Example structure:
 services:
   backend:
     image: ghcr.io/<owner>/<project>-backend:latest
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     env_file: .env
     restart: unless-stopped
   frontend:
     image: ghcr.io/<owner>/<project>-frontend:latest
+    expose:
+      - "80"
+    restart: unless-stopped
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
     restart: unless-stopped
 \`\`\`
+
+**IMPORTANT:** Use \`expose\` (not \`ports\`) for app services — they are only accessible internally
+via Docker networking. Only nginx binds to the host.
 
 Copy to server:
 \`\`\`bash
 scp -i /tmp/deploy_key docker-compose.yml root@$SERVER_IP:/opt/<project-name>/docker-compose.yml
 \`\`\`
 
-### 9. Create .env on server
+### 9. Create and copy nginx.conf to server
+Create an nginx reverse proxy config that routes traffic to the correct services.
+The agent must determine actual ports by inspecting each project's Dockerfile (EXPOSE directive)
+or application config.
+
+Example nginx.conf:
+\`\`\`nginx
+server {
+    listen 80;
+
+    location /api/ {
+        proxy_pass http://backend:3000/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://frontend:80/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+\`\`\`
+
+**IMPORTANT:** Adjust ports and paths based on the actual project configuration:
+- Inspect Dockerfiles for EXPOSE directives to determine service ports
+- Check if the backend uses a URL prefix (e.g. \`/api/\`) or runs at root
+- The \`proxy_pass\` URL uses Docker Compose service names (e.g. \`backend\`, \`frontend\`)
+
+Copy to server:
+\`\`\`bash
+scp -i /tmp/deploy_key nginx.conf root@$SERVER_IP:/opt/<project-name>/nginx.conf
+\`\`\`
+
+### 10. Create .env on server
 Create the production .env file on the server with all environment variables the
 docker-compose needs (database URLs, secrets, API keys, etc.). Generate secrets
 like JWT_SECRET on the server with \`openssl rand -base64 32\`. This .env is
 created once during provisioning and NOT overwritten on subsequent deploys.
 
-### 10. Validate infrastructure
+### 11. Validate infrastructure
 \`\`\`bash
 ssh -i /tmp/deploy_key root@$SERVER_IP "docker info && docker pull hello-world && docker run --rm hello-world"
 \`\`\`
 Confirm Docker works and the server can pull images. Do NOT deploy the app yet —
 that happens through CI/CD.
 
-### 11. Set GitHub secrets for CI/CD
+### 12. Set GitHub secrets for CI/CD
 \`\`\`bash
 gh secret set DEPLOY_SSH_KEY --repo <owner/repo> < /tmp/deploy_key
 gh secret set SERVER_IP --repo <owner/repo> --body "$SERVER_IP"
 \`\`\`
 These are auto-generated — do NOT ask the user for these values.
 
-### 12. Save deployment state
-Call \`mcp__orchestrator-planning__save_deployment_state\` to persist infrastructure details:
+### 13. Save deployment state
+Read the SSH private key and call \`mcp__orchestrator-planning__save_deployment_state\` to persist
+infrastructure details including the key. This allows future day-2 management sessions to SSH
+into the server without regenerating keys.
+
+\`\`\`bash
+# Read the private key content
+SSH_PRIVATE_KEY=$(cat /tmp/deploy_key)
+\`\`\`
+
+Call the tool with:
 \`\`\`json
 {
   "provider": "hetzner",
   "serverName": "<project-name>-server",
   "serverIp": "<SERVER_IP>",
   "sshKeyName": "<project-name>-deploy",
+  "sshPrivateKey": "<contents of /tmp/deploy_key>",
   "instanceType": "<instance-type-used>",
   "location": "fsn1",
   "deployPath": "/opt/<project-name>"
 }
 \`\`\`
 This enables day-2 management and tells future sessions where the app lives.
+The SSH private key is stored locally in ~/.orchy-config/workspaces.json — never pushed to remote.
 
 ## Phase 2: CI/CD Workflow (GitHub Actions)
 

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { PlanningAgentManager } from './planning-agent-manager';
-import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult, SessionProjectConfig } from '@orchy/types';
+import { ChatEvent, ChatStreamEvent, PlanningAction, PlanningStatusEvent, AnalysisResultEvent, RequestFlow, FlowStep, FlowStatus, ExplorationAnalysisResult, SessionProjectConfig, DeploymentState } from '@orchy/types';
 import { parseMarkedResponse, MARKERS } from './response-parser';
 
 interface ChatMessage {
@@ -146,6 +146,29 @@ export class ChatHandler extends EventEmitter {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.addMessage('system', `Error in planning workflow: ${error.message}`);
+    }
+  }
+
+  /**
+   * Requests a deployment plan from the planning agent.
+   */
+  async requestDeploymentPlan(
+    description: string,
+    provider: string,
+    projects: string[],
+    projectPaths?: Record<string, string>,
+    existingDeployment?: DeploymentState
+  ): Promise<void> {
+    this.addMessage('user', `Create deployment plan: ${description}`);
+    this.addMessage('system', `Starting deployment planning for ${provider}...`);
+
+    try {
+      await this.planningAgent.startDeploymentWorkflow(
+        description, provider, projects, projectPaths, existingDeployment
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.addMessage('system', `Error in deployment planning: ${error.message}`);
     }
   }
 

@@ -33,6 +33,7 @@ function AppRoutes() {
     quickStartError,
     port,
     startSession,
+    startDeploymentSession,
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,
@@ -145,6 +146,10 @@ function AppRoutes() {
     }
   };
 
+  const handleStartDeployment = (provider: string, description: string, workspaceId: string) => {
+    startDeploymentSession(provider, description, workspaceId);
+  };
+
   const handleCreateEmptyWorkspace = (name: string, context?: string) => {
     createWorkspace(name, [], context);
     navigate('/home');
@@ -230,6 +235,7 @@ function AppRoutes() {
             createProjectError={createProjectError}
             onClearCreateProjectError={clearCreateProjectError}
             onResumeSession={resumeSession}
+            onStartDeployment={handleStartDeployment}
           />
         }
       />
@@ -295,6 +301,7 @@ function PromptScreenWrapper({
   createProjectError,
   onClearCreateProjectError,
   onResumeSession,
+  onStartDeployment,
 }: {
   workspaces: Record<string, WorkspaceConfig>;
   templates: any[];
@@ -325,6 +332,7 @@ function PromptScreenWrapper({
   createProjectError: string | null;
   onClearCreateProjectError: () => void;
   onResumeSession: (sessionId: string) => void;
+  onStartDeployment?: (provider: string, description: string, workspaceId: string) => void;
 }) {
   const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -377,6 +385,7 @@ function PromptScreenWrapper({
         onCreateProjectFromTemplate={(options) => onCreateProjectFromTemplate(workspace.id, options)}
         createProjectError={createProjectError}
         onClearCreateProjectError={onClearCreateProjectError}
+        onStartDeployment={onStartDeployment}
       />
     </>
   );

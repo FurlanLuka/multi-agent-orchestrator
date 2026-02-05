@@ -256,6 +256,7 @@ async function handleMessage(msg) {
               serverName: { type: 'string', description: 'Server name (e.g., "myapp-server")' },
               serverIp: { type: 'string', description: 'Server IP address (e.g., "1.2.3.4")' },
               sshKeyName: { type: 'string', description: 'SSH key name on provider (e.g., "myapp-deploy")' },
+              sshPrivateKey: { type: 'string', description: 'SSH private key content (contents of the deploy key file). Persisted locally for day-2 server management.' },
               instanceType: { type: 'string', description: 'Instance type (e.g., "cx23")' },
               location: { type: 'string', description: 'Server location/region (e.g., "fsn1")' },
               deployPath: { type: 'string', description: 'Path on server where app is deployed (e.g., "/opt/myapp")' }
@@ -422,6 +423,7 @@ async function handleMessage(msg) {
       serverName: params.arguments?.serverName || '',
       serverIp: params.arguments?.serverIp || '',
       sshKeyName: params.arguments?.sshKeyName || '',
+      sshPrivateKey: params.arguments?.sshPrivateKey || '',
       instanceType: params.arguments?.instanceType || '',
       location: params.arguments?.location || '',
       deployPath: params.arguments?.deployPath || ''

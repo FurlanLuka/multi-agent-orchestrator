@@ -2105,10 +2105,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Also update PlanningAgent's project config and GitHub settings
             planningAgent.setProjectConfig(config.projects);
             planningAgent.setWorkspaceGitHub(workspace?.github);
-            // Set deployment availability based on workspace config
-            const deploymentCheck = deploymentManager.isDeploymentEnabled(workspaceId);
-            planningAgent.setDeploymentEnabled(deploymentCheck.enabled);
-
             // Use workspace projects if none explicitly provided
             if (!resolvedProjects || resolvedProjects.length === 0) {
               resolvedProjects = workspaceManager.getWorkspaceProjectNames(workspaceId);
@@ -2302,6 +2298,146 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       } catch (err) {
         console.error('[Orchestrator] Failed to create session:', err);
         chatHandler.systemMessage(`Failed to create session: ${err}`);
+        sessionLogger?.error('SESSION_CREATE', err);
+      }
+    });
+
+    // Handle deployment session creation
+    socket.on('startDeploymentSession', async ({ provider, description, workspaceId }: {
+      provider: string; description: string; workspaceId: string;
+    }) => {
+      try {
+        const workspace = workspaceManager.getWorkspace(workspaceId);
+        if (!workspace) {
+          chatHandler.systemMessage(`Workspace not found: ${workspaceId}`);
+          return;
+        }
+
+        // Verify deployment is available
+        const deploymentCheck = deploymentManager.isDeploymentEnabled(workspaceId);
+        if (!deploymentCheck.enabled) {
+          chatHandler.systemMessage(`Deployment not available: ${deploymentCheck.reason}`);
+          return;
+        }
+
+        const isOrchyManaged = workspace.orchyManaged === true;
+
+        // Merge workspace project configs
+        const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+        Object.assign(config.projects, workspaceProjectConfigs);
+
+        // Configure planning agent
+        planningAgent.setProjectConfig(config.projects);
+        planningAgent.setWorkspaceGitHub(workspace?.github);
+
+        // Resolve all workspace projects + workspace root project
+        let resolvedProjects = workspaceManager.getWorkspaceProjectNames(workspaceId);
+        if (isOrchyManaged && !resolvedProjects.includes(WORKSPACE_ROOT_PROJECT)) {
+          resolvedProjects = [...resolvedProjects, WORKSPACE_ROOT_PROJECT];
+        }
+
+        // Create session with deployment type
+        const session = sessionManager.createSession(
+          `Deployment: ${description}`,
+          resolvedProjects,
+          workspaceId
+        );
+        session.sessionType = 'deployment';
+        session.deploymentProvider = provider;
+
+        // Set up git branches for orchyManaged workspaces
+        const gitBranches: Record<string, string> = {};
+        if (isOrchyManaged) {
+          const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
+          if (firstProjectConfig) {
+            let workspaceRootPath = firstProjectConfig.path;
+            if (workspaceRootPath.startsWith('~')) {
+              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
+            }
+            workspaceRootPath = path.dirname(workspaceRootPath);
+
+            try {
+              // Check for uncommitted changes and stash if needed
+              const uncommitted = await gitManager.hasUncommittedChanges(workspaceRootPath);
+              let didStash = false;
+              if (uncommitted.hasChanges) {
+                const stashResult = await gitManager.stashChanges(workspaceRootPath, 'orchy-deploy-session');
+                didStash = stashResult.success;
+              }
+
+              // Checkout main and pull latest
+              await gitManager.createAndCheckoutBranch(workspaceRootPath, 'main');
+              try {
+                await gitManager.pullBranch(workspaceRootPath, 'main');
+              } catch (_pullErr) {
+                // Ignore pull errors for repos without remote
+              }
+
+              // Generate branch name for deployment
+              let branchName: string;
+              try {
+                branchName = await generateBranchName(`deploy ${provider} ${description}`);
+              } catch (_err) {
+                branchName = gitManager.generateBranchName(`deploy-${provider}`);
+              }
+
+              const branchResult = await gitManager.createAndCheckoutBranch(workspaceRootPath, branchName);
+              if (branchResult.success) {
+                gitBranches['_workspace'] = branchName;
+              }
+
+              if (didStash) {
+                console.log(`[Orchestrator] Previous changes stashed for deployment session.`);
+              }
+            } catch (err) {
+              console.error(`[Orchestrator] Git setup failed for deployment session:`, err);
+              chatHandler.systemMessage(`Git setup error: ${err}. Session will continue.`);
+            }
+          }
+        }
+
+        // Store git branches in session
+        if (Object.keys(gitBranches).length > 0) {
+          session.gitBranches = gitBranches;
+          sessionStore.updateGitBranches(session.id, gitBranches);
+        }
+
+        // Set current session on monitors
+        statusMonitor.setCurrentSessionId(session.id);
+        logAggregator.setCurrentSessionId(session.id);
+
+        sessionLogger = new SessionLogger(session.id);
+        sessionLogger.log('SESSION_CREATE', { type: 'deployment', provider, description });
+
+        // Initialize status for each project
+        for (const project of resolvedProjects) {
+          statusMonitor.initializeProject(project);
+          const sessionDir = sessionManager.getSessionDir(project);
+          if (sessionDir) {
+            logAggregator.registerProject(project, sessionDir);
+          }
+        }
+
+        (ui.io as any).emitSessionCreated(session);
+        chatHandler.systemMessage(`Deployment session created: ${session.id}`);
+
+        // Get project paths
+        const projectPaths: Record<string, string> = {};
+        for (const project of resolvedProjects) {
+          const projectConfig = workspaceProjectConfigs[project] || config.projects[project];
+          if (projectConfig) {
+            projectPaths[project] = projectConfig.path;
+          }
+        }
+
+        // Get existing deployment state
+        const existingDeployment = workspace.deployment;
+
+        // Request deployment plan
+        chatHandler.requestDeploymentPlan(description, provider, resolvedProjects, projectPaths, existingDeployment);
+      } catch (err) {
+        console.error('[Orchestrator] Failed to create deployment session:', err);
+        chatHandler.systemMessage(`Failed to create deployment session: ${err}`);
         sessionLogger?.error('SESSION_CREATE', err);
       }
     });
@@ -2735,9 +2871,6 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             Object.assign(config.projects, workspaceProjectConfigs);
             planningAgent.setProjectConfig(config.projects);
             planningAgent.setWorkspaceGitHub(workspace?.github);
-            // Set deployment availability based on workspace config
-            const deploymentCheck = deploymentManager.isDeploymentEnabled(fullData.session.workspaceId);
-            planningAgent.setDeploymentEnabled(deploymentCheck.enabled);
             // Check if Orchy Managed and get workspace root
             isOrchyManagedResume = workspace.orchyManaged === true;
             if (isOrchyManagedResume) {

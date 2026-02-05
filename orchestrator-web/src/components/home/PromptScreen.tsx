@@ -17,6 +17,7 @@ import {
   Switch,
   Alert,
   Select,
+  Tabs,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -30,6 +31,8 @@ import {
   IconAlertTriangle,
   IconGitMerge,
   IconBrandGithub,
+  IconCode,
+  IconCloudUpload,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -57,6 +60,7 @@ import { EditProjectModal } from '../EditProjectModal';
 import { HelpOverlay, HelpTrigger } from '../overlay';
 import type { PermissionsConfig } from '../CollapsiblePermissions';
 import { useOrchestrator } from '../../context/OrchestratorContext';
+import { DeploymentTab } from './DeploymentTab';
 
 interface BranchCheckResult {
   project: string;
@@ -100,6 +104,7 @@ interface PromptScreenProps {
   onCreateProjectFromTemplate: (options: { name: string; targetPath: string; template: ProjectTemplate; permissions?: { dangerouslyAllowAll?: boolean; allow: string[] } }) => void;
   createProjectError?: string | null;
   onClearCreateProjectError?: () => void;
+  onStartDeployment?: (provider: string, description: string, workspaceId: string) => void;
 }
 
 export function PromptScreen({
@@ -128,6 +133,7 @@ export function PromptScreen({
   onCreateProjectFromTemplate,
   createProjectError,
   onClearCreateProjectError,
+  onStartDeployment,
 }: PromptScreenProps) {
   const { startDevServers, devServers, startingDevServers, stopAllDevServers } = useOrchestrator();
   // Branch name is auto-generated for orchyManaged workspaces
@@ -200,6 +206,9 @@ export function PromptScreen({
     placeholder: 'Describe what to build...',
     onUpdate: (text) => setEditorContent(text),
   });
+
+  // Deployment tab is available when workspace is orchyManaged with GitHub enabled
+  const showDeploymentTab = !!workspace.orchyManaged && !!workspace.github?.enabled && !!onStartDeployment;
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
@@ -920,94 +929,209 @@ export function PromptScreen({
           </Group>
         </Stack>
 
-        {/* GitHub access warning */}
-        {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
-          !githubStatus.authenticated ? (
-            <Alert
-              variant="light"
-              color="orange"
-              icon={<IconBrandGithub size={18} />}
-              title="GitHub Authentication Required"
-            >
-              <Text size="sm">
-                You are not authenticated with GitHub. Run{' '}
-                <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
-                in your terminal to authenticate.
-              </Text>
-            </Alert>
-          ) : !githubStatus.hasAccess ? (
-            <Alert
-              variant="light"
-              color="orange"
-              icon={<IconBrandGithub size={18} />}
-              title="GitHub Access Issue"
-            >
-              <Text size="sm">
-                {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
-              </Text>
-            </Alert>
-          ) : null
-        )}
+        {showDeploymentTab ? (
+          <Tabs defaultValue="feature" variant="default">
+            <Tabs.List mb="lg">
+              <Tabs.Tab value="feature" leftSection={<IconCode size={16} />}>
+                Feature
+              </Tabs.Tab>
+              <Tabs.Tab value="deployment" leftSection={<IconCloudUpload size={16} />}>
+                Deploy
+              </Tabs.Tab>
+            </Tabs.List>
 
-        {/* GitHub connected badge */}
-        {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
-          <Group gap="xs">
-            <Badge
-              size="sm"
-              variant="light"
-              color="dark"
-              leftSection={<IconBrandGithub size={12} />}
-            >
-              {workspace.github.repo}
-            </Badge>
-            <Text size="xs" c="dimmed">Connected</Text>
-          </Group>
-        )}
+            <Tabs.Panel value="feature">
+              <Stack gap="lg">
+                {/* GitHub access warning */}
+                {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
+                  !githubStatus.authenticated ? (
+                    <Alert
+                      variant="light"
+                      color="orange"
+                      icon={<IconBrandGithub size={18} />}
+                      title="GitHub Authentication Required"
+                    >
+                      <Text size="sm">
+                        You are not authenticated with GitHub. Run{' '}
+                        <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
+                        in your terminal to authenticate.
+                      </Text>
+                    </Alert>
+                  ) : !githubStatus.hasAccess ? (
+                    <Alert
+                      variant="light"
+                      color="orange"
+                      icon={<IconBrandGithub size={18} />}
+                      title="GitHub Access Issue"
+                    >
+                      <Text size="sm">
+                        {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
+                      </Text>
+                    </Alert>
+                  ) : null
+                )}
 
-        {/* Two-column layout */}
-        <Grid gutter="lg" align="stretch">
-          {/* Left card: Feature description */}
-          <Grid.Col span={{ base: 12, md: 7 }}>
-            <FormCard
-              showHeader
-              footer={
-                <Group justify="flex-end">
-                  <Button variant="subtle" onClick={onBack}>
-                    Cancel
-                  </Button>
-                  <Button
-                    leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
-                    onClick={handleStart}
-                    disabled={!hasContent || startingSession || checkingBranches}
-                    loading={startingSession || checkingBranches}
-                  >
-                    {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
-                  </Button>
-                </Group>
-              }
-              style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-            >
-              <Stack gap="lg" style={{ flex: 1 }}>
-                <GlassRichTextEditor
-                  label="Feature Description"
-                  placeholder="Describe what to build..."
-                  editor={editor}
-                />
+                {/* GitHub connected badge */}
+                {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
+                  <Group gap="xs">
+                    <Badge
+                      size="sm"
+                      variant="light"
+                      color="dark"
+                      leftSection={<IconBrandGithub size={12} />}
+                    >
+                      {workspace.github.repo}
+                    </Badge>
+                    <Text size="xs" c="dimmed">Connected</Text>
+                  </Group>
+                )}
 
+                {/* Two-column layout */}
+                <Grid gutter="lg" align="stretch">
+                  {/* Left card: Feature description */}
+                  <Grid.Col span={{ base: 12, md: 7 }}>
+                    <FormCard
+                      showHeader
+                      footer={
+                        <Group justify="flex-end">
+                          <Button variant="subtle" onClick={onBack}>
+                            Cancel
+                          </Button>
+                          <Button
+                            leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
+                            onClick={handleStart}
+                            disabled={!hasContent || startingSession || checkingBranches}
+                            loading={startingSession || checkingBranches}
+                          >
+                            {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
+                          </Button>
+                        </Group>
+                      }
+                      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                    >
+                      <Stack gap="lg" style={{ flex: 1 }}>
+                        <GlassRichTextEditor
+                          label="Feature Description"
+                          placeholder="Describe what to build..."
+                          editor={editor}
+                        />
+                      </Stack>
+                    </FormCard>
+                  </Grid.Col>
+
+                  {/* Right card: Project selection */}
+                  <Grid.Col span={{ base: 12, md: 5 }}>
+                    <ProjectSelectionPanel
+                      projects={workspace.projects.map(p => p.name)}
+                      projectConfigs={workspaceProjectConfigs}
+                      sessionProjectConfigs={sessionProjectConfigs}
+                      onConfigChange={setSessionProjectConfigs}
+                    />
+                  </Grid.Col>
+                </Grid>
               </Stack>
-            </FormCard>
-          </Grid.Col>
+            </Tabs.Panel>
 
-          {/* Right card: Project selection */}
-          <Grid.Col span={{ base: 12, md: 5 }}>
-            <ProjectSelectionPanel
-              projects={workspace.projects.map(p => p.name)}
-              projectConfigs={workspaceProjectConfigs}
-              sessionProjectConfigs={sessionProjectConfigs}
-              onConfigChange={setSessionProjectConfigs}
-            />
-          </Grid.Col>
-        </Grid>
+            <Tabs.Panel value="deployment">
+              <DeploymentTab
+                workspace={workspace}
+                port={effectivePort}
+                startingSession={startingSession}
+                onStartDeployment={onStartDeployment!}
+              />
+            </Tabs.Panel>
+          </Tabs>
+        ) : (
+          <>
+            {/* GitHub access warning */}
+            {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
+              !githubStatus.authenticated ? (
+                <Alert
+                  variant="light"
+                  color="orange"
+                  icon={<IconBrandGithub size={18} />}
+                  title="GitHub Authentication Required"
+                >
+                  <Text size="sm">
+                    You are not authenticated with GitHub. Run{' '}
+                    <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
+                    in your terminal to authenticate.
+                  </Text>
+                </Alert>
+              ) : !githubStatus.hasAccess ? (
+                <Alert
+                  variant="light"
+                  color="orange"
+                  icon={<IconBrandGithub size={18} />}
+                  title="GitHub Access Issue"
+                >
+                  <Text size="sm">
+                    {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
+                  </Text>
+                </Alert>
+              ) : null
+            )}
+
+            {/* GitHub connected badge */}
+            {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
+              <Group gap="xs">
+                <Badge
+                  size="sm"
+                  variant="light"
+                  color="dark"
+                  leftSection={<IconBrandGithub size={12} />}
+                >
+                  {workspace.github.repo}
+                </Badge>
+                <Text size="xs" c="dimmed">Connected</Text>
+              </Group>
+            )}
+
+            {/* Two-column layout */}
+            <Grid gutter="lg" align="stretch">
+              {/* Left card: Feature description */}
+              <Grid.Col span={{ base: 12, md: 7 }}>
+                <FormCard
+                  showHeader
+                  footer={
+                    <Group justify="flex-end">
+                      <Button variant="subtle" onClick={onBack}>
+                        Cancel
+                      </Button>
+                      <Button
+                        leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
+                        onClick={handleStart}
+                        disabled={!hasContent || startingSession || checkingBranches}
+                        loading={startingSession || checkingBranches}
+                      >
+                        {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
+                      </Button>
+                    </Group>
+                  }
+                  style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                >
+                  <Stack gap="lg" style={{ flex: 1 }}>
+                    <GlassRichTextEditor
+                      label="Feature Description"
+                      placeholder="Describe what to build..."
+                      editor={editor}
+                    />
+                  </Stack>
+                </FormCard>
+              </Grid.Col>
+
+              {/* Right card: Project selection */}
+              <Grid.Col span={{ base: 12, md: 5 }}>
+                <ProjectSelectionPanel
+                  projects={workspace.projects.map(p => p.name)}
+                  projectConfigs={workspaceProjectConfigs}
+                  sessionProjectConfigs={sessionProjectConfigs}
+                  onConfigChange={setSessionProjectConfigs}
+                />
+              </Grid.Col>
+            </Grid>
+          </>
+        )}
 
         {/* Session history */}
         {onSelectHistoricalSession && (

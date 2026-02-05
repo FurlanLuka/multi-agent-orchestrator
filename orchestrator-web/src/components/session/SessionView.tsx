@@ -27,6 +27,7 @@ import { ProjectTabContent } from '../ProjectTabContent';
 import { MarkdownMessage } from '../MarkdownMessage';
 import { MermaidDiagram } from '../MermaidDiagram';
 import { UserInputOverlay } from '../UserInputOverlay';
+import { PermissionOverlay } from '../overlay/PermissionOverlay';
 import { CompletionPanel } from './CompletionPanel';
 import { TaskList } from '../plan/TaskList';
 import { TestList } from '../plan/TestList';
@@ -455,11 +456,6 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                                 updatedAt={statuses[activeTrackingTab]?.updatedAt || 0}
                                 logs={logsByProject[activeTrackingTab] || []}
                                 testState={testStates[activeTrackingTab]}
-                                permissionPrompt={permissionPrompt?.project === activeTrackingTab ? {
-                                  toolName: permissionPrompt.toolName,
-                                  toolInput: permissionPrompt.toolInput
-                                } : null}
-                                onPermissionResponse={respondToPermission}
                                 onRetry={
                                   (projectStatus === 'FATAL_DEBUGGING' || projectStatus === 'FAILED')
                                     ? () => handleRetryProject(activeTrackingTab)
@@ -508,6 +504,28 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Permission Overlay - full screen so it's not missed */}
+      {permissionPrompt && (
+        <Box
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1000,
+          }}
+        >
+          <PermissionOverlay
+            toolName={permissionPrompt.toolName}
+            toolInput={permissionPrompt.toolInput}
+            onResponse={respondToPermission}
+            title={`Permission Required — ${permissionPrompt.project}`}
+            compact={false}
+          />
+        </Box>
+      )}
 
       {/* User Input Overlay */}
       {userInputRequest && (

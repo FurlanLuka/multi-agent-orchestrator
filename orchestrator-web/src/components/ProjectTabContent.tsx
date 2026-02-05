@@ -13,7 +13,6 @@ import {
 } from '@mantine/core';
 import { IconRefresh, IconPlayerSkipForward, IconRotateClockwise } from '@tabler/icons-react';
 import type { AgentStatus, LogEntry, ProjectTestState } from '@orchy/types';
-import { PermissionOverlay } from './overlay/PermissionOverlay';
 import { GlassTextInput, GlassSegmentedControl } from '../theme';
 
 interface ProjectTabContentProps {
@@ -23,11 +22,6 @@ interface ProjectTabContentProps {
   updatedAt: number;
   logs: LogEntry[];
   testState?: ProjectTestState;
-  permissionPrompt?: {
-    toolName: string;
-    toolInput: Record<string, unknown>;
-  } | null;
-  onPermissionResponse?: (approved: boolean, allowAll?: boolean) => void;
   onRetry?: (hint?: string) => void;
   onSkipE2E?: () => void;
   onRestartServer?: () => void;
@@ -71,8 +65,6 @@ function ProjectTabContentInner({
   updatedAt,
   logs,
   testState,
-  permissionPrompt,
-  onPermissionResponse,
   onRetry,
   onSkipE2E,
   onRestartServer,
@@ -282,16 +274,6 @@ function ProjectTabContentInner({
         </ScrollArea>
       </Stack>
 
-      {/* Permission overlay */}
-      {permissionPrompt && onPermissionResponse && (
-        <PermissionOverlay
-          toolName={permissionPrompt.toolName}
-          toolInput={permissionPrompt.toolInput}
-          onResponse={onPermissionResponse}
-          title="Permission Required"
-          compact={true}
-        />
-      )}
     </Box>
   );
 }

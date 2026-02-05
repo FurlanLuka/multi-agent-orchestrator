@@ -99,6 +99,7 @@ export interface DeploymentState {
   serverName: string;      // "myapp-server"
   serverIp: string;        // "1.2.3.4"
   sshKeyName: string;      // "myapp-deploy"
+  sshPrivateKey?: string;  // SSH private key content (persisted for day-2 management)
   instanceType: string;    // "cx23"
   location: string;        // "fsn1"
   deployPath: string;      // "/opt/myapp" — where the app lives on the server
@@ -132,6 +133,9 @@ export type AgentStatus =
   | 'FAILED'        // Task failed, requires user intervention to continue
   | 'BLOCKED';
 
+// Session types
+export type SessionType = 'feature' | 'deployment';
+
 // Session and plan
 export interface Session {
   id: string;
@@ -141,6 +145,8 @@ export interface Session {
   plan?: Plan;
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
   workspaceId?: string;  // which workspace started this session
+  sessionType?: SessionType;        // default: 'feature'
+  deploymentProvider?: string;      // e.g., 'hetzner' (only for deployment sessions)
 }
 
 // User input request (MCP tool: request_user_input)
@@ -662,6 +668,8 @@ export interface PersistedSession {
   flows?: RequestFlow[];  // Request flows for chat timeline (task executions, E2E tests, etc.)
   gitBranches?: Record<string, string>;  // project -> branchName mapping for git-enabled projects
   workspaceId?: string;  // Workspace that started this session
+  sessionType?: SessionType;        // default: 'feature'
+  deploymentProvider?: string;      // e.g., 'hetzner' (only for deployment sessions)
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   updatedAt: number;
   completedAt?: number;
@@ -686,6 +694,8 @@ export interface SessionSummary {
   status: 'planning' | 'running' | 'completed' | 'interrupted';
   completedAt?: number;
   workspaceId?: string;  // For filtering sessions by workspace
+  sessionType?: SessionType;        // default: 'feature'
+  deploymentProvider?: string;      // e.g., 'hetzner' (only for deployment sessions)
 }
 
 // Completion reason for session history display

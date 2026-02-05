@@ -1141,6 +1141,13 @@ export function useSocket() {
     }
   }, []);
 
+  const startDeploymentSession = useCallback((provider: string, description: string, workspaceId: string) => {
+    if (socketRef.current) {
+      setStartingSession(true);
+      socketRef.current.emit('startDeploymentSession', { provider, description, workspaceId });
+      activeSessionMessagesRef.current = [];
+    }
+  }, []);
 
   const startExecution = useCallback(() => {
     if (socketRef.current) {
@@ -1802,6 +1809,7 @@ export function useSocket() {
     pendingStageApproval,
     sendChat,
     startSession,
+    startDeploymentSession,
     startExecution,
     clearLogs,
     clearStreamingMessages,

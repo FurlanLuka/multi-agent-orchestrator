@@ -66,6 +66,22 @@ export interface UIServer {
   setDeploymentManager: (manager: DeploymentManager) => void;
 }
 
+/**
+ * Safety net to normalize plan tasks from agent output.
+ * Agents sometimes use `title`/`description` instead of `name`/`task`.
+ */
+function normalizePlan(plan: any): Plan {
+  if (!plan?.tasks || !Array.isArray(plan.tasks)) return plan;
+  plan.tasks = plan.tasks.map((t: any) => ({
+    project: t.project || 'unknown',
+    name: t.name || t.title || 'Untitled task',
+    task: t.task || [t.description, t.implementation].filter(Boolean).join('\n\n') || '',
+    type: t.type,
+  }));
+  if (!plan.testPlan || typeof plan.testPlan !== 'object') plan.testPlan = {};
+  return plan as Plan;
+}
+
 export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServerDependencies>): UIServer {
   // Use mutable deps object so handlers can be set later
   const deps: Partial<UIServerDependencies> = { ...initialDeps };
@@ -310,6 +326,9 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
         return;
       }
     }
+
+    // Normalize plan fields (safety net for agent output variations)
+    plan = normalizePlan(plan);
 
     // Generate unique approval ID
     const approvalId = `approval_${Date.now()}`;
@@ -1020,6 +1039,13 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       io.emit('startSessionRequest', { feature, projects });
     });
 
+    socket.on('startDeploymentSession', ({ provider, description, workspaceId }: {
+      provider: string; description: string; workspaceId: string;
+    }) => {
+      console.log(`[UIServer] Start deployment session: ${provider} for ${workspaceId}`);
+      io.emit('startDeploymentSessionRequest', { provider, description, workspaceId });
+    });
+
     socket.on('startExecution', () => {
       console.log(`[UIServer] Start execution requested`);
       io.emit('startExecutionRequest');
@@ -1616,7 +1642,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
 
   // Save deployment state (called by agent after provisioning or infra changes)
   app.post('/api/deployment/save-state', (req: Request, res: Response) => {
-    const { provider, serverName, serverIp, sshKeyName, instanceType, location, deployPath } = req.body;
+    const { provider, serverName, serverIp, sshKeyName, sshPrivateKey, instanceType, location, deployPath } = req.body;
 
     console.log(`[UIServer] Saving deployment state: ${serverName} (${serverIp})`);
 
@@ -1642,6 +1668,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         serverName,
         serverIp,
         sshKeyName: sshKeyName || '',
+        sshPrivateKey: sshPrivateKey || undefined,
         instanceType: instanceType || '',
         location: location || '',
         deployPath: deployPath || '',

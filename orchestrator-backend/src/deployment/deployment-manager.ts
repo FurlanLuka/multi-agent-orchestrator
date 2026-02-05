@@ -313,7 +313,16 @@ Provisioned: ${provisionedDate}
 ## Available for Management
 
 - **hcloud CLI**: Available for server, firewall, volume, DNS operations
-- **SSH access**: \`ssh -i /tmp/deploy_key root@${deployment.serverIp}\` (may need to regenerate key if session expired)
+- **SSH access**: The SSH private key is stored in the deployment state.${deployment.sshPrivateKey ? `
+  Write the key to /tmp/deploy_key before use:
+  \`\`\`bash
+  cat > /tmp/deploy_key << 'KEYEOF'
+${deployment.sshPrivateKey}
+KEYEOF
+  chmod 600 /tmp/deploy_key
+  \`\`\`
+  Then: \`ssh -i /tmp/deploy_key root@${deployment.serverIp}\`` : `
+  Key not found in state — may need to regenerate: \`ssh-keygen -t ed25519 -f /tmp/deploy_key -N ""\` and upload to Hetzner.`}
 - **Deploy path**: \`${deployment.deployPath}\` on the server
 - **HCLOUD_TOKEN**: Request from user via \`request_user_input\` with type "github_secret" if not already exported
 
