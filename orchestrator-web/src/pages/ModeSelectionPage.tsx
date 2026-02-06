@@ -1,6 +1,6 @@
 import { Container, Stack, Title, Text, SimpleGrid, Group, Badge, Box } from '@mantine/core';
 import { IconSparkles, IconRocket } from '@tabler/icons-react';
-import { FormCard, GlassBar } from '../theme';
+import { GlassCard, GlassBar } from '../theme';
 import { HelpOverlay, HelpTrigger } from '../components/overlay';
 
 interface ModeSelectionPageProps {
@@ -44,7 +44,7 @@ export function ModeSelectionPage({
         <Stack gap="xl">
           {/* Header */}
           <Stack gap={0}>
-            <Title order={2} style={{ letterSpacing: '-.02em' }}>
+            <Title order={3} style={{ letterSpacing: '-.02em' }}>
               Orchy
             </Title>
             <Group gap="xs">
@@ -90,38 +90,36 @@ export function ModeSelectionPage({
             </Group>
           </Stack>
 
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <SimpleGrid cols={{ base: 1, xs: 2, sm: 3 }} spacing="md">
             {/* Design Mode Card */}
-            <FormCard
+            <GlassCard
               hoverable
               onClick={onSelectDesign}
-              style={{ cursor: 'pointer' }}
+              p="lg"
+              style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
             >
-              <Stack gap="xs" align="center" ta="center" py="md">
-                <Title order={3} fw={600}>Design</Title>
-                <Text size="sm" c="dimmed">
-                  Create a design system before coding.
-                  Choose colors, typography, and component styles
-                  through an interactive process.
+              <Stack gap={4}>
+                <Text fw={600} size="md">Design</Text>
+                <Text size="xs" c="dimmed">
+                  Create a design system before coding. Choose colors, typography, and component styles through an interactive process.
                 </Text>
               </Stack>
-            </FormCard>
+            </GlassCard>
 
             {/* Build Mode Card */}
-            <FormCard
+            <GlassCard
               hoverable
               onClick={onSelectBuild}
-              style={{ cursor: 'pointer' }}
+              p="lg"
+              style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
             >
-              <Stack gap="xs" align="center" ta="center" py="md">
-                <Title order={3} fw={600}>Build</Title>
-                <Text size="sm" c="dimmed">
-                  Jump straight into implementation.
-                  Describe your feature and let AI plan
-                  and build it across your projects.
+              <Stack gap={4}>
+                <Text fw={600} size="md">Build</Text>
+                <Text size="xs" c="dimmed">
+                  Jump straight into implementation. Describe your feature and let AI plan and build it across your projects.
                 </Text>
               </Stack>
-            </FormCard>
+            </GlassCard>
           </SimpleGrid>
         </Stack>
       </Container>

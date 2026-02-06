@@ -71,7 +71,7 @@ export function HomePage({
         <Stack gap="xl">
           {/* Header */}
           <Stack gap={0}>
-            <Title order={2} style={{ letterSpacing: '-.02em' }}>
+            <Title order={3} style={{ letterSpacing: '-.02em' }}>
               Workspaces
             </Title>
             <Group gap="xs">

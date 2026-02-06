@@ -708,6 +708,7 @@ export type SessionCompletionReason =
 // Extended summary for session history list
 export interface SessionHistoryEntry extends SessionSummary {
   completionReason?: SessionCompletionReason;
+  hasPlan?: boolean;  // Whether the session has an approved plan (used to filter display)
   taskSummary?: {
     total: number;
     completed: number;

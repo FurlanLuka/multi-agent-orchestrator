@@ -8,7 +8,6 @@ import {
   ActionIcon,
   Group,
   Loader,
-  Grid,
   Badge,
   Tooltip,
   Box,
@@ -17,7 +16,7 @@ import {
   Switch,
   Alert,
   Select,
-  Tabs,
+  SimpleGrid,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -31,7 +30,8 @@ import {
   IconAlertTriangle,
   IconGitMerge,
   IconBrandGithub,
-  IconCode,
+  IconHammer,
+  IconHistory,
   IconCloudUpload,
 } from '@tabler/icons-react';
 import type {
@@ -51,16 +51,18 @@ import {
   useGlassEditor,
   GlassCard,
 } from '../../theme';
-import { ProjectSelectionPanel } from './ProjectSelectionPanel';
 import { BranchCheckModal } from './BranchCheckModal';
 import { SessionHistoryList } from './SessionHistoryList';
 import { AddProjectModal } from '../AddProjectModal';
 import type { AddProjectOptions, CreateProjectOptions } from '../AddProjectModal';
 import { EditProjectModal } from '../EditProjectModal';
 import { HelpOverlay, HelpTrigger } from '../overlay';
+import { BackButton } from '../BackButton';
 import type { PermissionsConfig } from '../CollapsiblePermissions';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { DeploymentTab } from './DeploymentTab';
+
+type WorkspaceView = 'home' | 'feature' | 'deploy' | 'sessions';
 
 interface BranchCheckResult {
   project: string;
@@ -71,6 +73,8 @@ interface BranchCheckResult {
   hasUncommittedChanges: boolean;
   uncommittedDetails?: { staged: number; unstaged: number; untracked: number };
 }
+
+/* ── Main Component ──────────────────────────────────────── */
 
 interface PromptScreenProps {
   workspace: WorkspaceConfig;
@@ -136,6 +140,7 @@ export function PromptScreen({
   onStartDeployment,
 }: PromptScreenProps) {
   const { startDevServers, devServers, startingDevServers, stopAllDevServers } = useOrchestrator();
+  const [view, setView] = useState<WorkspaceView>('home');
   // Branch name is auto-generated for orchyManaged workspaces
   const [branchName] = useState('');
 
@@ -148,6 +153,7 @@ export function PromptScreen({
     error?: string;
   }>({ checking: false, authenticated: true, hasAccess: true });
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
+  const [hasCompletedSession, setHasCompletedSession] = useState(false);
   // Check if workspace has projects (used to prevent exiting edit mode when empty)
   const hasProjects = workspace.projects.length > 0;
 
@@ -207,10 +213,20 @@ export function PromptScreen({
     onUpdate: (text) => setEditorContent(text),
   });
 
-  // Deployment tab is available when workspace is orchyManaged with GitHub enabled
-  const showDeploymentTab = !!workspace.orchyManaged && !!workspace.github?.enabled && !!onStartDeployment;
-
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
+
+  // Check if workspace has at least one completed session (required for Deploy)
+  useEffect(() => {
+    fetch(`http://localhost:${effectivePort}/api/workspaces/${workspace.id}/sessions`)
+      .then(res => res.json())
+      .then((data: Array<{ completionReason?: string }>) => {
+        setHasCompletedSession(data.some(s => s.completionReason === 'all_completed'));
+      })
+      .catch(() => setHasCompletedSession(false));
+  }, [workspace.id, effectivePort]);
+
+  // Deploy card is available when workspace is orchyManaged with GitHub enabled and has completed sessions
+  const showDeployCard = !!workspace.orchyManaged && !!workspace.github?.enabled && !!onStartDeployment && hasCompletedSession;
 
   // Fetch permissions config
   useEffect(() => {
@@ -521,15 +537,18 @@ export function PromptScreen({
     });
   };
 
-  // Edit mode view
+  /* ── Edit mode view ────────────────────────────────────── */
+
   if (isEditMode) {
     return (
-      <Container size="xl" pt={60} pb="xl">
+      <>
+      <BackButton onClick={onBack} />
+      <Container size="md" pt={60} pb="xl">
         <Stack gap="xl">
           {/* Header */}
           <Stack gap={4}>
             <Group justify="space-between" align="center">
-              <Title order={2} style={{ letterSpacing: '-.02em' }}>
+              <Title order={3} style={{ letterSpacing: '-.02em' }}>
                 {workspace.name}
               </Title>
               <Button
@@ -818,110 +837,503 @@ export function PromptScreen({
           onSave={handleSaveProject}
         />
       </Container>
+      </>
     );
   }
 
-  // Normal prompt view
-  return (
-    <Container size="xl" pt={60} pb="xl">
-      <Stack gap="xl">
-        {/* Page Header */}
-        <Stack gap={0}>
-          <Group justify="space-between" align="center">
-            <Group gap="xs" align="center">
-              <Title order={2} style={{ letterSpacing: '-.02em' }}>
-                {workspace.name}
-              </Title>
-              <Tooltip label="Edit workspace">
-                <ActionIcon variant="subtle" color="gray" size="sm" onClick={handleToggleEditMode}>
-                  <IconEdit size={16} />
-                </ActionIcon>
-              </Tooltip>
-            </Group>
+  /* ── Home view ─────────────────────────────────────────── */
 
-            {hasDevServerProjects && (
-              <Button
-                variant="light"
-                color="sage"
-                size="sm"
-                leftSection={<IconServer size={16} />}
-                onClick={handleStartDevServers}
-                loading={startingDevServers}
-                disabled={hasRunningDevServers || startingDevServers}
+  if (view === 'home') {
+    return (
+      <>
+      <BackButton onClick={onBack} />
+      <Container size="md" pt={60} pb="xl">
+        <Stack gap="xl">
+          {/* Header */}
+          <Stack gap={0}>
+            <Group justify="space-between" align="center">
+              <Group gap="xs" align="center">
+                <Title order={3} style={{ letterSpacing: '-.02em' }}>
+                  {workspace.name}
+                </Title>
+                <Tooltip label="Edit workspace">
+                  <ActionIcon variant="subtle" color="gray" size="sm" onClick={handleToggleEditMode}>
+                    <IconEdit size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+
+              <Group gap="sm">
+                {hasDevServerProjects && (
+                  <Button
+                    variant="light"
+                    color="sage"
+                    size="sm"
+                    leftSection={<IconServer size={16} />}
+                    onClick={handleStartDevServers}
+                    loading={startingDevServers}
+                    disabled={hasRunningDevServers || startingDevServers}
+                  >
+                    {hasRunningDevServers ? 'Dev Servers Running' : 'Run Dev Servers'}
+                  </Button>
+                )}
+              </Group>
+            </Group>
+            <Group gap="xs">
+              <Text c="dimmed" size="sm">
+                Choose what you'd like to do
+              </Text>
+              <Text c="dimmed" size="sm">·</Text>
+              <HelpOverlay
+                trigger={<HelpTrigger />}
+                title="Workspace Overview"
+                icon={<IconHammer size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+                maxWidth={520}
               >
-                {hasRunningDevServers ? 'Dev Servers Running' : 'Run Dev Servers'}
-              </Button>
+                <Stack gap="md">
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>What is a workspace?</Text>
+                    <Text size="sm" c="dimmed">
+                      A workspace groups your projects together. From here you can plan new features, deploy your application, or review past sessions.
+                    </Text>
+                  </Box>
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Build Feature</Text>
+                    <Text size="sm" c="dimmed">
+                      Describe a feature in plain language and AI will create a detailed implementation plan across your projects.
+                    </Text>
+                  </Box>
+                  {showDeployCard && (
+                    <Box>
+                      <Text fw={600} size="sm" mb={4}>Deploy</Text>
+                      <Text size="sm" c="dimmed">
+                        Set up infrastructure, CI/CD pipelines, and deploy your application to a cloud provider.
+                      </Text>
+                    </Box>
+                  )}
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Sessions</Text>
+                    <Text size="sm" c="dimmed">
+                      View previous sessions, check their status, and resume any that were interrupted or had errors.
+                    </Text>
+                  </Box>
+                </Stack>
+              </HelpOverlay>
+            </Group>
+          </Stack>
+
+          {/* Navigation Cards */}
+          <SimpleGrid cols={{ base: 1, xs: 2, sm: 3 }} spacing="md">
+            <GlassCard
+              hoverable
+              onClick={() => setView('feature')}
+              p="lg"
+              style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+            >
+              <Stack gap={4}>
+                <Text fw={600} size="md">Build Feature</Text>
+                <Text size="xs" c="dimmed">Plan and implement new features across your projects</Text>
+              </Stack>
+            </GlassCard>
+            {showDeployCard && (
+              <GlassCard
+                hoverable
+                onClick={() => setView('deploy')}
+                p="lg"
+                style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+              >
+                <Stack gap={4}>
+                  <Text fw={600} size="md">Deploy</Text>
+                  <Text size="xs" c="dimmed">Set up infrastructure and CI/CD for your application</Text>
+                </Stack>
+              </GlassCard>
             )}
-          </Group>
+            <GlassCard
+              hoverable
+              onClick={() => setView('sessions')}
+              p="lg"
+              style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+            >
+              <Stack gap={4}>
+                <Text fw={600} size="md">Sessions</Text>
+                <Text size="xs" c="dimmed">View and resume previous sessions</Text>
+              </Stack>
+            </GlassCard>
+          </SimpleGrid>
+        </Stack>
+      </Container>
+      </>
+    );
+  }
+
+  /* ── Feature view ──────────────────────────────────────── */
+
+  if (view === 'feature') {
+    return (
+      <>
+      <BackButton onClick={() => setView('home')} />
+      <Container size="md" pt={60} pb="xl">
+        <Stack gap="xl">
+          {/* Header */}
+          <Stack gap={0}>
+            <Group justify="space-between" align="center">
+              <Group gap="sm" align="center">
+                <Title order={3} style={{ letterSpacing: '-.02em' }}>
+                  Build Feature
+                </Title>
+                {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
+                  <Text size="xs" c="dimmed" ff="monospace">{workspace.github.repo}</Text>
+                )}
+              </Group>
+
+              {hasDevServerProjects && (
+                <Button
+                  variant="light"
+                  color="sage"
+                  size="sm"
+                  leftSection={<IconServer size={16} />}
+                  onClick={handleStartDevServers}
+                  loading={startingDevServers}
+                  disabled={hasRunningDevServers || startingDevServers}
+                >
+                  {hasRunningDevServers ? 'Dev Servers Running' : 'Run Dev Servers'}
+                </Button>
+              )}
+            </Group>
+            <Group gap="xs">
+              <Text c="dimmed" size="sm">
+                Describe your feature and configure project settings
+              </Text>
+              <Text c="dimmed" size="sm">·</Text>
+              <HelpOverlay
+                trigger={<HelpTrigger />}
+                title="Starting a Session"
+                icon={<IconPlayerPlay size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+                maxWidth={580}
+              >
+                <Stack gap="md">
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>What happens when you start?</Text>
+                    <Text size="sm" c="dimmed">
+                      When you click "Start Planning", AI will analyze your feature request and create a detailed implementation plan. You'll be able to review and approve each step before any code is written.
+                    </Text>
+                  </Box>
+
+                  <Box>
+                    <Text fw={600} size="sm" mb={10}>How to describe your feature:</Text>
+                    <Stack gap={8}>
+                      {[
+                        { step: 1, title: 'Be specific', desc: 'Describe what you want to build in detail' },
+                        { step: 2, title: 'Include context', desc: 'Mention any constraints, preferences, or existing patterns to follow' },
+                        { step: 3, title: 'Set expectations', desc: 'Note if you want tests, documentation, or specific approaches' },
+                      ].map(({ step, title, desc }) => (
+                        <Group
+                          key={step}
+                          gap="xs"
+                          wrap="nowrap"
+                          align="center"
+                          px="sm"
+                          py={8}
+                          style={{
+                            background: 'rgba(250, 247, 245, 0.8)',
+                            borderRadius: 10,
+                            border: '1px solid rgba(160, 130, 110, 0.08)',
+                          }}
+                        >
+                          <Box
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: '50%',
+                              background: 'var(--mantine-color-peach-1)',
+                              color: 'var(--mantine-color-peach-6)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {step}
+                          </Box>
+                          <Box style={{ flex: 1, minWidth: 0 }}>
+                            <Text size="xs"><Text span fw={500}>{title}</Text> <Text span c="dimmed">— {desc}</Text></Text>
+                          </Box>
+                        </Group>
+                      ))}
+                    </Stack>
+                  </Box>
+
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Projects:</Text>
+                    <Text size="sm" c="dimmed">
+                      Click any project below the editor to toggle it between planning (editable) and read-only mode.
+                    </Text>
+                  </Box>
+                </Stack>
+              </HelpOverlay>
+            </Group>
+          </Stack>
+
+          {/* GitHub access warning */}
+          {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
+            !githubStatus.authenticated ? (
+              <Alert
+                variant="light"
+                color="orange"
+                icon={<IconBrandGithub size={18} />}
+                title="GitHub Authentication Required"
+              >
+                <Text size="sm">
+                  You are not authenticated with GitHub. Run{' '}
+                  <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
+                  in your terminal to authenticate.
+                </Text>
+              </Alert>
+            ) : !githubStatus.hasAccess ? (
+              <Alert
+                variant="light"
+                color="orange"
+                icon={<IconBrandGithub size={18} />}
+                title="GitHub Access Issue"
+              >
+                <Text size="sm">
+                  {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
+                </Text>
+              </Alert>
+            ) : null
+          )}
+
+          {/* Feature form */}
+          <FormCard
+            title="Feature Description"
+            footer={
+              <Group justify="flex-end">
+                <Button variant="subtle" onClick={() => setView('home')}>
+                  Cancel
+                </Button>
+                <Button
+                  leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
+                  onClick={handleStart}
+                  disabled={!hasContent || startingSession || checkingBranches}
+                  loading={startingSession || checkingBranches}
+                >
+                  {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
+                </Button>
+              </Group>
+            }
+          >
+            <Stack gap="lg">
+              <GlassRichTextEditor
+                placeholder="Describe what to build..."
+                editor={editor}
+              />
+
+              {/* Inline project toggles */}
+              {workspace.projects.length > 0 && (
+                <Stack gap="xs">
+                  <Text size="xs" fw={500} c="dimmed">Projects — click to toggle read-only</Text>
+                  <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="xs">
+                    {workspace.projects.map(p => {
+                      const config = sessionProjectConfigs.find(c => c.name === p.name);
+                      const isReadOnly = config?.readOnly || false;
+                      return (
+                        <GlassCard
+                          key={p.name}
+                          p="xs"
+                          hoverable
+                          style={{
+                            cursor: 'pointer',
+                            border: isReadOnly
+                              ? '1.5px solid var(--mantine-color-sage-4)'
+                              : '1.5px solid var(--mantine-color-peach-4)',
+                            opacity: isReadOnly ? 0.7 : 1,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onClick={() => {
+                            const newConfigs = sessionProjectConfigs.map(c =>
+                              c.name === p.name ? { ...c, readOnly: !c.readOnly } : c
+                            );
+                            setSessionProjectConfigs(newConfigs);
+                          }}
+                        >
+                          <Group gap="xs" wrap="nowrap">
+                            <Stack gap={0} style={{ minWidth: 0 }}>
+                              <Text size="xs" fw={500} truncate>{p.name}</Text>
+                              <Text size="xs" c={isReadOnly ? 'sage.6' : 'peach.6'}>
+                                {isReadOnly ? 'Read only' : 'Planning'}
+                              </Text>
+                            </Stack>
+                          </Group>
+                        </GlassCard>
+                      );
+                    })}
+                  </SimpleGrid>
+                </Stack>
+              )}
+            </Stack>
+          </FormCard>
+        </Stack>
+
+        {/* Branch check modal */}
+        <BranchCheckModal
+          opened={showBranchModal}
+          results={branchCheckResult || []}
+          checkoutingBranches={checkoutingBranches}
+          onCancel={handleBranchCheckCancel}
+          onContinue={handleBranchCheckContinue}
+          onCheckout={handleBranchCheckCheckout}
+        />
+
+        {/* Dev server warning modal */}
+        <Modal
+          opened={devServerWarningOpened}
+          onClose={closeDevServerWarning}
+          title={
+            <Group gap="xs">
+              <ThemeIcon color="honey" variant="light" size="sm">
+                <IconAlertTriangle size={14} />
+              </ThemeIcon>
+              <Text fw={600}>Dev Servers Running</Text>
+            </Group>
+          }
+          centered
+          size="sm"
+        >
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              You have dev servers running. Please stop them before starting a new session to avoid port conflicts.
+            </Text>
+
+            <Stack gap="xs">
+              <Button
+                color="rose"
+                fullWidth
+                leftSection={<IconServer size={16} />}
+                onClick={handleStopServersAndStart}
+              >
+                Stop All Dev Servers
+              </Button>
+
+              <Button
+                variant="subtle"
+                color="gray"
+                fullWidth
+                onClick={closeDevServerWarning}
+              >
+                Cancel
+              </Button>
+            </Stack>
+          </Stack>
+        </Modal>
+      </Container>
+      </>
+    );
+  }
+
+  /* ── Deploy view ───────────────────────────────────────── */
+
+  if (view === 'deploy') {
+    return (
+      <>
+      <BackButton onClick={() => setView('home')} />
+      <Container size="md" pt={60} pb="xl">
+        <Stack gap="xl">
+          {/* Header */}
+          <Stack gap={0}>
+            <Title order={3} style={{ letterSpacing: '-.02em' }}>
+              Deploy
+            </Title>
+            <Group gap="xs">
+              <Text c="dimmed" size="sm">
+                Set up infrastructure and CI/CD for your workspace
+              </Text>
+              <Text c="dimmed" size="sm">·</Text>
+              <HelpOverlay
+                trigger={<HelpTrigger />}
+                title="Deployment Planning"
+                icon={<IconCloudUpload size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+                maxWidth={520}
+              >
+                <Stack gap="md">
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>How deployment works</Text>
+                    <Text size="sm" c="dimmed">
+                      Select a cloud provider and describe what you need. AI will create a deployment plan including server setup, CI/CD pipelines, and configuration.
+                    </Text>
+                  </Box>
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>What you can deploy</Text>
+                    <Text size="sm" c="dimmed">
+                      Set up servers, configure Docker, add DNS, set up SSL certificates, create CI/CD pipelines, and more. Describe your requirements and the AI will handle the rest.
+                    </Text>
+                  </Box>
+                  <Box>
+                    <Text fw={600} size="sm" mb={4}>Existing deployments</Text>
+                    <Text size="sm" c="dimmed">
+                      If your workspace already has a deployment, you can modify it — upgrade servers, add services, change configuration, etc.
+                    </Text>
+                  </Box>
+                </Stack>
+              </HelpOverlay>
+            </Group>
+          </Stack>
+
+          {onStartDeployment && (
+            <DeploymentTab
+              workspace={workspace}
+              port={effectivePort}
+              startingSession={startingSession}
+              onStartDeployment={onStartDeployment}
+            />
+          )}
+        </Stack>
+      </Container>
+      </>
+    );
+  }
+
+  /* ── Sessions view ─────────────────────────────────────── */
+
+  return (
+    <>
+    <BackButton onClick={() => setView('home')} />
+    <Container size="md" pt={60} pb="xl">
+      <Stack gap="xl">
+        {/* Header */}
+        <Stack gap={0}>
+          <Title order={3} style={{ letterSpacing: '-.02em' }}>
+            Sessions
+          </Title>
           <Group gap="xs">
             <Text c="dimmed" size="sm">
-              Describe your feature and configure project settings
+              View and resume previous sessions
             </Text>
             <Text c="dimmed" size="sm">·</Text>
             <HelpOverlay
               trigger={<HelpTrigger />}
-              title="Starting a Session"
-              icon={<IconPlayerPlay size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
-              maxWidth={580}
+              title="Session History"
+              icon={<IconHistory size={20} style={{ color: 'var(--mantine-color-lavender-5)' }} />}
+              maxWidth={520}
             >
               <Stack gap="md">
                 <Box>
-                  <Text fw={600} size="sm" mb={4}>What happens when you start?</Text>
+                  <Text fw={600} size="sm" mb={4}>What are sessions?</Text>
                   <Text size="sm" c="dimmed">
-                    When you click "Start Planning", AI will analyze your feature request and create a detailed implementation plan. You'll be able to review and approve each step before any code is written.
+                    Each time you start a feature or deployment, a session is created. Sessions track the planning and implementation progress.
                   </Text>
                 </Box>
-
                 <Box>
-                  <Text fw={600} size="sm" mb={10}>How to describe your feature:</Text>
-                  <Stack gap={8}>
-                    {[
-                      { step: 1, title: 'Be specific', desc: 'Describe what you want to build in detail' },
-                      { step: 2, title: 'Include context', desc: 'Mention any constraints, preferences, or existing patterns to follow' },
-                      { step: 3, title: 'Set expectations', desc: 'Note if you want tests, documentation, or specific approaches' },
-                    ].map(({ step, title, desc }) => (
-                      <Group
-                        key={step}
-                        gap="xs"
-                        wrap="nowrap"
-                        align="center"
-                        px="sm"
-                        py={8}
-                        style={{
-                          background: 'rgba(250, 247, 245, 0.8)',
-                          borderRadius: 10,
-                          border: '1px solid rgba(160, 130, 110, 0.08)',
-                        }}
-                      >
-                        <Box
-                          style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: '50%',
-                            background: 'var(--mantine-color-peach-1)',
-                            color: 'var(--mantine-color-peach-6)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {step}
-                        </Box>
-                        <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Text size="xs"><Text span fw={500}>{title}</Text> <Text span c="dimmed">— {desc}</Text></Text>
-                        </Box>
-                      </Group>
-                    ))}
-                  </Stack>
-                </Box>
-
-                <Box>
-                  <Text fw={600} size="sm" mb={4}>Project selection:</Text>
+                  <Text fw={600} size="sm" mb={4}>Session statuses</Text>
                   <Text size="sm" c="dimmed">
-                    Use the panel on the right to choose which projects to include. You can also mark projects as read-only if they should be referenced but not modified.
+                    Sessions can be completed (all tasks done), have errors (some tasks failed), or be interrupted (stopped before completion).
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fw={600} size="sm" mb={4}>Resuming sessions</Text>
+                  <Text size="sm" c="dimmed">
+                    Sessions that were interrupted or had errors can be resumed. Click the Resume button to pick up where you left off.
                   </Text>
                 </Box>
               </Stack>
@@ -929,272 +1341,17 @@ export function PromptScreen({
           </Group>
         </Stack>
 
-        {showDeploymentTab ? (
-          <Tabs defaultValue="feature" variant="default">
-            <Tabs.List mb="lg">
-              <Tabs.Tab value="feature" leftSection={<IconCode size={16} />}>
-                Feature
-              </Tabs.Tab>
-              <Tabs.Tab value="deployment" leftSection={<IconCloudUpload size={16} />}>
-                Deploy
-              </Tabs.Tab>
-            </Tabs.List>
-
-            <Tabs.Panel value="feature">
-              <Stack gap="lg">
-                {/* GitHub access warning */}
-                {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
-                  !githubStatus.authenticated ? (
-                    <Alert
-                      variant="light"
-                      color="orange"
-                      icon={<IconBrandGithub size={18} />}
-                      title="GitHub Authentication Required"
-                    >
-                      <Text size="sm">
-                        You are not authenticated with GitHub. Run{' '}
-                        <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
-                        in your terminal to authenticate.
-                      </Text>
-                    </Alert>
-                  ) : !githubStatus.hasAccess ? (
-                    <Alert
-                      variant="light"
-                      color="orange"
-                      icon={<IconBrandGithub size={18} />}
-                      title="GitHub Access Issue"
-                    >
-                      <Text size="sm">
-                        {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
-                      </Text>
-                    </Alert>
-                  ) : null
-                )}
-
-                {/* GitHub connected badge */}
-                {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
-                  <Group gap="xs">
-                    <Badge
-                      size="sm"
-                      variant="light"
-                      color="dark"
-                      leftSection={<IconBrandGithub size={12} />}
-                    >
-                      {workspace.github.repo}
-                    </Badge>
-                    <Text size="xs" c="dimmed">Connected</Text>
-                  </Group>
-                )}
-
-                {/* Two-column layout */}
-                <Grid gutter="lg" align="stretch">
-                  {/* Left card: Feature description */}
-                  <Grid.Col span={{ base: 12, md: 7 }}>
-                    <FormCard
-                      showHeader
-                      footer={
-                        <Group justify="flex-end">
-                          <Button variant="subtle" onClick={onBack}>
-                            Cancel
-                          </Button>
-                          <Button
-                            leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
-                            onClick={handleStart}
-                            disabled={!hasContent || startingSession || checkingBranches}
-                            loading={startingSession || checkingBranches}
-                          >
-                            {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
-                          </Button>
-                        </Group>
-                      }
-                      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-                    >
-                      <Stack gap="lg" style={{ flex: 1 }}>
-                        <GlassRichTextEditor
-                          label="Feature Description"
-                          placeholder="Describe what to build..."
-                          editor={editor}
-                        />
-                      </Stack>
-                    </FormCard>
-                  </Grid.Col>
-
-                  {/* Right card: Project selection */}
-                  <Grid.Col span={{ base: 12, md: 5 }}>
-                    <ProjectSelectionPanel
-                      projects={workspace.projects.map(p => p.name)}
-                      projectConfigs={workspaceProjectConfigs}
-                      sessionProjectConfigs={sessionProjectConfigs}
-                      onConfigChange={setSessionProjectConfigs}
-                    />
-                  </Grid.Col>
-                </Grid>
-              </Stack>
-            </Tabs.Panel>
-
-            <Tabs.Panel value="deployment">
-              <DeploymentTab
-                workspace={workspace}
-                port={effectivePort}
-                startingSession={startingSession}
-                onStartDeployment={onStartDeployment!}
-              />
-            </Tabs.Panel>
-          </Tabs>
-        ) : (
-          <>
-            {/* GitHub access warning */}
-            {workspace.github?.enabled && workspace.github?.repo && !githubStatus.checking && (
-              !githubStatus.authenticated ? (
-                <Alert
-                  variant="light"
-                  color="orange"
-                  icon={<IconBrandGithub size={18} />}
-                  title="GitHub Authentication Required"
-                >
-                  <Text size="sm">
-                    You are not authenticated with GitHub. Run{' '}
-                    <Text span ff="monospace" fw={500}>gh auth login</Text>{' '}
-                    in your terminal to authenticate.
-                  </Text>
-                </Alert>
-              ) : !githubStatus.hasAccess ? (
-                <Alert
-                  variant="light"
-                  color="orange"
-                  icon={<IconBrandGithub size={18} />}
-                  title="GitHub Access Issue"
-                >
-                  <Text size="sm">
-                    {githubStatus.error || `Unable to access repository: ${workspace.github.repo}`}
-                  </Text>
-                </Alert>
-              ) : null
-            )}
-
-            {/* GitHub connected badge */}
-            {workspace.github?.enabled && workspace.github?.repo && githubStatus.authenticated && githubStatus.hasAccess && (
-              <Group gap="xs">
-                <Badge
-                  size="sm"
-                  variant="light"
-                  color="dark"
-                  leftSection={<IconBrandGithub size={12} />}
-                >
-                  {workspace.github.repo}
-                </Badge>
-                <Text size="xs" c="dimmed">Connected</Text>
-              </Group>
-            )}
-
-            {/* Two-column layout */}
-            <Grid gutter="lg" align="stretch">
-              {/* Left card: Feature description */}
-              <Grid.Col span={{ base: 12, md: 7 }}>
-                <FormCard
-                  showHeader
-                  footer={
-                    <Group justify="flex-end">
-                      <Button variant="subtle" onClick={onBack}>
-                        Cancel
-                      </Button>
-                      <Button
-                        leftSection={(startingSession || checkingBranches) ? <Loader size={18} /> : <IconRocket size={18} />}
-                        onClick={handleStart}
-                        disabled={!hasContent || startingSession || checkingBranches}
-                        loading={startingSession || checkingBranches}
-                      >
-                        {checkingBranches ? 'Checking...' : startingSession ? 'Starting...' : 'Start Planning'}
-                      </Button>
-                    </Group>
-                  }
-                  style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-                >
-                  <Stack gap="lg" style={{ flex: 1 }}>
-                    <GlassRichTextEditor
-                      label="Feature Description"
-                      placeholder="Describe what to build..."
-                      editor={editor}
-                    />
-                  </Stack>
-                </FormCard>
-              </Grid.Col>
-
-              {/* Right card: Project selection */}
-              <Grid.Col span={{ base: 12, md: 5 }}>
-                <ProjectSelectionPanel
-                  projects={workspace.projects.map(p => p.name)}
-                  projectConfigs={workspaceProjectConfigs}
-                  sessionProjectConfigs={sessionProjectConfigs}
-                  onConfigChange={setSessionProjectConfigs}
-                />
-              </Grid.Col>
-            </Grid>
-          </>
-        )}
-
-        {/* Session history */}
         {onSelectHistoricalSession && (
           <SessionHistoryList
             workspaceId={workspace.id}
             onSelectSession={onSelectHistoricalSession}
             onResumeSession={onResumeSession}
             port={effectivePort}
+            containerMode
           />
         )}
       </Stack>
-
-      {/* Branch check modal */}
-      <BranchCheckModal
-        opened={showBranchModal}
-        results={branchCheckResult || []}
-        checkoutingBranches={checkoutingBranches}
-        onCancel={handleBranchCheckCancel}
-        onContinue={handleBranchCheckContinue}
-        onCheckout={handleBranchCheckCheckout}
-      />
-
-      {/* Dev server warning modal */}
-      <Modal
-        opened={devServerWarningOpened}
-        onClose={closeDevServerWarning}
-        title={
-          <Group gap="xs">
-            <ThemeIcon color="honey" variant="light" size="sm">
-              <IconAlertTriangle size={14} />
-            </ThemeIcon>
-            <Text fw={600}>Dev Servers Running</Text>
-          </Group>
-        }
-        centered
-        size="sm"
-      >
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">
-            You have dev servers running. Please stop them before starting a new session to avoid port conflicts.
-          </Text>
-
-          <Stack gap="xs">
-            <Button
-              color="rose"
-              fullWidth
-              leftSection={<IconServer size={16} />}
-              onClick={handleStopServersAndStart}
-            >
-              Stop All Dev Servers
-            </Button>
-
-            <Button
-              variant="subtle"
-              color="gray"
-              fullWidth
-              onClick={closeDevServerWarning}
-            >
-              Cancel
-            </Button>
-          </Stack>
-        </Stack>
-      </Modal>
     </Container>
+    </>
   );
 }

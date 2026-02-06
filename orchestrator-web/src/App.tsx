@@ -358,7 +358,6 @@ function PromptScreenWrapper({
 
   return (
     <>
-      <BackButton to="/home" />
       <PromptScreen
         workspace={workspace}
         projectConfigs={projectConfigs}

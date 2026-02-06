@@ -1,5 +1,5 @@
 import { forwardRef, useState } from 'react';
-import { Box, Title, Group, ActionIcon, type BoxProps } from '@mantine/core';
+import { Box, Text, Group, ActionIcon, type BoxProps } from '@mantine/core';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { glass, radii, transitions } from './tokens';
 
@@ -70,9 +70,9 @@ export const FormCard = forwardRef<HTMLDivElement, FormCardProps>(
                   </ActionIcon>
                 )}
                 {typeof title === 'string' ? (
-                  <Title order={4} style={{ fontWeight: 600 }}>
+                  <Text fw={600} size="sm">
                     {title}
-                  </Title>
+                  </Text>
                 ) : (
                   title
                 )}

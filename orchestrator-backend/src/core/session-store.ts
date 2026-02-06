@@ -899,6 +899,7 @@ export class SessionStore extends EventEmitter {
           completionReason: session.status === 'completed' || session.status === 'interrupted'
             ? this.getCompletionReason(session)
             : undefined,
+          hasPlan: !!session.plan,
           taskSummary: taskSummary.total > 0 ? taskSummary : undefined,
           testSummary: testSummary.total > 0 ? testSummary : undefined,
         });

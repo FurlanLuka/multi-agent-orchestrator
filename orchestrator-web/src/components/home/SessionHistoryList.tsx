@@ -9,29 +9,18 @@ import {
   ThemeIcon,
   Button,
 } from '@mantine/core';
-import { IconCheck, IconX, IconAlertTriangle, IconMinus, IconHistory, IconPlayerPlay } from '@tabler/icons-react';
-import type { SessionHistoryEntry, SessionCompletionReason } from '@orchy/types';
-import { GlassCard } from '../../theme';
+import { IconCheck, IconHistory, IconPlayerPlay, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import type { SessionHistoryEntry } from '@orchy/types';
+import { GlassCard, FormCard } from '../../theme';
 
-/**
- * Determines if a session can be resumed
- * Resumable conditions:
- * - Status is 'interrupted'
- * - Completion reason is 'task_errors' or 'test_errors'
- */
-function isSessionResumable(session: SessionHistoryEntry): boolean {
-  return (
-    session.status === 'interrupted' ||
-    session.completionReason === 'task_errors' ||
-    session.completionReason === 'test_errors'
-  );
-}
+const PAGE_SIZE = 8;
 
 interface SessionHistoryListProps {
   workspaceId: string;
   onSelectSession: (sessionId: string) => void;
   onResumeSession?: (sessionId: string) => void;
   port: number | null;
+  containerMode?: boolean;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -50,29 +39,72 @@ function formatRelativeTime(timestamp: number): string {
   return 'just now';
 }
 
-function getCompletionBadge(reason: SessionCompletionReason | undefined, status: string) {
-  if (status === 'planning' || status === 'running') {
-    return { color: 'blue', icon: null, label: status === 'planning' ? 'Planning' : 'Running' };
-  }
+function SessionItem({
+  session,
+  onSelectSession,
+  onResumeSession,
+}: {
+  session: SessionHistoryEntry;
+  onSelectSession: (sessionId: string) => void;
+  onResumeSession?: (sessionId: string) => void;
+}) {
+  const isCompleted = session.completionReason === 'all_completed';
+  const resumable = !isCompleted;
 
-  switch (reason) {
-    case 'all_completed':
-      return { color: 'green', icon: <IconCheck size={12} />, label: 'Completed' };
-    case 'task_errors':
-      return { color: 'red', icon: <IconX size={12} />, label: 'Task errors' };
-    case 'test_errors':
-      return { color: 'orange', icon: <IconAlertTriangle size={12} />, label: 'Test errors' };
-    case 'interrupted':
-      return { color: 'gray', icon: <IconMinus size={12} />, label: 'Interrupted' };
-    default:
-      return { color: 'gray', icon: null, label: 'Unknown' };
-  }
+  return (
+    <Group justify="space-between" wrap="nowrap">
+      <UnstyledButton
+        onClick={() => onSelectSession(session.id)}
+        style={{ flex: 1, overflow: 'hidden' }}
+      >
+        <Stack gap={2}>
+          <Text
+            size="sm"
+            fw={500}
+            lineClamp={1}
+            style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
+          >
+            {session.feature.replace(/^## Workspace Context\n[\s\S]*?\n\n## Feature\n/, '')}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {formatRelativeTime(session.completedAt || session.updatedAt)}
+          </Text>
+        </Stack>
+      </UnstyledButton>
+      <Group gap="xs" wrap="nowrap">
+        {resumable && onResumeSession && (
+          <Button
+            size="xs"
+            variant="light"
+            color="sage"
+            leftSection={<IconPlayerPlay size={12} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onResumeSession(session.id);
+            }}
+          >
+            Resume
+          </Button>
+        )}
+        {isCompleted ? (
+          <Badge size="sm" variant="light" color="green" leftSection={<IconCheck size={12} />}>
+            Completed
+          </Badge>
+        ) : (
+          <Badge size="sm" variant="light" color="orange">
+            Not completed
+          </Badge>
+        )}
+      </Group>
+    </Group>
+  );
 }
 
-export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSession, port }: SessionHistoryListProps) {
+export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSession, port, containerMode = false }: SessionHistoryListProps) {
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
@@ -97,6 +129,9 @@ export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSessi
     fetchSessions();
   }, [workspaceId, effectivePort]);
 
+  // Only show sessions that have an approved plan
+  const visibleSessions = sessions.filter(s => s.hasPlan);
+
   if (loading) {
     return (
       <Stack align="center" py="lg">
@@ -112,8 +147,71 @@ export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSessi
     );
   }
 
-  if (sessions.length === 0) {
-    return null; // Don't show anything if no previous sessions
+  if (visibleSessions.length === 0) {
+    if (containerMode) {
+      return (
+        <FormCard title="Previous Sessions">
+          <Stack align="center" py="lg">
+            <Text size="sm" c="dimmed">No previous sessions</Text>
+          </Stack>
+        </FormCard>
+      );
+    }
+    return null;
+  }
+
+  // Pagination
+  const totalPages = Math.ceil(visibleSessions.length / PAGE_SIZE);
+  const pagedSessions = containerMode
+    ? visibleSessions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    : visibleSessions.slice(0, 5);
+
+  const paginationFooter = containerMode && totalPages > 1 ? (
+    <Group justify="space-between" align="center">
+      <Text size="xs" c="dimmed">
+        {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, visibleSessions.length)} of {visibleSessions.length}
+      </Text>
+      <Group gap="xs">
+        <Button
+          size="xs"
+          variant="subtle"
+          color="gray"
+          leftSection={<IconChevronLeft size={14} />}
+          disabled={page === 0}
+          onClick={() => setPage(p => p - 1)}
+        >
+          Previous
+        </Button>
+        <Button
+          size="xs"
+          variant="subtle"
+          color="gray"
+          rightSection={<IconChevronRight size={14} />}
+          disabled={page >= totalPages - 1}
+          onClick={() => setPage(p => p + 1)}
+        >
+          Next
+        </Button>
+      </Group>
+    </Group>
+  ) : undefined;
+
+  if (containerMode) {
+    return (
+      <FormCard title="Previous Sessions" footer={paginationFooter}>
+        <Stack gap="xs">
+          {pagedSessions.map((session) => (
+            <GlassCard key={session.id} hoverable p="sm" style={{ cursor: 'pointer' }}>
+              <SessionItem
+                session={session}
+                onSelectSession={onSelectSession}
+                onResumeSession={onResumeSession}
+              />
+            </GlassCard>
+          ))}
+        </Stack>
+      </FormCard>
+    );
   }
 
   return (
@@ -126,64 +224,15 @@ export function SessionHistoryList({ workspaceId, onSelectSession, onResumeSessi
       </Group>
 
       <Stack gap="xs">
-        {sessions.slice(0, 5).map((session) => {
-          const badge = getCompletionBadge(session.completionReason, session.status);
-          const resumable = isSessionResumable(session);
-
-          return (
-            <GlassCard
-              key={session.id}
-              hoverable
-              p="sm"
-              style={{ cursor: 'pointer' }}
-            >
-              <Group justify="space-between" wrap="nowrap">
-                <UnstyledButton
-                  onClick={() => onSelectSession(session.id)}
-                  style={{ flex: 1, overflow: 'hidden' }}
-                >
-                  <Stack gap={2}>
-                    <Text
-                      size="sm"
-                      fw={500}
-                      lineClamp={1}
-                      style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}
-                    >
-                      {session.feature.replace(/^## Workspace Context\n[\s\S]*?\n\n## Feature\n/, '')}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {formatRelativeTime(session.completedAt || session.updatedAt)}
-                    </Text>
-                  </Stack>
-                </UnstyledButton>
-                <Group gap="xs" wrap="nowrap">
-                  {resumable && onResumeSession && (
-                    <Button
-                      size="xs"
-                      variant="light"
-                      color="sage"
-                      leftSection={<IconPlayerPlay size={12} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onResumeSession(session.id);
-                      }}
-                    >
-                      Resume
-                    </Button>
-                  )}
-                  <Badge
-                    size="sm"
-                    variant="light"
-                    color={badge.color}
-                    leftSection={badge.icon}
-                  >
-                    {badge.label}
-                  </Badge>
-                </Group>
-              </Group>
-            </GlassCard>
-          );
-        })}
+        {pagedSessions.map((session) => (
+          <GlassCard key={session.id} hoverable p="sm" style={{ cursor: 'pointer' }}>
+            <SessionItem
+              session={session}
+              onSelectSession={onSelectSession}
+              onResumeSession={onResumeSession}
+            />
+          </GlassCard>
+        ))}
       </Stack>
     </Stack>
   );
