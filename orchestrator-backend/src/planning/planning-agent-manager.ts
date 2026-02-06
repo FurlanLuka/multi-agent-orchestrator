@@ -978,12 +978,28 @@ This will securely collect and set the secret on GitHub.
       const path = projectPaths[p] || 'unknown';
       const config = this.projectConfig[p];
       const hasDesign = config?.attachedDesign;
-      const designPart = hasDesign ? ' and ui_mockup/' : '';
-      return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
-1. Read CLAUDE.md and .claude/skills/*.md${designPart} - summarize project purpose, conventions, patterns
+
+      if (hasDesign) {
+        // Frontend project with attached design - emphatic instructions
+        return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
+1. Read CLAUDE.md and .claude/skills/*.md - summarize project purpose, conventions, patterns
+2. **Read ui_mockup/ folder for design reference:**
+   - Read ui_mockup/theme.css for CSS variables (colors, spacing, typography)
+   - Read ui_mockup/components.html for component visual styles
+   - Read ui_mockup/AGENTS.md for usage instructions
+   - Read page .html files in ui_mockup/ for layout patterns
+   - Understand the visual language: colors, spacing, typography, component styles
+3. Search for code related to: ${feature}
+4. Find similar existing features or patterns we can learn from
+Return: project overview + **summary of design system (colors, spacing, component styles)** + relevant existing code")`;
+      } else {
+        // Non-frontend or no design attached
+        return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
+1. Read CLAUDE.md and .claude/skills/*.md - summarize project purpose, conventions, patterns
 2. Search for code related to: ${feature}
 3. Find similar existing features or patterns we can learn from
 Return: project overview + relevant existing code for this feature")`;
+      }
     }).join('\n\n');
 
     return `You are a planning agent conducting Stage 1: Feature Refinement.
@@ -1068,7 +1084,7 @@ ${requirementsList}
 
 **Projects:**
 ${projectList}
-
+${this.buildDesignReferenceSection()}
 ## YOUR STEPS:
 
 1. EXPLORE each project to understand:
@@ -1101,15 +1117,16 @@ ${projectList}
 
 ## TASK REQUIREMENTS:
 
-Each task MUST include implementation-ready detail:
+Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
 
 1. **Files to create/modify** - exact paths matching project conventions
 
-2. **For APIs - FULL CONTRACT for each endpoint:**
+2. **For APIs - FULL CONTRACT + CODE EXAMPLES:**
    - HTTP method + path (e.g., POST /auth/login)
    - Request body with field types and validation rules
    - Success response with exact JSON structure
    - Error responses with status codes and messages
+   - **Include code snippets** showing the controller/route structure
 
    Example:
    ### POST /users
@@ -1117,11 +1134,43 @@ Each task MUST include implementation-ready detail:
    **201:** \`{ \\"id\\": 1, \\"email\\": \\"...\\", \\"createdAt\\": \\"...\\" }\`
    **400:** \`{ \\"message\\": \\"Email already exists\\" }\`
 
-3. **For UIs - component specification:**
+   \`\`\`typescript
+   // users.controller.ts
+   @Post()
+   async create(@Body() dto: CreateUserDto) {
+     return this.usersService.create(dto);
+   }
+   \`\`\`
+
+3. **For UIs - follow the design system + CODE EXAMPLES:**
+   - Reference ui_mockup/ for visual style (colors, spacing, typography)
+   - Use CSS variables defined in ui_mockup/theme.css
+   - Match component styling patterns from ui_mockup/components.html
+   - Read ui_mockup/AGENTS.md for usage instructions
+   - Follow layout patterns from relevant page mockups
    - Props interface with types
    - State variables needed
    - API calls to make (which endpoints, when)
    - User interactions and their handlers
+   - **Include code snippets** showing component structure and styling
+
+   Example:
+   \`\`\`tsx
+   // LoginForm.tsx
+   interface LoginFormProps {
+     onSuccess: (user: User) => void;
+   }
+
+   export function LoginForm({ onSuccess }: LoginFormProps) {
+     const [email, setEmail] = useState('');
+     // Use theme colors from ui_mockup/theme.css
+     return (
+       <form style={{ background: 'var(--color-surface)' }}>
+         <TextInput value={email} onChange={setEmail} />
+       </form>
+     );
+   }
+   \`\`\`
 
 4. **Implementation notes:**
    - Libraries to use (e.g., \\"bcrypt with cost factor 10\\")
@@ -1130,6 +1179,13 @@ Each task MUST include implementation-ready detail:
 
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
    - Use \`request_user_input\` to collect secrets from the user
+
+6. **CODE EXAMPLES ARE MANDATORY:**
+   - Every task MUST include at least one code snippet
+   - Code examples ensure consistency across the codebase
+   - Show the expected structure, naming conventions, and patterns
+   - Include imports, types, and key implementation details
+   - Examples should match the project's existing code style
 
 ## RULES:
 
@@ -1150,6 +1206,33 @@ After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_
 [PLANNER_STATUS] {"phase": "planning", "message": "Generating implementation plan..."}
 
 **Call the Plan tool now.**`;
+  }
+
+  /**
+   * Builds the DESIGN REFERENCE section for Stage 2 planning prompt.
+   * Only includes projects that have attached designs.
+   */
+  private buildDesignReferenceSection(): string {
+    const projects = this.pendingPlanContext?.projects || [];
+    const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
+
+    if (projectsWithDesign.length === 0) {
+      return '';
+    }
+
+    return `
+## DESIGN REFERENCE
+
+The following projects have UI mockups in their ui_mockup/ folder:
+${projectsWithDesign.map(p => `- **${p}**: ui_mockup/theme.css (CSS vars), ui_mockup/components.html (component styles), page HTMLs (layouts)`).join('\n')}
+
+**For UI tasks:** Reference these mockups to match the visual style:
+- Use CSS variables from theme.css for colors and spacing
+- Follow component styling patterns from components.html
+- Match the general layout and visual feel from page mockups
+
+The mockups are a visual guide - adapt them to the project's framework (React/Mantine), don't copy HTML literally.
+`;
   }
 
   /**

@@ -69,6 +69,7 @@ export interface UIServer {
 /**
  * Safety net to normalize plan tasks from agent output.
  * Agents sometimes use `title`/`description` instead of `name`/`task`.
+ * Also normalizes testPlan entries (LLM might generate objects instead of strings).
  */
 function normalizePlan(plan: any): Plan {
   if (!plan?.tasks || !Array.isArray(plan.tasks)) return plan;
@@ -79,6 +80,21 @@ function normalizePlan(plan: any): Plan {
     type: t.type,
   }));
   if (!plan.testPlan || typeof plan.testPlan !== 'object') plan.testPlan = {};
+
+  // Normalize testPlan entries - LLM sometimes generates objects like {scenario, steps} instead of strings
+  for (const project of Object.keys(plan.testPlan)) {
+    if (Array.isArray(plan.testPlan[project])) {
+      plan.testPlan[project] = plan.testPlan[project].map((entry: any) => {
+        if (typeof entry === 'string') return entry;
+        // Handle object format: extract scenario name
+        if (typeof entry === 'object' && entry !== null) {
+          return entry.scenario || entry.name || entry.description || JSON.stringify(entry);
+        }
+        return String(entry);
+      });
+    }
+  }
+
   return plan as Plan;
 }
 
