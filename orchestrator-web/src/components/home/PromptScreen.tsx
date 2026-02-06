@@ -33,6 +33,7 @@ import {
   IconHammer,
   IconHistory,
   IconCloudUpload,
+  IconPalette,
 } from '@tabler/icons-react';
 import type {
   WorkspaceConfig,
@@ -154,6 +155,11 @@ export function PromptScreen({
   }>({ checking: false, authenticated: true, hasAccess: true });
   const [sessionProjectConfigs, setSessionProjectConfigs] = useState<SessionProjectConfig[]>([]);
   const [hasCompletedSession, setHasCompletedSession] = useState(false);
+  // Outdated designs state
+  const [outdatedDesigns, setOutdatedDesigns] = useState<Array<{
+    projectName: string;
+    designName: string;
+  }>>([]);
   // Check if workspace has projects (used to prevent exiting edit mode when empty)
   const hasProjects = workspace.projects.length > 0;
 
@@ -224,6 +230,36 @@ export function PromptScreen({
       })
       .catch(() => setHasCompletedSession(false));
   }, [workspace.id, effectivePort]);
+
+  // Check design status for all projects with attached designs
+  useEffect(() => {
+    if (!workspace.projects) return;
+
+    const checkDesignStatus = async () => {
+      const outdated: typeof outdatedDesigns = [];
+
+      for (const project of workspace.projects) {
+        if (project.attachedDesign) {
+          try {
+            const res = await fetch(`http://localhost:${effectivePort}/api/projects/${project.name}/design-status`);
+            const status = await res.json();
+            if (status.isOutdated) {
+              outdated.push({
+                projectName: project.name,
+                designName: status.designName
+              });
+            }
+          } catch (err) {
+            console.error(`Failed to check design status for ${project.name}:`, err);
+          }
+        }
+      }
+
+      setOutdatedDesigns(outdated);
+    };
+
+    checkDesignStatus();
+  }, [workspace.projects, effectivePort]);
 
   // Deploy card is available when workspace is orchyManaged with GitHub enabled and has completed sessions
   const showDeployCard = !!workspace.orchyManaged && !!workspace.github?.enabled && !!onStartDeployment && hasCompletedSession;
@@ -375,6 +411,17 @@ export function PromptScreen({
     stopAllDevServers();
     closeDevServerWarning();
     // The user will need to click Start again after servers stop
+  };
+
+  // Handle sync design (updates design files from library)
+  const handleSyncDesign = async (projectName: string) => {
+    try {
+      await fetch(`http://localhost:${effectivePort}/api/projects/${projectName}/sync-design`, { method: 'POST' });
+      // Remove from outdated list
+      setOutdatedDesigns(prev => prev.filter(d => d.projectName !== projectName));
+    } catch (err) {
+      console.error('Failed to sync design:', err);
+    }
   };
 
   // Handle branch check result
@@ -1103,6 +1150,37 @@ export function PromptScreen({
                 </Text>
               </Alert>
             ) : null
+          )}
+
+          {/* Design out of date alert */}
+          {outdatedDesigns.length > 0 && (
+            <Alert
+              variant="light"
+              color="orange"
+              icon={<IconPalette size={18} />}
+              title="Design Reference Out of Date"
+              withCloseButton
+              onClose={() => setOutdatedDesigns([])}
+            >
+              <Stack gap="xs">
+                <Text size="sm">
+                  The following projects have outdated design references:
+                </Text>
+                {outdatedDesigns.map(({ projectName, designName }) => (
+                  <Group key={projectName} gap="xs">
+                    <Text size="sm" fw={500}>{projectName}</Text>
+                    <Text size="sm" c="dimmed">({designName})</Text>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      onClick={() => handleSyncDesign(projectName)}
+                    >
+                      Update
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            </Alert>
           )}
 
           {/* Feature form */}

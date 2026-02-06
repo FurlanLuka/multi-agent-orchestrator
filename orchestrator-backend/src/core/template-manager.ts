@@ -422,9 +422,9 @@ ${fullCommand}
   /**
    * Attaches a design from the library to a project path.
    * Copies design files to {projectPath}/ui_mockup/
-   * Returns updated project config with attachedDesign field
+   * Returns updated project config with attachedDesign field and designLinkedAt timestamp
    */
-  async attachDesignToProject(projectPath: string, projectName: string, designName: string): Promise<{ attachedDesign: string }> {
+  async attachDesignToProject(projectPath: string, projectName: string, designName: string): Promise<{ attachedDesign: string; designLinkedAt: number }> {
     // Get design library path
     const designsLibraryDir = path.join(getConfigDir(), 'designs');
     const sanitizedDesignName = designName
@@ -472,9 +472,15 @@ ${fullCommand}
       }
     }
 
-    console.log(`[TemplateManager] Attached design "${designName}" to project "${projectName}"`);
-    this.emit('designAttached', { project: projectName, design: designName });
+    // Read library design's last_updated timestamp (for out-of-date detection)
+    const designTimestampFile = path.join(designDir, 'last_updated.txt');
+    const designLinkedAt = fs.existsSync(designTimestampFile)
+      ? parseInt(fs.readFileSync(designTimestampFile, 'utf-8').trim(), 10)
+      : Date.now();
 
-    return { attachedDesign: designName };
+    console.log(`[TemplateManager] Attached design "${designName}" to project "${projectName}" (linkedAt: ${designLinkedAt})`);
+    this.emit('designAttached', { project: projectName, design: designName, designLinkedAt });
+
+    return { attachedDesign: designName, designLinkedAt };
   }
 }

@@ -36,6 +36,7 @@ export interface ProjectConfig {
   mainBranch?: string;   // Main branch name (default: 'main') - only used at workspace level for orchyManaged
   permissions?: ProjectPermissions;  // Claude Code agent permissions for this project
   attachedDesign?: string;  // Name of design from library (singular - one per project)
+  designLinkedAt?: number;  // Timestamp when design was attached/synced (for out-of-date detection)
 }
 
 export interface Config {

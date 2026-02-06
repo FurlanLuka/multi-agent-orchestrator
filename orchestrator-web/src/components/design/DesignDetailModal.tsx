@@ -8,8 +8,9 @@ import {
   Tabs,
   Text,
   Stack,
+  Button,
 } from '@mantine/core';
-import { IconPalette, IconComponents, IconFile } from '@tabler/icons-react';
+import { IconPalette, IconComponents, IconFile, IconEdit } from '@tabler/icons-react';
 import type { SavedDesignFolderContents } from '@orchy/types';
 import { glass } from '../../theme';
 
@@ -17,9 +18,10 @@ interface DesignDetailModalProps {
   opened: boolean;
   design: SavedDesignFolderContents | null;
   onClose: () => void;
+  onEdit?: (designName: string) => void;
 }
 
-export function DesignDetailModal({ opened, design, onClose }: DesignDetailModalProps) {
+export function DesignDetailModal({ opened, design, onClose, onEdit }: DesignDetailModalProps) {
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // Build tabs array
@@ -98,7 +100,20 @@ export function DesignDetailModal({ opened, design, onClose }: DesignDetailModal
                 {design?.name || 'Design'}
               </Title>
             </Group>
-            <CloseButton onClick={onClose} />
+            <Group gap="sm">
+              {onEdit && design?.name && (
+                <Button
+                  variant="light"
+                  color="peach"
+                  size="sm"
+                  leftSection={<IconEdit size={14} />}
+                  onClick={() => onEdit(design.name)}
+                >
+                  Edit
+                </Button>
+              )}
+              <CloseButton onClick={onClose} />
+            </Group>
           </Group>
         </Box>
 

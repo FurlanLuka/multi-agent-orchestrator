@@ -227,6 +227,15 @@ export function useSocket() {
     name: string;
     filename: string;
   }>>([]);
+  // Ref to designPages for event handlers
+  const designPagesRef = useRef<Array<{ id: string; name: string; filename: string }>>([]);
+  // Track editing design name (prefixed with _ to indicate it's for future use)
+  const [_editingDesignName, setEditingDesignName] = useState<string | null>(null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    designPagesRef.current = designPages;
+  }, [designPages]);
 
   // ═══════════════════════════════════════════════════════════════
   // Dev Server Management State (standalone dev server controls)
@@ -1075,6 +1084,41 @@ export function useSocket() {
       setDesignInputLocked(false);
     });
 
+    // Design loaded for editing
+    socket.on('design:design_loaded', ({ designName, pages }: { designName: string; pages: Array<{ id: string; name: string; filename: string }> }) => {
+      console.log('[Design] Design loaded for editing:', designName, pages.length, 'pages');
+      setEditingDesignName(designName);
+      setDesignPhase('pages');
+      setDesignPages(pages);
+      // Keep input locked - agent will unlock it via request_user_input after greeting
+      setDesignInputLocked(true);
+      setDesignInputPlaceholder('Waiting for assistant...');
+    });
+
+    // Page deleted
+    socket.on('design:page_deleted', ({ pageId }: { pageId: string }) => {
+      console.log('[Design] Page deleted:', pageId);
+      setDesignPages(prev => prev.filter(p => p.id !== pageId));
+    });
+
+    // Page editing (enter refine mode)
+    socket.on('design:page_editing', ({ pageId, html }: { pageId: string; html: string }) => {
+      console.log('[Design] Editing page:', pageId);
+      const page = designPagesRef.current.find(p => p.id === pageId);
+      if (page) {
+        setDesignRefine({
+          type: 'mockup',
+          option: {
+            id: pageId,
+            name: page.name,
+            description: `Editing ${page.name}`,
+            previewHtml: html,
+          },
+          index: 0,
+        });
+      }
+    });
+
     // Request initial data
     socket.emit('getTemplates');
     socket.emit('getWorkspaces');
@@ -1665,6 +1709,35 @@ export function useSocket() {
     setDesignPhase('complete');
   }, []);
 
+  // Load design for editing
+  const loadDesignForEditing = useCallback((designName: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Loading design for editing:', designName);
+      // Lock input and set loading state immediately
+      setDesignInputLocked(true);
+      setDesignInputPlaceholder('Loading design...');
+      setDesignPhase('pages');
+      setDesignError(null);
+      socketRef.current.emit('design:load_for_editing', { designName });
+    }
+  }, []);
+
+  // Edit a page (enter refine mode)
+  const editDesignPage = useCallback((pageId: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Edit page:', pageId);
+      socketRef.current.emit('design:edit_page', { pageId });
+    }
+  }, []);
+
+  // Delete a page
+  const deleteDesignPage = useCallback((pageId: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Delete page:', pageId);
+      socketRef.current.emit('design:delete_page', { pageId });
+    }
+  }, []);
+
   // ═══════════════════════════════════════════════════════════════
   // Dev Server Management Actions (standalone dev server controls)
   // ═══════════════════════════════════════════════════════════════
@@ -1881,6 +1954,9 @@ export function useSocket() {
     clearDesignPreview,
     clearDesignRefine,
     finishAddingPages,
+    loadDesignForEditing,
+    editDesignPage,
+    deleteDesignPage,
     // Dev server state
     devServers,
     devServerLogs,

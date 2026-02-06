@@ -15,7 +15,7 @@ import { SessionManager } from '../core/session-manager';
 import { DeploymentManager } from '../deployment/deployment-manager';
 import { Session, Plan, LogEntry, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, TechnicalSpecData } from '@orchy/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@orchy/types';
-import { getWebDistPath, getPlannerPermissionsPath } from '../config/paths';
+import { getWebDistPath, getPlannerPermissionsPath, getConfigDir } from '../config/paths';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -1384,6 +1384,58 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       }
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    // Design Editing Socket Handlers
+    // ═══════════════════════════════════════════════════════════════
+
+    // Load a design from library for editing
+    socket.on('design:load_for_editing', async ({ designName }: { designName: string }) => {
+      console.log(`[UIServer] Loading design for editing: ${designName}`);
+      try {
+        const designerAgent = (io as any).designerAgent;
+        if (!designerAgent) {
+          socket.emit('design:error', { message: 'Designer agent not available' });
+          return;
+        }
+
+        await designerAgent.loadDesignForEditing(designName);
+
+        // Emit session started (needed for cleanup on navigation)
+        const session = designerAgent.getSession();
+        if (session) {
+          socket.emit('design:session_started', { sessionId: session.id });
+        }
+
+        const pages = designerAgent.getPages();
+        socket.emit('design:design_loaded', { designName, pages });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        console.error('[UIServer] Failed to load design for editing:', error);
+        socket.emit('design:error', { message: error });
+      }
+    });
+
+    // Delete a page from the current design session
+    socket.on('design:delete_page', ({ pageId }: { pageId: string }) => {
+      console.log(`[UIServer] Deleting page: ${pageId}`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent && designerAgent.deletePage(pageId)) {
+        socket.emit('design:page_deleted', { pageId });
+      }
+    });
+
+    // Edit a page (get its HTML and enter refine mode)
+    socket.on('design:edit_page', ({ pageId }: { pageId: string }) => {
+      console.log(`[UIServer] Editing page: ${pageId}`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        const html = designerAgent.getPageForEditing(pageId);
+        if (html) {
+          socket.emit('design:page_editing', { pageId, html });
+        }
+      }
+    });
+
     socket.on('disconnect', () => {
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
       connectedClients.delete(socket.id);
@@ -2639,6 +2691,128 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       console.error(`[UIServer] Failed to detach design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Design Out-of-Date Detection API
+  // ═══════════════════════════════════════════════════════════════
+
+  // Helper to sanitize design name to folder name
+  const sanitizeDesignName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
+  // GET /api/projects/:projectName/design-status - Check if design is out of date
+  app.get('/api/projects/:projectName/design-status', (req: Request, res: Response) => {
+    const { projectName } = req.params;
+
+    console.log(`[UIServer] GET /api/projects/${projectName}/design-status`);
+
+    const workspaceManager = (io as any).workspaceManager;
+    if (!workspaceManager) {
+      res.status(500).json({ error: 'Workspace manager not available' });
+      return;
+    }
+
+    try {
+      // Find project in all workspaces
+      const workspaces = workspaceManager.getWorkspaces();
+      let projectConfig = null;
+      let foundWorkspaceId = null;
+
+      for (const [workspaceId, workspace] of Object.entries(workspaces)) {
+        const project = (workspace as any).projects?.find((p: any) => p.name === projectName);
+        if (project) {
+          projectConfig = project;
+          foundWorkspaceId = workspaceId;
+          break;
+        }
+      }
+
+      if (!projectConfig || !projectConfig.attachedDesign) {
+        res.json({ hasDesign: false });
+        return;
+      }
+
+      // Read library design's last_updated.txt
+      const designDir = path.join(getConfigDir(), 'designs', sanitizeDesignName(projectConfig.attachedDesign));
+      const timestampFile = path.join(designDir, 'last_updated.txt');
+      const libraryTimestamp = fs.existsSync(timestampFile)
+        ? parseInt(fs.readFileSync(timestampFile, 'utf-8').trim(), 10)
+        : 0;
+
+      const projectTimestamp = projectConfig.designLinkedAt || 0;
+
+      res.json({
+        hasDesign: true,
+        designName: projectConfig.attachedDesign,
+        isOutdated: libraryTimestamp > projectTimestamp,
+        libraryUpdatedAt: libraryTimestamp,
+        projectLinkedAt: projectTimestamp,
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to check design status: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
+  // POST /api/projects/:projectName/sync-design - Sync design files from library
+  app.post('/api/projects/:projectName/sync-design', async (req: Request, res: Response) => {
+    const { projectName } = req.params;
+
+    console.log(`[UIServer] POST /api/projects/${projectName}/sync-design`);
+
+    const workspaceManager = (io as any).workspaceManager;
+    const templateManager = (io as any).templateManager;
+    if (!workspaceManager || !templateManager) {
+      res.status(500).json({ error: 'Required managers not available' });
+      return;
+    }
+
+    try {
+      // Find project in all workspaces
+      const workspaces = workspaceManager.getWorkspaces();
+      let projectConfig = null;
+      let foundWorkspaceId: string | null = null;
+
+      for (const [workspaceId, workspace] of Object.entries(workspaces)) {
+        const project = (workspace as any).projects?.find((p: any) => p.name === projectName);
+        if (project) {
+          projectConfig = project;
+          foundWorkspaceId = workspaceId;
+          break;
+        }
+      }
+
+      if (!projectConfig || !projectConfig.attachedDesign) {
+        res.status(400).json({ error: 'No design attached to this project' });
+        return;
+      }
+
+      // Re-attach design (copies files and returns new designLinkedAt)
+      const result = await templateManager.attachDesignToProject(
+        projectConfig.path,
+        projectName,
+        projectConfig.attachedDesign
+      );
+
+      // Update project config with new designLinkedAt
+      if (foundWorkspaceId) {
+        workspaceManager.updateWorkspaceProject(foundWorkspaceId, projectName, {
+          designLinkedAt: result.designLinkedAt
+        });
+      }
+
+      res.json({ success: true, designLinkedAt: result.designLinkedAt });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to sync design: ${error}`);
       res.status(500).json({ error });
     }
   });

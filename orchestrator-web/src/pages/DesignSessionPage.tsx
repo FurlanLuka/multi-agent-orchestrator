@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Container,
   Stack,
@@ -13,7 +14,7 @@ import {
   Loader,
   Button,
 } from '@mantine/core';
-import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile } from '@tabler/icons-react';
+import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile, IconPencil, IconTrash } from '@tabler/icons-react';
 import type { DesignPhase, DesignCategory } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextarea, GlassTextInput, glass, radii } from '../theme';
 import { DesignPreviewOverlay } from '../components/design/DesignPreviewOverlay';
@@ -40,18 +41,6 @@ const availableCategories: Array<{ id: DesignCategory; name: string; description
 
 // Extended phases including category selection
 type ExtendedPhase = 'category' | DesignPhase;
-const phases: ExtendedPhase[] = ['category', 'discovery', 'theme', 'components', 'mockups', 'pages', 'complete'];
-
-const phaseLabels: Record<ExtendedPhase, string> = {
-  category: 'Type',
-  discovery: 'Discovery',
-  summary: 'Summary',
-  theme: 'Theme',
-  components: 'Components',
-  mockups: 'Mockups',
-  pages: 'Pages',
-  complete: 'Done',
-};
 
 const generatingMessages: Record<'theme' | 'component' | 'mockup', string> = {
   theme: 'Generating theme options...',
@@ -60,6 +49,10 @@ const generatingMessages: Record<'theme' | 'component' | 'mockup', string> = {
 };
 
 export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps) {
+  // Get edit design from route state
+  const location = useLocation();
+  const editDesignName = (location.state as { editDesign?: string })?.editDesign;
+
   // Socket state from context
   const {
     port,
@@ -84,6 +77,9 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     requestNewDesignOptions,
     submitDesignFeedback,
     finishAddingPages,
+    loadDesignForEditing,
+    editDesignPage,
+    deleteDesignPage,
   } = useOrchestrator();
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
@@ -103,7 +99,10 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Determine the current phase: local 'category' phase or socket-managed phase
-  const currentPhase: ExtendedPhase = localPhase === 'category' ? 'category' : designPhase;
+  // In edit mode, skip category selection entirely - show loading until socket responds
+  const currentPhase: ExtendedPhase = editDesignName
+    ? (designPhase || 'discovery')  // Use socket phase, fallback to discovery (shows loading)
+    : (localPhase === 'category' ? 'category' : designPhase);
 
   // Auto-scroll to bottom when messages change or generating state changes
   useEffect(() => {
@@ -112,14 +111,30 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     }
   }, [designMessages, designGenerating]);
 
-  // Clean up session when leaving
+  // Track session ID in ref for cleanup
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    sessionIdRef.current = designSessionId;
+  }, [designSessionId]);
+
+  // Clean up session when leaving - runs once on unmount
   useEffect(() => {
     return () => {
-      if (designSessionId) {
+      if (sessionIdRef.current) {
         endDesignSession();
       }
     };
-  }, [designSessionId, endDesignSession]);
+  }, [endDesignSession]);
+
+  // Load design for editing if navigated with editDesign state
+  const hasLoadedEditDesignRef = useRef(false);
+  useEffect(() => {
+    if (editDesignName && !hasLoadedEditDesignRef.current) {
+      hasLoadedEditDesignRef.current = true;
+      // Don't set localPhase - socket events will drive phase transitions
+      loadDesignForEditing(editDesignName);
+    }
+  }, [editDesignName, loadDesignForEditing]);
 
   // Handle category selection - starts the design session
   const handleCategorySelect = (category: DesignCategory) => {
@@ -151,7 +166,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     onBack();
   };
 
-  // Handle save to library
+  // Handle save to library (for new designs)
   const handleSaveToLibrary = async () => {
     if (!effectivePort || !designName.trim()) return;
 
@@ -180,17 +195,41 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     }
   };
 
-  // Get active step index (summary doesn't appear in progress bar, show as discovery)
-  const getStepIndex = (): number => {
-    const phase = currentPhase === 'summary' ? 'discovery' : currentPhase;
-    return phases.indexOf(phase);
-  };
+  // Handle finishing edit mode - saves directly to existing design folder
+  const handleFinishEditing = async () => {
+    if (!effectivePort || !editDesignName) return;
 
-  const activeStep = getStepIndex();
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const response = await fetch(`http://localhost:${effectivePort}/api/designer/save-design-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ designName: editDesignName }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to save design');
+      }
+
+      // Successfully saved - end session and navigate to library
+      endDesignSession();
+      onComplete();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save design');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Check states
   const showGenerating = designGenerating !== null;
   const showPreview = designPreview && designPreview.options.length > 0;
+
+  // Loading state for edit mode before socket responds with session
+  const isLoadingEditDesign = editDesignName && !designSessionId;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // CATEGORY SELECTION SCREEN
@@ -251,12 +290,33 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // LOADING STATE - Edit mode waiting for session
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (isLoadingEditDesign) {
+    return (
+      <Container size="sm" py={60}>
+        <Stack align="center" gap="xl">
+          {/* Back Button */}
+          <Box style={{ position: 'absolute', top: 24, left: 24 }}>
+            <ActionIcon variant="subtle" color="gray" size="lg" onClick={handleBack}>
+              <IconArrowLeft size={20} />
+            </ActionIcon>
+          </Box>
+
+          <Loader color="peach" />
+          <Text c="dimmed" size="sm">Loading design...</Text>
+        </Stack>
+      </Container>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // COMPLETE STAGE - Simple save card (no chat)
   // Show only when phase is 'complete' and user has pages
   // ─────────────────────────────────────────────────────────────────────────────
   const showCompleteStage = designPhase === 'complete' && designPages.length > 0 && !designComplete;
 
-  // Show pages panel when in pages phase
+  // Show pages panel when in pages phase with pages available
   const showPagesPanel = designPhase === 'pages' && designPages.length > 0;
 
   if (showCompleteStage) {
@@ -359,71 +419,23 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
       </Box>
 
       <Container size={(designRefine || showPagesPanel) ? 'lg' : 'sm'} py={60}>
-        <Stack align="center" gap="xl">
-          {/* Title and Progress */}
-          <Stack align="center" gap="md">
-            <Stack align="center" gap={4}>
-              <Title order={2} ta="center" style={{ letterSpacing: '-.02em' }}>
-                Design Assistant
-              </Title>
-              <Text c="dimmed" size="sm" ta="center">
-                {showGenerating
-                  ? designGenerating?.type === 'theme'
-                    ? 'Generating theme options...'
-                    : designGenerating?.type === 'component'
-                      ? 'Generating component styles...'
-                      : 'Generating mockups...'
-                  : designComplete
-                    ? 'Design complete!'
-                    : 'Tell me about your vision'}
-              </Text>
-            </Stack>
-
-            {/* Progress Steps */}
-            <Group gap="xs" justify="center">
-              {phases.map((p, index) => {
-                if (p === 'summary' || p === 'category') return null;
-
-                const isActive = index === activeStep;
-                const isComplete = index < activeStep;
-
-                return (
-                  <Group key={p} gap={4} align="center">
-                    <Box
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: isActive
-                          ? 'var(--mantine-color-peach-6)'
-                          : isComplete
-                            ? 'var(--mantine-color-peach-3)'
-                            : 'rgba(0, 0, 0, 0.1)',
-                        transition: 'all 0.2s ease',
-                      }}
-                    />
-                    <Text
-                      size="xs"
-                      c={isActive ? 'peach.6' : 'dimmed'}
-                      fw={isActive ? 600 : 400}
-                    >
-                      {phaseLabels[p]}
-                    </Text>
-                    {index < phases.length - 1 && p !== 'complete' && (
-                      <Box
-                        style={{
-                          width: 12,
-                          height: 1,
-                          background: isComplete
-                            ? 'var(--mantine-color-peach-3)'
-                            : 'rgba(0, 0, 0, 0.08)',
-                        }}
-                      />
-                    )}
-                  </Group>
-                );
-              })}
-            </Group>
+        <Stack gap="xl">
+          {/* Title */}
+          <Stack gap={0} w="100%">
+            <Title order={2} style={{ letterSpacing: '-.02em' }}>
+              Design Assistant
+            </Title>
+            <Text c="dimmed" size="sm">
+              {showGenerating
+                ? designGenerating?.type === 'theme'
+                  ? 'Generating theme options...'
+                  : designGenerating?.type === 'component'
+                    ? 'Generating component styles...'
+                    : 'Generating mockups...'
+                : designComplete
+                  ? 'Design complete!'
+                  : 'Tell me about your vision'}
+            </Text>
           </Stack>
 
           {/* Error Alert */}
@@ -639,10 +651,11 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                   fullWidth
                   color="peach"
                   size="sm"
-                  leftSection={<IconCheck size={14} />}
-                  onClick={finishAddingPages}
+                  leftSection={saving ? <Loader size={14} color="white" /> : <IconCheck size={14} />}
+                  onClick={editDesignName ? handleFinishEditing : finishAddingPages}
+                  disabled={saving}
                 >
-                  Done
+                  {editDesignName ? (saving ? 'Saving...' : 'Save & Close') : 'Done'}
                 </Button>
               }
             >
@@ -652,14 +665,25 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                     key={page.id}
                     gap="xs"
                     p="xs"
+                    justify="space-between"
                     style={{
                       borderRadius: radii.input,
                       background: glass.surface.bg,
                       border: glass.surface.border,
                     }}
                   >
-                    <IconFile size={14} color="var(--mantine-color-gray-5)" />
-                    <Text size="sm">{page.name}</Text>
+                    <Group gap="xs">
+                      <IconFile size={14} color="var(--mantine-color-gray-5)" />
+                      <Text size="sm">{page.name}</Text>
+                    </Group>
+                    <Group gap={4}>
+                      <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => editDesignPage(page.id)}>
+                        <IconPencil size={12} />
+                      </ActionIcon>
+                      <ActionIcon variant="subtle" color="red" size="sm" onClick={() => deleteDesignPage(page.id)}>
+                        <IconTrash size={12} />
+                      </ActionIcon>
+                    </Group>
                   </Group>
                 ))}
                 <Button

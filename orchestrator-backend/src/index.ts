@@ -520,6 +520,9 @@ async function main() {
   // Attach template manager to io for REST API handlers
   (ui.io as any).templateManager = templateManager;
 
+  // Attach workspace manager to io for design status API
+  (ui.io as any).workspaceManager = workspaceManager;
+
   // Forward agent messages to frontend
   designerAgent.on('agentMessage', (content: string) => {
     console.log(`[DesignerAgent] Agent message: ${content.substring(0, 80)}...`);

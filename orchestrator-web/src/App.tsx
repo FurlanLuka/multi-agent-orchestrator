@@ -197,6 +197,7 @@ function AppRoutes() {
             <BackButton to="/" />
             <DesignsLibraryPage
               onAddNew={() => navigate('/design-session')}
+              onEdit={(designName) => navigate('/design-session', { state: { editDesign: designName } })}
             />
           </>
         }

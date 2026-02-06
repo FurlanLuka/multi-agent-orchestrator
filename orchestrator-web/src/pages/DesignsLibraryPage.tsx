@@ -21,9 +21,10 @@ import { useOrchestrator } from '../context/OrchestratorContext';
 
 interface DesignsLibraryPageProps {
   onAddNew: () => void;
+  onEdit?: (designName: string) => void;
 }
 
-export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
+export function DesignsLibraryPage({ onAddNew, onEdit }: DesignsLibraryPageProps) {
   const { port } = useOrchestrator();
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
 
@@ -258,6 +259,10 @@ export function DesignsLibraryPage({ onAddNew }: DesignsLibraryPageProps) {
         opened={modalOpen}
         design={selectedDesign}
         onClose={handleCloseModal}
+        onEdit={(name) => {
+          handleCloseModal();
+          onEdit?.(name);
+        }}
       />
 
       {/* Delete Confirmation Modal */}
