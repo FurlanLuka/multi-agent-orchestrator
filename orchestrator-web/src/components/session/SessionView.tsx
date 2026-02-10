@@ -172,8 +172,8 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
   }, [startNewSession, navigateToWorkspace]);
 
   return (
-    <Box style={{ minHeight: '100vh' }}>
-      <Container size="100%" py="md" h="100vh">
+    <Box style={{ height: '100vh', overflow: 'hidden' }}>
+      <Container size="100%" py="md" h="100%">
         <Stack gap="md" h="100%">
           {/* Simple Header Row */}
           <Group justify="space-between" px="xs">
@@ -203,9 +203,9 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
               {/* LEFT PANEL: Planning Chat */}
               <Grid.Col
                 span={{ base: 12, lg: session.plan ? 5 : 12 }}
-                style={{ minWidth: 380 }}
+                style={{ minWidth: 380, display: 'flex', flexDirection: 'column', minHeight: 0 }}
               >
-                <Stack gap="lg" h="calc(100vh - 100px)">
+                <Stack gap="lg" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   <Box
                     style={{
                       flex: 1,
@@ -251,8 +251,8 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
 
               {/* RIGHT PANEL: Status + Outputs */}
               {session.plan && (
-                <Grid.Col span={{ base: 12, lg: 7 }}>
-                  <ScrollArea h="calc(100vh - 100px)" type="auto" offsetScrollbars>
+                <Grid.Col span={{ base: 12, lg: 7 }} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto" offsetScrollbars>
                     <Stack gap="lg">
                       {/* Feature Card - FormCard style */}
                       <Box

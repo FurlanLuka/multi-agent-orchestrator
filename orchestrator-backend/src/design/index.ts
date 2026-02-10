@@ -6,10 +6,11 @@ export {
   BASE_ATOMIC_COMPONENTS,
   CATEGORY_ATOMIC_COMPONENTS,
   CATEGORY_PAGE_SECTIONS,
-  COMPONENT_STYLE_APPROACHES,
+  CATEGORY_DESIGN_APPROACHES,
   getComponentsForCategory,
   getSectionsForCategory,
+  getDesignApproachesForCategory,
   getComponentListForPrompt,
   getSectionListForPrompt,
-  getStyleApproachesForPrompt,
+  getDesignApproachesForPrompt,
 } from './design-definitions';

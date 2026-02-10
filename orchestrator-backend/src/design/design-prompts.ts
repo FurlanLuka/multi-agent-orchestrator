@@ -4,7 +4,7 @@ import { DesignCategory, DesignReferenceLibrary } from '@orchy/types';
 import {
   getComponentListForPrompt,
   getSectionListForPrompt,
-  getStyleApproachesForPrompt,
+  getDesignApproachesForPrompt,
 } from './design-definitions';
 import { designReferences } from './design-references';
 
@@ -317,9 +317,10 @@ WORKFLOW:
 
 IMPORTANT: Components use FULL HTML, not just CSS. Include the theme CSS in each HTML's <style> tag.
 
-Generate 3 VISUALLY DISTINCT component style variations. Pick 3 different approaches from these:
-
-${getStyleApproachesForPrompt()}
+Generate 3 VISUALLY DISTINCT component style variations. Make them structurally different — not just different border-radius and shadow values. Consider:
+- One with sharp corners and borders (brutalist/flat)
+- One with soft curves and shadows (elevated/modern)
+- One with minimal chrome and lots of whitespace (minimal/clean)
 
 For components, you generate FULL HTML documents (not templates). Each component preview should:
 - Be a complete HTML document with <!DOCTYPE html>, <head>, and <body>
@@ -394,6 +395,28 @@ Each mockup must:
 ${category ? getSectionListForPrompt(category) : 'Sections will be determined by category'}
 
 ${getCategoryStylesPrompt(references)}
+
+## STRUCTURAL VARIETY (Same Purpose, Different Approach)
+
+Your 3 mockups must ALL be effective ${category || '[category]'} pages — but with different structural approaches:
+
+1. **Different container widths** — Vary between narrow, medium, wide, or full-width layouts
+2. **Different grid structures** — One might use multi-column grid, another single column, another bento-style
+3. **Different nav placements** — Try different nav styles that work for this category (top bar, sidebar, minimal, overlay)
+4. **Different section arrangements** — Vary the order, emphasis, or which sections to include
+5. **Different hero approaches** — Full-viewport, split layout, compact header, or no hero at all
+
+**Important**: All 3 options should work well as a ${category || '[category]'}. The variety is in HOW the content is presented, not WHAT it is. A user should be able to pick any of the 3 and have a functional, well-designed page.
+
+Each HTML should start with: <!-- LAYOUT: [approach name], CONTAINER: [width], NAV: [placement] -->
+
+## DESIGN APPROACHES FOR THIS CATEGORY
+
+These are proven structural approaches for ${category || 'this category'}. Pick different ones for each of your 3 mockups:
+
+${category ? getDesignApproachesForPrompt(category) : 'Approaches will be determined by category'}
+
+Each approach serves the category's purpose differently. Choose the ones that best match the user's stated preferences and goals.
 
 For placeholder content:
 - Use contextual lorem ipsum (blog post titles that sound like blog posts, product names that sound like products)
@@ -551,8 +574,10 @@ function getCategoryStylesPrompt(references: DesignReferenceLibrary): string {
       lines.push(`**${style.name}**: ${style.description}`);
       lines.push(`- Characteristics: ${style.characteristics.join(', ')}`);
       if (style.references.length > 0) {
-        const refNames = style.references.map(r => r.name).join(', ');
-        lines.push(`- Examples: ${refNames}`);
+        lines.push(`- Reference sites:`);
+        for (const ref of style.references) {
+          lines.push(`  - ${ref.name}: ${ref.notes}`);
+        }
       }
       lines.push('');
     }
@@ -631,7 +656,6 @@ export function getComponentGenerationPrompt(
   themeHtml: string
 ): string {
   const componentList = getComponentListForPrompt(category);
-  const styleApproaches = getStyleApproachesForPrompt();
 
   return `Generate 3 VISUALLY DISTINCT component style variations for a ${category} project.
 
@@ -646,10 +670,6 @@ ${themeHtml}
 ## Components to Include
 
 ${componentList}
-
-## Style Approaches (Pick 3 different ones)
-
-${styleApproaches}
 
 ## Layout Rules
 
@@ -667,7 +687,16 @@ Arrange components in a responsive grid:
 2. Copy the :root CSS variables block from theme HTML to your <style>
 3. Use CSS variables like var(--primary-600), var(--text-body), var(--radius-md)
 4. Show ALL components listed above with realistic content
-5. Make each option VISUALLY DISTINCT (different radii, shadows, spacing approaches)
+5. Make each option STRUCTURALLY DISTINCT, not just cosmetically different
+
+## Component Anti-Sameness Rules
+
+Do NOT make 3 variations that only differ in border-radius and shadow values. Each variation must differ in:
+- **Border radius**: one with sharp corners (0-2px), one with medium (6-8px), one with large (12px+) or pill shapes
+- **Shadow approach**: one with zero shadows (use borders instead), one with subtle shadows, one with pronounced depth
+- **Button padding**: different scales — compact, medium, chunky
+- **Input styles**: one with full border, one with border-bottom-only, one with filled background
+- **Card styles**: vary between bordered, shadowed, and background-tinted approaches
 
 Generate the options now.`;
 }
@@ -684,8 +713,9 @@ export function getMockupGenerationPrompt(
   const sectionList = getSectionListForPrompt(category);
   const references = designReferences;
   const categoryStyles = references.categories[category];
+  const designApproaches = getDesignApproachesForPrompt(category);
 
-  return `Generate 3-4 full-page mockup variations for a ${category} project.
+  return `Generate 3 full-page mockup variations for a ${category} project.
 
 ## Theme HTML (extract :root CSS variables from this)
 
@@ -703,15 +733,44 @@ Use the same component styling patterns from this HTML:
 ${componentsHtml}
 \`\`\`
 
-## Sections to Include
+## Sections Available
 
 ${sectionList}
 
-## Available Layout Styles for ${category}
+You do NOT need to include all sections in every mockup. Omitting, reordering, or combining sections is encouraged for structural variety.
+
+## Reference Styles for ${category}
 
 ${categoryStyles?.description || ''}
 
-${categoryStyles?.styles.map(s => `**${s.name}**: ${s.description}\n- ${s.characteristics.join('\n- ')}`).join('\n\n') || ''}
+${categoryStyles?.styles.map(s => {
+  const refs = s.references.length > 0
+    ? `\n\nReference sites:\n${s.references.map(r => `- ${r.name}: ${r.notes}`).join('\n')}`
+    : '';
+  return `**${s.name}**: ${s.description}\n- ${s.characteristics.join('\n- ')}${refs}`;
+}).join('\n\n') || ''}
+
+## STRUCTURAL VARIETY (Same Purpose, Different Approach)
+
+Your 3 mockups must ALL be effective ${category} pages — but with different structural approaches:
+
+1. **Different container widths** — Vary between narrow, medium, wide, or full-width layouts
+2. **Different grid structures** — One might use multi-column grid, another single column, another bento-style
+3. **Different nav placements** — Try different nav styles that work for ${category} (top bar, sidebar, minimal, overlay)
+4. **Different section arrangements** — Vary the order, emphasis, or which sections to include
+5. **Different hero approaches** — Full-viewport, split layout, compact header, or no hero at all
+
+**Important**: All 3 options should work well as a ${category} page. The variety is in HOW the content is presented, not WHAT it is. A user should be able to pick any of the 3 and have a functional, well-designed page.
+
+Each HTML should start with: <!-- LAYOUT: [approach name], CONTAINER: [width], NAV: [placement] -->
+
+## DESIGN APPROACHES FOR ${category.toUpperCase()}
+
+These are proven structural approaches for ${category}. Pick different ones for each of your 3 mockups:
+
+${designApproaches}
+
+Each approach serves the category's purpose differently. Choose based on the user's stated preferences.
 
 ## Requirements
 
@@ -719,10 +778,11 @@ ${categoryStyles?.styles.map(s => `**${s.name}**: ${s.description}\n- ${s.charac
 2. Copy the :root CSS variables block from theme HTML
 3. Use CSS variables like var(--primary-600), var(--background), var(--space-4)
 4. Match component styles from the components HTML
-5. Include ALL sections listed above
-6. Each mockup should have a DIFFERENT layout approach
-7. Use realistic placeholder content
-8. Use https://placehold.co/WIDTHxHEIGHT for images
+5. Start each HTML with the layout validation comment
+6. Each mockup MUST have a DIFFERENT structural approach (container, grid, nav, hero)
+7. All 3 must work well as a ${category} page — variety in structure, not purpose
+8. Use realistic placeholder content
+9. Use https://placehold.co/WIDTHxHEIGHT for images
 
 Generate the mockups now.`;
 }

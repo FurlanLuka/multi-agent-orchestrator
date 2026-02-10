@@ -14,6 +14,7 @@ import {
   Loader,
   UnstyledButton,
   Tabs,
+  ScrollArea,
 } from '@mantine/core';
 import {
   IconChevronDown,
@@ -203,8 +204,9 @@ export function HistoricalSessionView() {
   const featureTitle = session.plan?.feature || session.feature.replace(/^## Workspace Context\n[\s\S]*?\n\n## Feature\n/, '');
 
   return (
-    <Box style={{ minHeight: '100vh' }}>
+    <Box style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <BackButton to={-1} />
+      <ScrollArea style={{ flex: 1 }} type="auto">
       <Container size="xl" py="xl" pt={60}>
         <Stack gap="lg">
           {/* Header */}
@@ -570,6 +572,7 @@ export function HistoricalSessionView() {
           </Tabs>
         </Stack>
       </Container>
+      </ScrollArea>
     </Box>
   );
 }

@@ -334,7 +334,16 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
   }
 
   else if (method === 'tools/call' && params?.name === 'show_theme_preview') {
-    const options = params.arguments?.options || [];
+    let options = params.arguments?.options;
+    if (!Array.isArray(options)) {
+      if (process.env.DEBUG) {
+        console.error('[MCP] show_theme_preview invalid options:', typeof options, JSON.stringify(options)?.substring(0, 200));
+      }
+      respond(id, {
+        content: [{ type: 'text', text: 'options must be an array: [{id, name, description}, ...]' }]
+      });
+      return;
+    }
     const result = await callDesignerEndpoint('/api/designer/show-theme-preview', {
       sessionId: SESSION_ID,
       options
@@ -354,7 +363,16 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
   }
 
   else if (method === 'tools/call' && params?.name === 'show_component_preview') {
-    const options = params.arguments?.options || [];
+    let options = params.arguments?.options;
+    if (!Array.isArray(options)) {
+      if (process.env.DEBUG) {
+        console.error('[MCP] show_component_preview invalid options:', typeof options, JSON.stringify(options)?.substring(0, 200));
+      }
+      respond(id, {
+        content: [{ type: 'text', text: 'options must be an array: [{id, name, description}, ...]' }]
+      });
+      return;
+    }
     const result = await callDesignerEndpoint('/api/designer/show-component-preview', {
       sessionId: SESSION_ID,
       options
@@ -374,7 +392,16 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
   }
 
   else if (method === 'tools/call' && params?.name === 'show_mockup_preview') {
-    const options = params.arguments?.options || [];
+    let options = params.arguments?.options;
+    if (!Array.isArray(options)) {
+      if (process.env.DEBUG) {
+        console.error('[MCP] show_mockup_preview invalid options:', typeof options, JSON.stringify(options)?.substring(0, 200));
+      }
+      respond(id, {
+        content: [{ type: 'text', text: 'options must be an array: [{id, name, description}, ...]' }]
+      });
+      return;
+    }
     const result = await callDesignerEndpoint('/api/designer/show-mockup-preview', {
       sessionId: SESSION_ID,
       options

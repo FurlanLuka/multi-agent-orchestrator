@@ -1,7 +1,7 @@
 import { DesignCategory } from '@orchy/types';
 
 /**
- * Design Definitions - Predefined components and sections for design generation
+ * Design Definitions - Predefined components, sections, and design approaches
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -184,82 +184,344 @@ export const CATEGORY_PAGE_SECTIONS: Record<DesignCategory, PageSection[]> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Component Style Approaches
+// Design Approaches (merged from StyleApproach + LayoutBlueprint)
 // ═══════════════════════════════════════════════════════════════
 
-export interface StyleApproach {
+export interface DesignApproach {
   id: string;
   name: string;
   description: string;
   characteristics: string[];
+  containerWidth: 'narrow' | 'medium' | 'wide' | 'full-width';
+  navPlacement: 'top-bar' | 'sidebar-left' | 'overlay' | 'minimal' | 'hidden';
 }
 
 /**
- * Visually distinct style approaches for component generation
- * The LLM picks 3 from these to create truly different options
+ * Design approaches per category - conceptual descriptions to inspire structural variety
+ * Each category has 4-6 distinct approaches the AI can draw from
  */
-export const COMPONENT_STYLE_APPROACHES: StyleApproach[] = [
-  {
-    id: 'minimal',
-    name: 'Minimal',
-    description: 'Clean and understated with plenty of breathing room',
-    characteristics: [
-      'No shadows',
-      'Thin 1px borders',
-      'Generous whitespace',
-      'Subtle hover states',
-      'Restrained use of color',
-    ],
-  },
-  {
-    id: 'elevated',
-    name: 'Elevated',
-    description: 'Layered depth with soft shadows and floating elements',
-    characteristics: [
-      'Soft drop shadows (shadow-md to shadow-lg)',
-      'Floating cards effect',
-      'Depth layering',
-      'Subtle border-radius',
-      'Background elevation changes',
-    ],
-  },
-  {
-    id: 'bold',
-    name: 'Bold',
-    description: 'High contrast with thick borders and chunky elements',
-    characteristics: [
-      'Thick 2-3px borders',
-      'High contrast colors',
-      'Chunky buttons and inputs',
-      'Strong visual weight',
-      'Prominent hover states',
-    ],
-  },
-  {
-    id: 'soft',
-    name: 'Soft',
-    description: 'Gentle curves and pastel-tinted backgrounds',
-    characteristics: [
-      'Very rounded corners (lg to full)',
-      'Pastel background tints',
-      'Gentle color transitions',
-      'Rounded pills for tags/badges',
-      'Soft gradients optional',
-    ],
-  },
-  {
-    id: 'glass',
-    name: 'Glass',
-    description: 'Modern glassmorphism with blur effects and transparency',
-    characteristics: [
-      'backdrop-blur effects',
-      'Semi-transparent backgrounds (bg-opacity)',
-      'Frosted glass appearance',
-      'Subtle borders for definition',
-      'Light reflections via gradients',
-    ],
-  },
-];
+export const CATEGORY_DESIGN_APPROACHES: Record<DesignCategory, DesignApproach[]> = {
+  blog: [
+    {
+      id: 'centered-reader',
+      name: 'Centered Reader',
+      description: 'Typography-focused single column optimized for reading. Articles separated by whitespace or subtle dividers. No sidebar, no grid. Content breathes.',
+      characteristics: ['single column', 'generous line-height', 'article separators', 'typography-focused', 'minimal navigation'],
+      containerWidth: 'narrow',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'sidebar-navigation',
+      name: 'Sidebar Navigation',
+      description: 'Fixed left sidebar with categories, tags, and navigation. Main content scrolls independently. Good for blogs with many categories.',
+      characteristics: ['fixed sidebar', 'category navigation', 'scrollable content', 'two-panel layout'],
+      containerWidth: 'medium',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'magazine-grid',
+      name: 'Magazine Grid',
+      description: 'Editorial feel with multi-column article grid. Featured article spans wider. Image-heavy with strong visual hierarchy.',
+      characteristics: ['multi-column grid', 'featured articles', 'image thumbnails', 'editorial feel', 'category sections'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'timeline-feed',
+      name: 'Timeline Feed',
+      description: 'Social-feed inspired vertical timeline. Date markers on the side. Narrow and focused, feels like scrolling through updates.',
+      characteristics: ['vertical timeline', 'date markers', 'narrow feed', 'social-inspired', 'chronological flow'],
+      containerWidth: 'narrow',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'technical-docs-style',
+      name: 'Technical Docs Style',
+      description: 'Code-focused with prominent code blocks that break out wider than text. Sticky table of contents on the side. Monospace accents.',
+      characteristics: ['wide code blocks', 'sticky TOC', 'monospace accents', 'technical feel', 'syntax highlighting'],
+      containerWidth: 'medium',
+      navPlacement: 'sidebar-left',
+    },
+  ],
+  landing_page: [
+    {
+      id: 'full-bleed-cinematic',
+      name: 'Full-Bleed Cinematic',
+      description: 'Dramatic full-viewport sections stacking vertically. Transparent overlay navigation. Large headlines, centered content, immersive feel.',
+      characteristics: ['full-viewport sections', 'transparent nav', 'dramatic typography', 'centered content', 'immersive scroll'],
+      containerWidth: 'full-width',
+      navPlacement: 'overlay',
+    },
+    {
+      id: 'split-sections',
+      name: 'Split Sections',
+      description: 'Alternating 50/50 horizontal splits. Content on one side, visual on the other, flipping each section. Strong horizontal rhythm.',
+      characteristics: ['50/50 splits', 'alternating sides', 'content and visual pairs', 'horizontal rhythm', 'full-width sections'],
+      containerWidth: 'full-width',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'bento-features',
+      name: 'Bento Features',
+      description: 'Features displayed in a bento-style grid with tiles of varying sizes. No traditional section order. Playful, modern, tile-based.',
+      characteristics: ['bento grid', 'varying tile sizes', 'non-traditional layout', 'playful arrangement', 'rounded tiles'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'narrow-storytelling',
+      name: 'Narrow Storytelling',
+      description: 'Narrow single column with narrative flow. Reads like a story or letter. No grids, just flowing text and occasional illustrations.',
+      characteristics: ['narrative flow', 'single column', 'storytelling approach', 'conversational', 'minimal structure'],
+      containerWidth: 'narrow',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'product-showcase',
+      name: 'Product Showcase',
+      description: 'Hero dominated by product screenshots or demos. Features shown alongside product UI. Demo-first, visual-heavy approach.',
+      characteristics: ['product screenshots', 'demo-focused', 'UI showcases', 'visual features', 'product-led'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+  ],
+  ecommerce: [
+    {
+      id: 'catalog-grid',
+      name: 'Catalog Grid',
+      description: 'Classic shopping layout with filter sidebar and product grid. Sort options, pagination or infinite scroll. Familiar e-commerce pattern.',
+      characteristics: ['filter sidebar', 'product grid', 'sort options', 'familiar shopping UX', 'category navigation'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'editorial-shop',
+      name: 'Editorial Shop',
+      description: 'Magazine-like browsing with large hero products and horizontal scroll rows. Lifestyle imagery, curated collections feel.',
+      characteristics: ['large product heroes', 'horizontal scroll', 'lifestyle imagery', 'curated feel', 'editorial layout'],
+      containerWidth: 'full-width',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'single-product-focus',
+      name: 'Single Product Focus',
+      description: 'Large product display with image gallery. Details prominent, minimal navigation. Great for hero products or limited catalogs.',
+      characteristics: ['large product images', 'image gallery', 'prominent details', 'minimal distractions', 'focused UX'],
+      containerWidth: 'medium',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'boutique-minimal',
+      name: 'Boutique Minimal',
+      description: 'Luxury feel with lots of whitespace. Products displayed sparingly with large imagery. Minimal UI chrome, exclusive aesthetic.',
+      characteristics: ['generous whitespace', 'large imagery', 'minimal UI', 'luxury feel', 'exclusive aesthetic'],
+      containerWidth: 'medium',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'marketplace-dense',
+      name: 'Marketplace Dense',
+      description: 'High-density product listings like a marketplace. Many products visible at once, compact cards, reviews prominent.',
+      characteristics: ['dense listings', 'compact cards', 'reviews visible', 'many products', 'marketplace feel'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+  ],
+  dashboard: [
+    {
+      id: 'classic-sidebar',
+      name: 'Classic Sidebar',
+      description: 'Traditional dashboard with dark left sidebar and top bar. Stats cards, charts, and tables in the main content area.',
+      characteristics: ['dark sidebar', 'top bar', 'stats cards', 'charts', 'data tables'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'top-tabs',
+      name: 'Top Tabs',
+      description: 'No sidebar, navigation via horizontal tabs. Content width constrained. Cleaner, less chrome, focus on content.',
+      characteristics: ['horizontal tabs', 'no sidebar', 'constrained width', 'clean layout', 'tab-based navigation'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'minimal-focus',
+      name: 'Minimal Focus',
+      description: 'Icon rail plus expandable panel. Minimal chrome, maximum focus on the task. Single-purpose feel.',
+      characteristics: ['icon rail', 'expandable panel', 'minimal chrome', 'focused UX', 'single-purpose feel'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'data-dense',
+      name: 'Data Dense',
+      description: 'Maximum information density. Full viewport tables, compact rows, small font. For power users who need to see lots of data.',
+      characteristics: ['high density', 'compact rows', 'full viewport', 'power user focused', 'data-first'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'kanban-board',
+      name: 'Kanban Board',
+      description: 'Column-based board layout like Trello. Cards move between columns. Horizontal scrolling if many columns.',
+      characteristics: ['column layout', 'draggable cards', 'status columns', 'horizontal scroll', 'visual workflow'],
+      containerWidth: 'full-width',
+      navPlacement: 'top-bar',
+    },
+  ],
+  documentation: [
+    {
+      id: 'three-column',
+      name: 'Three Column',
+      description: 'Classic docs layout: left sidebar for navigation, main content, right sidebar for on-page TOC. Comprehensive but structured.',
+      characteristics: ['left sidebar nav', 'right TOC', 'three columns', 'comprehensive layout', 'structured navigation'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'centered-single',
+      name: 'Centered Single',
+      description: 'Clean single-column reading with collapsible sidebar. Focused on content, less visual noise. Good for tutorials.',
+      characteristics: ['single column', 'collapsible sidebar', 'focused reading', 'clean layout', 'tutorial-friendly'],
+      containerWidth: 'medium',
+      navPlacement: 'hidden',
+    },
+    {
+      id: 'api-reference-split',
+      name: 'API Reference Split',
+      description: 'Split layout with documentation on one side and code examples on the other. Side-by-side learning, code-heavy.',
+      characteristics: ['split layout', 'code examples', 'side-by-side', 'API-focused', 'language tabs'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'search-first',
+      name: 'Search First',
+      description: 'Prominent search bar as the main entry point. Quick links and categories below. Optimized for finding content fast.',
+      characteristics: ['prominent search', 'quick links', 'category cards', 'find-first', 'minimal browsing'],
+      containerWidth: 'medium',
+      navPlacement: 'top-bar',
+    },
+  ],
+  chat_messaging: [
+    {
+      id: 'three-panel',
+      name: 'Three Panel',
+      description: 'Slack-style with conversation list, main chat, and details/thread panel. Full-featured messaging interface.',
+      characteristics: ['conversation list', 'main chat', 'details panel', 'full-featured', 'desktop-focused'],
+      containerWidth: 'full-width',
+      navPlacement: 'sidebar-left',
+    },
+    {
+      id: 'centered-bubble',
+      name: 'Centered Bubble',
+      description: 'Simple iMessage-style centered chat. Bubble messages, minimal chrome. Clean and focused on the conversation.',
+      characteristics: ['chat bubbles', 'centered layout', 'minimal chrome', 'mobile-inspired', 'focused conversation'],
+      containerWidth: 'narrow',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'support-widget',
+      name: 'Support Widget',
+      description: 'Floating widget style with launcher button. Compact, embedded feel. Quick replies, agent info, help articles.',
+      characteristics: ['floating widget', 'compact', 'launcher button', 'quick replies', 'help integration'],
+      containerWidth: 'narrow',
+      navPlacement: 'hidden',
+    },
+    {
+      id: 'ai-chat',
+      name: 'AI Chat Interface',
+      description: 'Optimized for AI conversations. Thinking indicators, markdown rendering, suggested prompts, response streaming feel.',
+      characteristics: ['thinking indicators', 'markdown support', 'suggested prompts', 'streaming feel', 'AI-optimized'],
+      containerWidth: 'medium',
+      navPlacement: 'minimal',
+    },
+  ],
+  saas_marketing: [
+    {
+      id: 'section-scroll',
+      name: 'Section Scroll',
+      description: 'Classic marketing page with distinct sections: hero, features, pricing, testimonials, CTA. Familiar and effective.',
+      characteristics: ['distinct sections', 'hero to CTA flow', 'familiar structure', 'conversion-focused', 'section-based'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'product-demo-first',
+      name: 'Product Demo First',
+      description: 'Lead with product screenshots or interactive demos. Features shown alongside product UI. Demo-driven conversion.',
+      characteristics: ['product demos', 'screenshot-heavy', 'interactive elements', 'demo-driven', 'visual proof'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'pricing-focused',
+      name: 'Pricing Focused',
+      description: 'Pricing table as the hero or near-top. Feature comparison prominent. For products where pricing is the main decision point.',
+      characteristics: ['pricing prominent', 'feature comparison', 'tier cards', 'decision-focused', 'comparison tables'],
+      containerWidth: 'medium',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'enterprise-trust',
+      name: 'Enterprise Trust',
+      description: 'Trust-heavy with security badges, compliance logos, enterprise customer logos. Professional, corporate feel.',
+      characteristics: ['security badges', 'customer logos', 'compliance', 'enterprise focus', 'trust signals'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'developer-open-source',
+      name: 'Developer / Open Source',
+      description: 'GitHub stars, code snippets in hero, contributor-friendly. Terminal aesthetics, developer-focused messaging.',
+      characteristics: ['code snippets', 'GitHub integration', 'terminal aesthetic', 'developer-focused', 'open source friendly'],
+      containerWidth: 'medium',
+      navPlacement: 'top-bar',
+    },
+  ],
+  portfolio: [
+    {
+      id: 'project-grid',
+      name: 'Project Grid',
+      description: 'Responsive grid of project thumbnails with hover effects. Filter by category. Classic portfolio layout.',
+      characteristics: ['project grid', 'hover effects', 'category filters', 'thumbnail images', 'responsive layout'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+    {
+      id: 'case-study-scroll',
+      name: 'Case Study Scroll',
+      description: 'Long-form case study focus. Narrow content with full-bleed images breaking out. Process documentation, results metrics.',
+      characteristics: ['long-form', 'full-bleed images', 'process documentation', 'results metrics', 'narrative flow'],
+      containerWidth: 'medium',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'bento-showcase',
+      name: 'Bento Showcase',
+      description: 'Bento-style grid with mixed tile sizes. About, projects, skills, links as different tiles. Modern CV-like feel.',
+      characteristics: ['bento grid', 'mixed tiles', 'about and projects', 'modern CV', 'visual variety'],
+      containerWidth: 'wide',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'photography-gallery',
+      name: 'Photography Gallery',
+      description: 'Image-first with minimal text. Masonry or uniform grid. Lightbox viewing. For visual-heavy portfolios.',
+      characteristics: ['image-first', 'masonry grid', 'lightbox viewing', 'minimal text', 'visual focus'],
+      containerWidth: 'wide',
+      navPlacement: 'minimal',
+    },
+    {
+      id: 'agency-team',
+      name: 'Agency / Team',
+      description: 'Multiple team members showcased. Services grid, client logos, team photos. Agency or studio feel.',
+      characteristics: ['team showcase', 'services grid', 'client logos', 'agency feel', 'multiple people'],
+      containerWidth: 'wide',
+      navPlacement: 'top-bar',
+    },
+  ],
+};
 
 // ═══════════════════════════════════════════════════════════════
 // Helper Functions
@@ -278,6 +540,13 @@ export function getComponentsForCategory(category: DesignCategory): AtomicCompon
  */
 export function getSectionsForCategory(category: DesignCategory): PageSection[] {
   return CATEGORY_PAGE_SECTIONS[category] || [];
+}
+
+/**
+ * Get design approaches for a category
+ */
+export function getDesignApproachesForCategory(category: DesignCategory): DesignApproach[] {
+  return CATEGORY_DESIGN_APPROACHES[category] || [];
 }
 
 /**
@@ -305,10 +574,20 @@ export function getSectionListForPrompt(category: DesignCategory): string {
 }
 
 /**
- * Get style approaches as formatted string for prompts
+ * Get design approaches formatted for prompt injection
  */
-export function getStyleApproachesForPrompt(): string {
-  return COMPONENT_STYLE_APPROACHES.map(
-    (s) => `**${s.name}**: ${s.description}\n  - ${s.characteristics.join('\n  - ')}`
-  ).join('\n\n');
+export function getDesignApproachesForPrompt(category: DesignCategory): string {
+  const approaches = getDesignApproachesForCategory(category);
+  if (approaches.length === 0) return '';
+
+  return approaches
+    .map(
+      (a) =>
+        `### ${a.name}\n` +
+        `${a.description}\n` +
+        `- Container: ${a.containerWidth}\n` +
+        `- Nav: ${a.navPlacement}\n` +
+        `- Traits: ${a.characteristics.join(', ')}`
+    )
+    .join('\n\n');
 }
