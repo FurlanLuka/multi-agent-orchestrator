@@ -219,7 +219,7 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
         },
         {
           name: 'get_pages',
-          description: 'Get the list of all pages saved in the current session.',
+          description: 'Get the list of all pages saved in the current session. Returns { pages, sessionDir, themePath }. Use sessionDir to write components.html before saving.',
           inputSchema: {
             type: 'object',
             properties: {},

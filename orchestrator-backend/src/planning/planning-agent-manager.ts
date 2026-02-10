@@ -1207,7 +1207,7 @@ Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
    - Show the expected structure, naming conventions, and patterns
    - Include imports, types, and key implementation details
    - Examples should match the project's existing code style
-
+${this.buildUIImplementationOrderSection()}
 ## RULES:
 
 - Tasks for DIFFERENT projects run IN PARALLEL
@@ -1283,6 +1283,117 @@ ${designDetails}
    - Located at .claude/skills/design-system.md
    - Contains framework-specific integration instructions
    - Shows how to map CSS variables to the framework's theme system
+`;
+  }
+
+  /**
+   * Builds the UI IMPLEMENTATION ORDER section for Stage 2 planning prompt.
+   * Only included when projects have attachedDesign.
+   * Enforces a bottom-up build order: theme → shared components → features → pages → server-state → integration
+   * Framework-agnostic - defers specific component library usage to design-system.md skill.
+   */
+  private buildUIImplementationOrderSection(): string {
+    const projects = this.pendingPlanContext?.projects || [];
+    const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
+
+    if (projectsWithDesign.length === 0) {
+      return '';
+    }
+
+    return `
+## UI IMPLEMENTATION ORDER (MANDATORY for projects with designs)
+
+When implementing UI from design mockups, generate tasks in this EXACT order:
+
+### 1. Theme Setup (FIRST)
+- Extract CSS variables from ui_mockup/theme.css
+- Configure the project's UI framework theme (check .claude/skills/design-system.md for framework details)
+- Map CSS custom properties to framework theme tokens
+
+### 2. Shared Components (SECOND)
+- Read ui_mockup/components.html for the full component catalog
+- Find components by \`data-component\` attributes and \`oc-*\` CSS classes
+- Extract CSS from \`/* === COMPONENT: {id} === */\` markers
+- Create in shared-components/ with consistent styling
+- **Each reusable component = one task**
+- Focus on components that appear in multiple pages
+
+### 3. Feature Structure (THIRD)
+- Create feature folders: src/features/<name>/
+- Identify feature-specific components from mockups
+- Build components that are only used within one feature
+
+### 4. Pages (FOURTH)
+- Pages are composition only - arrange components from steps 2-3
+- Reference which mockup file to follow
+- **Do NOT include API integration in page tasks**
+- Focus on layout, navigation, and static structure
+
+### 5. Server-State Hooks (FIFTH)
+- Create data-fetching hooks for required API endpoints
+- Define TypeScript interfaces for API responses
+- Set up caching strategies as per project patterns
+
+### 6. Integration (LAST)
+- Wire pages to data-fetching hooks
+- Add loading states, error handling
+- This is the ONLY step that connects UI to API
+
+## CODE SNIPPETS FOR UI TASKS (MANDATORY)
+
+Each UI task MUST include code examples showing:
+
+1. **Component structure and props interface:**
+\`\`\`tsx
+interface StatusBadgeProps {
+  status: 'active' | 'inactive' | 'pending';
+  size?: 'sm' | 'md';
+}
+\`\`\`
+
+2. **Framework components to use:**
+   - Check .claude/skills/design-system.md for the project's UI framework
+   - Show imports from the correct library (e.g., @mantine/core, @mui/material, @chakra-ui/react)
+
+3. **Layout patterns:**
+   - Use the framework's layout primitives (Stack, Flex, Grid, Box, etc.)
+   - Show component composition structure
+
+4. **Style/theme usage:**
+   - Reference theme.css variables where applicable
+   - Show how to apply custom styles per the framework's conventions
+
+5. **Design source reference:**
+   - Which \`data-component\` attribute to translate
+   - Which \`oc-*\` CSS classes define the styling
+   - Which mockup file contains the design
+
+## EXAMPLE UI TASK OUTPUT
+
+**Shared Component Task:**
+\`\`\`json
+{
+  "project": "frontend",
+  "name": "Create StatusBadge shared component",
+  "task": "## shared-components/StatusBadge.tsx\\n\\n**Design source:** \`data-component=\\"badge\\"\` with \`.oc-badge\` CSS from components.html\\n\\nUsed in: users page, tasks page\\n\\n**Props:**\\n\`\`\`tsx\\ninterface StatusBadgeProps {\\n  status: 'active' | 'inactive' | 'pending';\\n  size?: 'sm' | 'md';\\n}\\n\`\`\`\\n\\n**Implementation:**\\nSee .claude/skills/design-system.md for the UI framework.\\nUse the framework's Badge component with colors from .oc-badge--success, .oc-badge--neutral, .oc-badge--warning"
+}
+\`\`\`
+
+**Page Task:**
+\`\`\`json
+{
+  "project": "frontend",
+  "name": "Create UsersPage layout",
+  "task": "## features/users/UsersPage.tsx\\n\\n**Design source:** ui_mockup/users.html\\n- Use \`data-section\` attributes for layout structure\\n- Match components from \`data-component\` attributes\\n\\n**Layout:**\\n- Container with page title and action button in header row\\n- UsersTable component below\\n- Use framework layout primitives (see design-system.md)\\n\\n**Note:** No API calls here - data fetching is in integration step"
+}
+\`\`\`
+
+## TASK ORDER RATIONALE
+
+- Same-project tasks run sequentially (array order matters!)
+- This order ensures shared components exist before pages use them
+- API integration is last so UI can be visually validated first
+- Framework-specific details come from .claude/skills/design-system.md
 `;
   }
 

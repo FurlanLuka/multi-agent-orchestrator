@@ -580,10 +580,11 @@ When the user clicks Done, you must first generate a component catalog, then sav
 
 Before calling mcp__designer__save_design_folder, generate a consolidated components.html catalog:
 
-1. Call mcp__designer__get_pages() to get all saved pages
-2. Read each saved page
-3. Extract every unique \`data-component\` and its \`oc-*\` CSS into a clean reference document
-4. Write the catalog as components.html to the session directory (same directory as theme.css)
+1. Call mcp__designer__get_pages() → returns { pages, sessionDir, themePath }
+2. Read theme CSS: Read(themePath)
+3. Read each saved page using its full path (page.path)
+4. Extract every unique \`data-component\` and its \`oc-*\` CSS into a clean reference document
+5. Write the catalog to: Write(sessionDir + "/components.html", catalogHtml)
 
 The component catalog format:
 \`\`\`html

@@ -2353,7 +2353,12 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     }
 
     const pages = designerAgent.getPages();
-    res.send(JSON.stringify({ pages }));
+    const paths = designerAgent.getSessionPaths();
+    res.send(JSON.stringify({
+      pages,
+      sessionDir: paths?.root,
+      themePath: paths ? `${paths.root}/theme.css` : undefined,
+    }));
   });
 
   // Designer: get page HTML content by ID
