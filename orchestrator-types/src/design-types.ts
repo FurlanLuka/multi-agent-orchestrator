@@ -10,7 +10,6 @@ export type DesignPhase =
   | 'discovery'       // Full chat conversation to understand project
   | 'summary'         // Show summary of discovery, user can proceed or continue
   | 'theme'           // Generate and iterate on theme (colors + typography colors)
-  | 'components'      // Generate and iterate on component styles
   | 'mockups'         // Generate full-page mockups
   | 'pages'           // Managing pages (add more, view, refine)
   | 'complete';       // Design saved
@@ -62,12 +61,10 @@ export interface DesignSession {
     colors: DesignTokensColors;
     typographyColors: DesignTokensTypography['colors'];
   };
-  selectedComponents?: DesignTokensComponents;
 
   // Artifact paths (for chaining context between phases)
   artifactPaths?: {
     theme?: string;           // Path to theme.html
-    components?: string;      // Path to components.html
   };
 
   // Pages (multiple mockups, each saved with its own name)
@@ -268,20 +265,6 @@ export interface ThemeOption {
 export type PaletteOption = ThemeOption;
 
 /**
- * Component style option for preview
- */
-export interface ComponentStyleOption {
-  id: string;
-  name: string;
-  description: string;
-  components: DesignTokensComponents;
-  typography: DesignTokensTypography;
-  effects: DesignTokensEffects;
-  // Pre-rendered HTML using components-template.html
-  previewHtml: string;
-}
-
-/**
  * Full mockup option for preview
  */
 export interface MockupOption {
@@ -366,13 +349,6 @@ export interface ShowThemePreviewParams {
 export type ShowPalettePreviewParams = ShowThemePreviewParams;
 
 /**
- * Show component preview tool parameters
- */
-export interface ShowComponentPreviewParams {
-  options: ComponentStyleOption[];
-}
-
-/**
  * Show mockup preview tool parameters
  */
 export interface ShowMockupPreviewParams {
@@ -447,8 +423,8 @@ export interface DesignShowCategorySelectorEvent {
  * Show preview event (theme, component, or mockup)
  */
 export interface DesignShowPreviewEvent {
-  type: 'theme' | 'component' | 'mockup';
-  options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+  type: 'theme' | 'mockup';
+  options: ThemeOption[] | MockupOption[];
 }
 
 /**
@@ -478,7 +454,7 @@ export interface DesignDiscoverySummaryEvent {
  * Generating event - agent is generating theme/components/mockups
  */
 export interface DesignGeneratingEvent {
-  type: 'theme' | 'component' | 'mockup';
+  type: 'theme' | 'mockup';
   message?: string;  // Optional loading message
 }
 
@@ -584,7 +560,6 @@ export interface SavedDesignFolder {
   path: string;              // Full path to folder
   createdAt: number;         // Timestamp
   hasTheme: boolean;         // Has theme.html
-  hasComponents: boolean;    // Has components.html
   pages: string[];           // Page filenames (e.g., ['landing-page.html', 'about.html'])
 }
 
@@ -594,7 +569,6 @@ export interface SavedDesignFolder {
 export interface SavedDesignFolderContents extends SavedDesignFolder {
   themeHtml?: string;                    // Contents of theme.html (preview with template)
   themeCss?: string;                     // Contents of theme.css (raw CSS variables)
-  componentsHtml?: string;               // Contents of components.html
   pageHtmls: Record<string, string>;     // Filename -> HTML content
   agentsMarkdown: string;                // Contents of AGENTS.md
 }

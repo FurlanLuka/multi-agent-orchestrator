@@ -448,7 +448,7 @@ ${fullCommand}
     if (fs.existsSync(uiMockupDir)) {
       const existingFiles = fs.readdirSync(uiMockupDir);
       for (const file of existingFiles) {
-        if (file.endsWith('.html') && file !== 'theme.html' && file !== 'components.html') {
+        if (file.endsWith('.html') && file !== 'theme.html') {
           const oldFilePath = path.join(uiMockupDir, file);
           fs.unlinkSync(oldFilePath);
           console.log(`[TemplateManager] Removed old page file: ${file}`);
@@ -464,7 +464,6 @@ ${fullCommand}
     // Files to copy from design folder
     const filesToCopy = [
       'theme.css',      // CSS variables/tokens
-      'components.html', // Component reference
       'AGENTS.md',      // Usage instructions
     ];
 
@@ -483,7 +482,7 @@ ${fullCommand}
     const entries = fs.readdirSync(designDir);
     const pages: Array<{ name: string; filename: string }> = [];
     for (const entry of entries) {
-      if (entry.endsWith('.html') && entry !== 'theme.html' && entry !== 'components.html') {
+      if (entry.endsWith('.html') && entry !== 'theme.html') {
         const srcPath = path.join(designDir, entry);
         const destPath = path.join(uiMockupDir, entry);
         fs.copyFileSync(srcPath, destPath);

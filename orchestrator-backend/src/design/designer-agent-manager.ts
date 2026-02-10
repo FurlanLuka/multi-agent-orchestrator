@@ -10,7 +10,6 @@ import {
   ThemeMode,
   DesignTokens,
   PaletteOption,
-  ComponentStyleOption,
   MockupOption,
   MockupSelectionResult,
   ChatStreamEvent,
@@ -228,7 +227,11 @@ export class DesignerAgentManager extends EventEmitter {
       mcpServers: {
         'designer': {
           command: 'node',
-          args: [mcpServerPath]
+          args: [mcpServerPath],
+          env: {
+            ORCHESTRATOR_URL: 'http://localhost:3456',
+            DESIGNER_SESSION_ID: this.session!.id,
+          }
         }
       }
     };
@@ -299,6 +302,7 @@ export class DesignerAgentManager extends EventEmitter {
 
     const args = [
       '-p', systemPrompt,
+      '--model', 'opus',
       '--output-format', 'stream-json',
       '--verbose',
       '--no-session-persistence',
@@ -450,17 +454,17 @@ export class DesignerAgentManager extends EventEmitter {
   private updatePhaseFromTool(toolName: string): void {
     if (!this.session) return;
 
+    // Strip MCP prefix if present (e.g., "mcp__designer__show_theme_preview" → "show_theme_preview")
+    const baseName = toolName.replace(/^mcp__designer__/, '');
+
     let newPhase: DesignPhase | null = null;
 
-    switch (toolName) {
+    switch (baseName) {
       case 'show_category_selector':
         newPhase = 'discovery';
         break;
       case 'show_theme_preview':
         newPhase = 'theme';
-        break;
-      case 'show_component_preview':
-        newPhase = 'components';
         break;
       case 'show_mockup_preview':
         newPhase = 'mockups';
@@ -487,10 +491,9 @@ export class DesignerAgentManager extends EventEmitter {
       discovery: 1,
       summary: 2,
       theme: 3,
-      components: 4,
-      mockups: 5,
-      pages: 6,
-      complete: 7,
+      mockups: 4,
+      pages: 5,
+      complete: 6,
     };
     return steps[phase] || 1;
   }
@@ -574,22 +577,7 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   /**
-   * Handle show_component_preview MCP tool call
-   */
-  async handleShowComponentPreview(options: ComponentStyleOption[]): Promise<{ selected?: number; feedback?: string }> {
-    return new Promise((resolve) => {
-      this.pendingPreviewSelection = resolve;
-
-      // Emit show preview event
-      this.emit('showPreview', {
-        type: 'component',
-        options
-      });
-    });
-  }
-
-  /**
-   * Called when user selects a preview option (for theme/component previews)
+   * Called when user selects a preview option (for theme previews)
    */
   onOptionSelected(index: number): void {
     if (this.pendingPreviewSelection) {
@@ -659,7 +647,7 @@ export class DesignerAgentManager extends EventEmitter {
   /**
    * Emit generating state (for loading indicator)
    */
-  emitGenerating(type: 'palette' | 'component' | 'mockup', message?: string): void {
+  emitGenerating(type: 'palette' | 'mockup', message?: string): void {
     this.emit('generating', { type, message });
   }
 
@@ -938,28 +926,6 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   /**
-   * Handle saving selected components (HTML only)
-   * Called when user selects a component style option
-   * The HTML should include the CSS variables from theme.html
-   */
-  async handleSaveSelectedComponents(
-    componentOption: { html: string; styleName?: string }
-  ): Promise<{ componentsHtmlPath: string }> {
-    // Save components HTML
-    const componentsHtmlPath = this.saveArtifact('components.html', componentOption.html);
-
-    // Update session
-    if (this.session) {
-      if (!this.session.artifactPaths) {
-        this.session.artifactPaths = {};
-      }
-      this.session.artifactPaths.components = componentsHtmlPath;
-    }
-
-    return { componentsHtmlPath };
-  }
-
-  /**
    * Handle saving a page (named mockup)
    * Called when user selects a mockup option
    * The HTML should include the CSS variables from theme.html
@@ -1053,7 +1019,6 @@ export class DesignerAgentManager extends EventEmitter {
   // ═══════════════════════════════════════════════════════════════
   // Draft Management (Zero-HTML Architecture)
   // - Themes: CSS-only, injected into template for preview
-  // - Components: Full HTML (uses theme CSS vars)
   // - Mockups: Full HTML
   // ═══════════════════════════════════════════════════════════════
 
@@ -1061,9 +1026,9 @@ export class DesignerAgentManager extends EventEmitter {
    * Get draft content for preview by type and index.
    * Zero-HTML Architecture:
    * - Theme: Reads CSS file, injects into template, returns combined HTML
-   * - Component/Mockup: Returns HTML file directly
+   * - Mockup: Returns HTML file directly
    */
-  getDraft(type: 'theme' | 'component' | 'mockup', index: number): string | null {
+  getDraft(type: 'theme' | 'mockup', index: number): string | null {
     if (!this.sessionPaths) {
       console.error('[DesignerAgent] No session paths available');
       return null;
@@ -1094,15 +1059,6 @@ export class DesignerAgentManager extends EventEmitter {
       const injectedHtml = this.injectCssIntoTemplate(template, css);
       console.log(`[DesignerAgent] Injected theme CSS into template (${css.length} chars CSS)`);
       return injectedHtml;
-
-    } else if (type === 'component') {
-      // Component: Full HTML
-      const htmlPath = path.join(draftsDir, `component-${index}.html`);
-      if (!fs.existsSync(htmlPath)) {
-        console.log(`[DesignerAgent] Component HTML not found: ${htmlPath}`);
-        return null;
-      }
-      return fs.readFileSync(htmlPath, 'utf-8');
 
     } else if (type === 'mockup') {
       // Mockup: Full HTML
@@ -1142,7 +1098,7 @@ export class DesignerAgentManager extends EventEmitter {
    * Auto-save selected draft as the final artifact.
    * Called when user selects an option - instant save, no Claude round-trip.
    */
-  autoSaveSelectedDraft(type: 'theme' | 'component' | 'mockup', index: number, pageName?: string): { path: string; page?: DesignPage } {
+  autoSaveSelectedDraft(type: 'theme' | 'mockup', index: number, pageName?: string): { path: string; page?: DesignPage } {
     if (!this.sessionPaths || !this.session) {
       throw new Error('No active session');
     }
@@ -1156,14 +1112,6 @@ export class DesignerAgentManager extends EventEmitter {
       const destPath = path.join(sessionDir, 'theme.css');
       fs.copyFileSync(srcPath, destPath);
       console.log(`[DesignerAgent] Auto-saved theme: ${destPath}`);
-      return { path: destPath };
-
-    } else if (type === 'component') {
-      // Copy component HTML to final location
-      const srcPath = path.join(draftsDir, `component-${index}.html`);
-      const destPath = path.join(sessionDir, 'components.html');
-      fs.copyFileSync(srcPath, destPath);
-      console.log(`[DesignerAgent] Auto-saved components: ${destPath}`);
       return { path: destPath };
 
     } else if (type === 'mockup') {
@@ -1421,6 +1369,7 @@ This folder contains the authoritative design system for this project. Use these
 ## Files
 
 - **theme.css** - CSS variables (colors, spacing, typography, effects)
+- **components.html** - Component catalog (extracted from page mockups)
 - **AGENTS.md** - This file (integration instructions)
 ${pageNames && pageNames.length > 0 ? pageNames.map(p => `- **${p}** - Page mockup (layout + component styles)`).join('\n') : ''}
 
@@ -1429,23 +1378,55 @@ ${pageNames && pageNames.length > 0 ? pageNames.map(p => `- **${p}** - Page mock
 ### 1. Page Mockups = Main Reference
 
 **The page HTML files are your primary reference.** They show:
-- Complete page layouts (sections, spacing, structure)
-- Component styling in context (buttons, cards, forms, navigation)
-- Color and typography usage
+- Complete page layouts with \`data-section\` attributes marking each section
+- Component instances marked with \`data-component\` attributes
+- Color and typography usage via CSS variables
 - Spacing and visual hierarchy
 
 When implementing a page or component:
 1. Find the relevant page mockup
-2. Study how components are styled in that context
-3. Implement using your framework to match the visual design
+2. Look for \`data-component="{id}"\` attributes to identify component patterns
+3. Look for \`data-section="{id}"\` attributes to identify section structure
+4. Study the \`oc-*\` CSS classes for component styling
+5. Implement using your framework to match the visual design
 
-### 2. Theme Variables
+### 2. Component Catalog (components.html)
+
+The component catalog provides a clean reference of all components extracted from page mockups:
+- Each component is marked with \`data-component="{id}"\`
+- Variants are marked with \`data-variant="{variant}"\`
+- CSS is organized between \`/* === COMPONENT: {id} === */\` and \`/* === END: {id} === */\` markers
+
+### 3. Structured Markup Conventions
+
+All mockups use consistent structured markup:
+
+**HTML Attributes:**
+- \`data-section="{id}"\` — marks page sections (nav, hero, features, footer, etc.)
+- \`data-component="{id}"\` — marks component instances (button, card, badge, etc.)
+- \`data-variant="{variant}"\` — marks component variants (primary, outline, etc.)
+
+**CSS Classes:**
+- \`oc-{id}\` prefix for all component classes (e.g., \`.oc-button\`, \`.oc-card\`)
+- BEM-style modifiers: \`.oc-button--primary\`, \`.oc-card__title\`
+- Multi-word IDs use kebab-case: \`stat_card\` → \`.oc-stat-card\`
+
+**CSS Organization:**
+- Component CSS grouped between \`/* === COMPONENT: {id} === */\` and \`/* === END: {id} === */\`
+- Section CSS grouped between \`/* === SECTION: {id} === */\` and \`/* === END: {id} === */\`
+
+**Extracting a Component:**
+To extract a specific component (e.g., buttons), search for:
+1. CSS: everything between \`/* === COMPONENT: button === */\` and \`/* === END: button === */\`
+2. HTML: all elements with \`data-component="button"\`
+
+### 4. Theme Variables
 
 \`theme.css\` contains CSS variables for the design tokens:
 
 ${variablesSection}
 
-### 3. Available Pages
+### 5. Available Pages
 
 ${pagesSection}
 
@@ -1497,7 +1478,8 @@ module.exports = {
 
 1. **Page mockups are authoritative** - Match the visual design exactly
 2. **Use theme.css variables** - Never hardcode colors, spacing, or typography
-3. **Adapt to your framework** - The mockups show the design, implement using your stack's patterns
+3. **Use structured markup** - Extract components via \`data-component\` attributes and \`oc-*\` CSS classes
+4. **Adapt to your framework** - The mockups show the design, implement using your stack's patterns
 
 ---
 Generated by Orchy Design System
@@ -1564,14 +1546,6 @@ Generated by Orchy Design System
       }
     }
 
-    // Copy components.html if exists
-    const componentsSource = path.join(sessionDir, 'components.html');
-    const componentsDest = path.join(designFolderPath, 'components.html');
-    const hasComponents = fs.existsSync(componentsSource);
-    if (hasComponents) {
-      fs.copyFileSync(componentsSource, componentsDest);
-    }
-
     // Clean up old page files before copying new ones
     // This handles renamed/deleted pages
     const existingFiles = fs.readdirSync(designFolderPath);
@@ -1579,7 +1553,6 @@ Generated by Orchy Design System
     for (const file of existingFiles) {
       if (file.endsWith('.html') &&
           file !== 'theme.html' &&
-          file !== 'components.html' &&
           !newPageFilenames.has(file)) {
         const oldFilePath = path.join(designFolderPath, file);
         fs.unlinkSync(oldFilePath);
@@ -1628,7 +1601,6 @@ Generated by Orchy Design System
       path: designFolderPath,
       createdAt: Date.now(),
       hasTheme,
-      hasComponents,
       pages,
     };
 
@@ -1662,14 +1634,12 @@ Generated by Orchy Design System
 
       // Check what files exist
       const hasTheme = fs.existsSync(path.join(folderPath, 'theme.html'));
-      const hasComponents = fs.existsSync(path.join(folderPath, 'components.html'));
 
-      // Get all page HTML files (exclude theme.html and components.html)
+      // Get all page HTML files (exclude theme.html)
       const files = fs.readdirSync(folderPath);
       const pages = files.filter(f =>
         f.endsWith('.html') &&
-        f !== 'theme.html' &&
-        f !== 'components.html'
+        f !== 'theme.html'
       );
 
       // Extract design name from folder name (convert kebab-case to Title Case)
@@ -1683,7 +1653,6 @@ Generated by Orchy Design System
         path: folderPath,
         createdAt: stats.birthtimeMs,
         hasTheme,
-        hasComponents,
         pages,
       });
     }
@@ -1718,18 +1687,13 @@ Generated by Orchy Design System
     const themeHtml = hasTheme ? fs.readFileSync(themePath, 'utf-8') : undefined;
     const themeCss = fs.existsSync(themeCssPath) ? fs.readFileSync(themeCssPath, 'utf-8') : undefined;
 
-    // Load components.html
-    const componentsPath = path.join(folderPath, 'components.html');
-    const hasComponents = fs.existsSync(componentsPath);
-    const componentsHtml = hasComponents ? fs.readFileSync(componentsPath, 'utf-8') : undefined;
-
     // Load all page HTML files
     const files = fs.readdirSync(folderPath);
     const pages: string[] = [];
     const pageHtmls: Record<string, string> = {};
 
     for (const file of files) {
-      if (file.endsWith('.html') && file !== 'theme.html' && file !== 'components.html') {
+      if (file.endsWith('.html') && file !== 'theme.html') {
         pages.push(file);
         pageHtmls[file] = fs.readFileSync(path.join(folderPath, file), 'utf-8');
       }
@@ -1752,11 +1716,9 @@ Generated by Orchy Design System
       path: folderPath,
       createdAt: stats.birthtimeMs,
       hasTheme,
-      hasComponents,
       pages,
       themeHtml,
       themeCss,
-      componentsHtml,
       pageHtmls,
       agentsMarkdown,
     };
@@ -1813,9 +1775,6 @@ Generated by Orchy Design System
     // Copy files to session folder
     if (contents.themeCss) {
       fs.writeFileSync(path.join(sessionDir, 'theme.css'), contents.themeCss);
-    }
-    if (contents.componentsHtml) {
-      fs.writeFileSync(path.join(sessionDir, 'components.html'), contents.componentsHtml);
     }
 
     // Build pages array from design contents

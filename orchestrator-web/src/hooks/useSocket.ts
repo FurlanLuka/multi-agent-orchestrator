@@ -37,7 +37,6 @@ import type {
   DesignPhase,
   DesignCategory,
   ThemeOption,
-  ComponentStyleOption,
   MockupOption,
   // Dev server types
   DevServerState,
@@ -202,13 +201,13 @@ export function useSocket() {
     timestamp: number;
   }>>([]);
   const [designPreview, setDesignPreview] = useState<{
-    type: 'theme' | 'component' | 'mockup';
-    options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+    type: 'theme' | 'mockup';
+    options: ThemeOption[] | MockupOption[];
   } | null>(null);
   // Refine mode - iterate on a single selected option
   const [designRefine, setDesignRefine] = useState<{
-    type: 'theme' | 'component' | 'mockup';
-    option: ThemeOption | ComponentStyleOption | MockupOption;
+    type: 'theme' | 'mockup';
+    option: ThemeOption | MockupOption;
     index: number;
   } | null>(null);
   const [designComplete, setDesignComplete] = useState<{
@@ -218,7 +217,7 @@ export function useSocket() {
   const [designError, setDesignError] = useState<string | null>(null);
   // Generating state - loading indicator while agent generates
   const [designGenerating, setDesignGenerating] = useState<{
-    type: 'theme' | 'component' | 'mockup';
+    type: 'theme' | 'mockup';
     message?: string;
   } | null>(null);
   // Pages in current design session
@@ -1025,7 +1024,7 @@ export function useSocket() {
     });
 
     // Generating state - show loading while agent generates
-    socket.on('design:generating', ({ type, message }: { type: 'theme' | 'component' | 'mockup'; message?: string }) => {
+    socket.on('design:generating', ({ type, message }: { type: 'theme' | 'mockup'; message?: string }) => {
       console.log('[Design] Generating:', type);
       setDesignGenerating({ type, message });
     });
@@ -1036,10 +1035,10 @@ export function useSocket() {
       setDesignGenerating(null);
     });
 
-    // Show preview (theme, component, or mockup)
+    // Show preview (theme or mockup)
     socket.on('design:show_preview', ({ type, options }: {
-      type: 'theme' | 'component' | 'mockup';
-      options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+      type: 'theme' | 'mockup';
+      options: ThemeOption[] | MockupOption[];
     }) => {
       console.log('[Design] Show preview:', type, options.length, 'options');
       // If we're in refine mode and get a new preview, exit refine mode
@@ -1049,7 +1048,7 @@ export function useSocket() {
 
     // Update refine preview (single option updated)
     socket.on('design:update_refine', ({ option }: {
-      option: ThemeOption | ComponentStyleOption | MockupOption;
+      option: ThemeOption | MockupOption;
     }) => {
       console.log('[Design] Update refine preview');
       setDesignRefine(prev => prev ? { ...prev, option } : null);

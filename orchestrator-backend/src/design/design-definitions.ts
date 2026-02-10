@@ -556,7 +556,7 @@ export function getComponentListForPrompt(category: DesignCategory): string {
   const components = getComponentsForCategory(category);
   return components
     .map((c) => {
-      let line = `- ${c.name}: ${c.description}`;
+      let line = `- **${c.name}** [id: \`${c.id}\`]: ${c.description}`;
       if (c.variants && c.variants.length > 0) {
         line += ` (variants: ${c.variants.join(', ')})`;
       }
@@ -570,7 +570,7 @@ export function getComponentListForPrompt(category: DesignCategory): string {
  */
 export function getSectionListForPrompt(category: DesignCategory): string {
   const sections = getSectionsForCategory(category);
-  return sections.map((s) => `- ${s.name}: ${s.description}`).join('\n');
+  return sections.map((s) => `- **${s.name}** [id: \`${s.id}\`]: ${s.description}`).join('\n');
 }
 
 /**

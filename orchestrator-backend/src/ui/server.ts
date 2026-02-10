@@ -1267,7 +1267,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         return;
       }
 
-      // Otherwise check pending theme/component previews
+      // Otherwise check pending theme previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -1283,14 +1283,13 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       // First check for pending mockup selection (to go back to discovery from mockup)
       const designerAgent = (io as any).designerAgent;
       if (designerAgent?.pendingMockupSelection) {
-        console.log(`[UIServer] Resolving mockup with feedback`);
-        // Mockup doesn't have a feedback option, treat it as refine for the first option
-        designerAgent.pendingMockupSelection({ refine: 0 });
+        console.log(`[UIServer] Resolving mockup with feedback: user wants to explain more`);
+        designerAgent.pendingMockupSelection({ feedback });
         designerAgent.pendingMockupSelection = null;
         return;
       }
 
-      // Otherwise check pending theme/component previews
+      // Otherwise check pending theme previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -1312,7 +1311,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         return;
       }
 
-      // Otherwise check pending theme/component previews
+      // Otherwise check pending theme previews
       const pendingPreviews = (io as any).pendingDesignerPreviews as Map<string, { resolve: (result: { selected?: number; feedback?: string; refine?: number }) => void }>;
       if (pendingPreviews && pendingPreviews.size > 0) {
         const [key, pending] = Array.from(pendingPreviews.entries()).pop()!;
@@ -1620,10 +1619,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     | 'discovery'           // Initial chat
     | 'generating_theme'  // Generating theme
     | 'theme_preview'     // Showing theme options
-    | 'component_discovery' // Chat about component preferences
-    | 'generating_component'// Generating components
-    | 'component_preview'   // Showing component options
-    | 'layout_discovery'    // Chat about layout preferences
+    | 'layout_discovery'    // Chat about layout/style preferences
     | 'generating_mockup'   // Generating mockups
     | 'mockup_preview'      // Showing mockup options
     | 'complete';           // Design saved
@@ -1635,10 +1631,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
   const validTransitions: Record<DesignSessionPhase, DesignSessionPhase[]> = {
     discovery: ['generating_theme'],
     generating_theme: ['theme_preview'],
-    theme_preview: ['component_discovery', 'generating_theme'], // can refine
-    component_discovery: ['generating_component'],
-    generating_component: ['component_preview'],
-    component_preview: ['layout_discovery', 'generating_component'], // can refine
+    theme_preview: ['layout_discovery', 'generating_theme'], // can refine
     layout_discovery: ['generating_mockup'],
     generating_mockup: ['mockup_preview'],
     mockup_preview: ['complete', 'generating_mockup'], // can refine
@@ -1817,14 +1810,12 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     const { sessionId, type } = req.body;
     const messages: Record<string, string> = {
       theme: 'Generating theme options...',
-      component: 'Generating component styles...',
       mockup: 'Generating mockups...',
     };
 
     // Map type to target phase
     const phaseMap: Record<string, DesignSessionPhase> = {
       theme: 'generating_theme',
-      component: 'generating_component',
       mockup: 'generating_mockup',
     };
     const targetPhase = phaseMap[type as string];
@@ -1921,39 +1912,6 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     });
   });
 
-  // Designer: start component generation (returns paths for HTML writing)
-  app.post('/api/designer/start-component-generation', (req: Request, res: Response) => {
-    const { sessionId } = req.body;
-
-    console.log(`[UIServer] Start component generation for session ${sessionId}`);
-
-    const designerAgent = (io as any).designerAgent;
-    if (!designerAgent) {
-      res.status(500).json({ error: 'Designer agent not available' });
-      return;
-    }
-
-    const paths = designerAgent.getSessionPaths();
-    if (!paths) {
-      res.status(500).json({ error: 'Session paths not initialized' });
-      return;
-    }
-
-    // Transition phase
-    designSessionPhases.set(sessionId, 'generating_component');
-
-    // Emit generating event to frontend
-    io.emit('design:generating', { type: 'component', message: 'Generating component styles...' });
-
-    // Return paths - themePath points to saved theme.css for reading CSS vars
-    res.json({
-      themePath: path.join(paths.root, 'theme.css'),
-      outputDir: paths.drafts,
-      count: 3,
-      instructions: 'Read theme.css for CSS variables, then write HTML files: component-0.html, component-1.html, component-2.html to outputDir'
-    });
-  });
-
   // Designer: start mockup generation (returns paths for HTML writing)
   app.post('/api/designer/start-mockup-generation', (req: Request, res: Response) => {
     const { sessionId } = req.body;
@@ -1981,10 +1939,9 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     // Get existing pages for reference
     const existingPages = designerAgent.getPages() || [];
 
-    // Return paths - themePath and componentsPath for reading, pagesDir for existing pages, outputDir for writing
+    // Return paths - themePath for reading, pagesDir for existing pages, outputDir for writing
     res.json({
       themePath: path.join(paths.root, 'theme.css'),
-      componentsPath: path.join(paths.root, 'components.html'),
       pagesDir: paths.root, // Existing pages are saved here
       outputDir: paths.drafts,
       existingPages: existingPages.map((p: any) => ({
@@ -1993,7 +1950,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         path: path.join(paths.root, p.filename)
       })),
       count: 3,
-      instructions: 'Read theme.css and components.html for context. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir.'
+      instructions: 'Read theme.css for design tokens. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir.'
     });
   });
 
@@ -2038,81 +1995,34 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     if (result.selected !== undefined) {
       try {
         designerAgent.autoSaveSelectedDraft('theme', result.selected);
-        designSessionPhases.set(sessionId, 'component_discovery');
+        designSessionPhases.set(sessionId, 'layout_discovery');
         res.json({ selected: result.selected, autoSaved: true });
       } catch (err) {
         console.error('[UIServer] Failed to auto-save theme:', err);
         res.json({ selected: result.selected, autoSaved: false });
       }
     } else if (result.refine !== undefined) {
-      // Include draftsDir so Claude knows where to read the CSS
+      // Copy selected draft to slot 0 so preview and agent both use index 0
       const paths = designerAgent.getSessionPaths();
+      if (paths?.drafts && result.refine !== 0) {
+        const srcPath = `${paths.drafts}/theme-${result.refine}.css`;
+        const destPath = `${paths.drafts}/theme-0.css`;
+        try {
+          if (fs.existsSync(srcPath)) {
+            fs.copyFileSync(srcPath, destPath);
+            console.log(`[UIServer] Copied theme-${result.refine}.css to theme-0.css for refine`);
+          }
+        } catch (err) {
+          console.error('[UIServer] Failed to copy draft for refine:', err);
+        }
+      }
       res.json({
-        refine: result.refine,
+        refine: 0,
         draftsDir: paths?.drafts,
-        cssPath: paths ? `${paths.drafts}/theme-${result.refine}.css` : undefined
+        cssPath: paths ? `${paths.drafts}/theme-0.css` : undefined
       });
     } else if (result.feedback) {
       designSessionPhases.set(sessionId, 'discovery');
-      res.json({ feedback: result.feedback });
-    } else {
-      res.json(result);
-    }
-  });
-
-  // Designer: show component preview (new Zero-HTML version)
-  app.post('/api/designer/show-component-preview', async (req: Request, res: Response) => {
-    const { sessionId, options } = req.body;
-    const key = `component_${sessionId}_${Date.now()}`;
-
-    console.log(`[UIServer] Show component preview for session ${sessionId}: ${options?.length || 0} options`);
-
-    const designerAgent = (io as any).designerAgent;
-    if (!designerAgent) {
-      res.status(500).json({ error: 'Designer agent not available' });
-      return;
-    }
-
-    // Transition to component_preview
-    designSessionPhases.set(sessionId, 'component_preview');
-
-    // Clear generating state and show preview
-    io.emit('design:generation_complete');
-    io.emit('design:show_preview', { type: 'component', options });
-
-    // Wait for user response
-    const result = await new Promise<{ selected?: number; feedback?: string; refine?: number }>((resolve) => {
-      pendingDesignerPreviews.set(key, { resolve });
-      setTimeout(() => {
-        if (pendingDesignerPreviews.has(key)) {
-          pendingDesignerPreviews.delete(key);
-          resolve({ selected: 0 });
-        }
-      }, 600000);
-    });
-
-    pendingDesignerPreviews.delete(key);
-
-    // Auto-save if user selected
-    if (result.selected !== undefined) {
-      try {
-        designerAgent.autoSaveSelectedDraft('component', result.selected);
-        designSessionPhases.set(sessionId, 'layout_discovery');
-        res.json({ selected: result.selected, autoSaved: true });
-      } catch (err) {
-        console.error('[UIServer] Failed to auto-save components:', err);
-        res.json({ selected: result.selected, autoSaved: false });
-      }
-    } else if (result.refine !== undefined) {
-      // Include draftsDir so Claude knows where to read the HTML
-      const paths = designerAgent.getSessionPaths();
-      res.json({
-        refine: result.refine,
-        draftsDir: paths?.drafts,
-        htmlPath: paths ? `${paths.drafts}/component-${result.refine}.html` : undefined
-      });
-    } else if (result.feedback) {
-      designSessionPhases.set(sessionId, 'component_discovery');
       res.json({ feedback: result.feedback });
     } else {
       res.json(result);
@@ -2143,8 +2053,8 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     io.emit('design:generation_complete');
     io.emit('design:show_preview', { type: 'mockup', options });
 
-    // Wait for user response (mockups have additional options: feelingLucky, pageName)
-    const result = await new Promise<{ selected?: number; refine?: number; feelingLucky?: boolean; pageName?: string }>((resolve) => {
+    // Wait for user response (mockups have additional options: feelingLucky, pageName, feedback)
+    const result = await new Promise<{ selected?: number; refine?: number; feelingLucky?: boolean; pageName?: string; feedback?: string }>((resolve) => {
       // For mockups, we use the pendingMockupSelection on the designerAgent
       designerAgent.pendingMockupSelection = resolve;
       setTimeout(() => {
@@ -2178,13 +2088,29 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         res.json({ selected: result.selected, pageName: result.pageName, autoSaved: false });
       }
     } else if (result.refine !== undefined) {
-      // Include draftsDir so Claude knows where to read the HTML
+      // Copy selected draft to slot 0 so preview and agent both use index 0
       const paths = designerAgent.getSessionPaths();
+      if (paths?.drafts && result.refine !== 0) {
+        const srcPath = `${paths.drafts}/mockup-${result.refine}.html`;
+        const destPath = `${paths.drafts}/mockup-0.html`;
+        try {
+          if (fs.existsSync(srcPath)) {
+            fs.copyFileSync(srcPath, destPath);
+            console.log(`[UIServer] Copied mockup-${result.refine}.html to mockup-0.html for refine`);
+          }
+        } catch (err) {
+          console.error('[UIServer] Failed to copy draft for refine:', err);
+        }
+      }
       res.json({
-        refine: result.refine,
+        refine: 0,
         draftsDir: paths?.drafts,
-        htmlPath: paths ? `${paths.drafts}/mockup-${result.refine}.html` : undefined
+        htmlPath: paths ? `${paths.drafts}/mockup-0.html` : undefined
       });
+    } else if (result.feedback) {
+      // User wants to explain more — go back to chat
+      designSessionPhases.set(sessionId, 'discovery');
+      res.json({ feedback: result.feedback });
     } else if (result.feelingLucky) {
       // Go back to generating state
       designSessionPhases.set(sessionId, 'generating_mockup');
@@ -2238,8 +2164,8 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
 
     // Transition based on result
     if (result.selected !== undefined) {
-      // User selected - move to component discovery
-      designSessionPhases.set(sessionId, 'component_discovery');
+      // User selected - move to layout discovery
+      designSessionPhases.set(sessionId, 'layout_discovery');
     } else if (result.refine !== undefined) {
       // User wants to refine this option - stay in theme_preview but enter refine mode
       // The agent will handle refinement via chat
@@ -2247,55 +2173,6 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     } else if (result.feedback) {
       // User gave feedback - go back to discovery for more chat
       designSessionPhases.set(sessionId, 'discovery');
-    }
-
-    res.send(JSON.stringify(result));
-  });
-
-  // Designer: show component preview
-  app.post('/api/designer/show-components', async (req: Request, res: Response) => {
-    const { sessionId, options } = req.body;
-    const key = `components_${sessionId}_${Date.now()}`;
-
-    // Validate phase - must be in generating_component
-    const currentPhase = designSessionPhases.get(sessionId);
-    if (currentPhase !== 'generating_component') {
-      res.status(400).send(JSON.stringify({
-        error: `Cannot show component preview in phase: ${currentPhase}`
-      }));
-      return;
-    }
-
-    // Transition to component_preview
-    designSessionPhases.set(sessionId, 'component_preview');
-
-    console.log(`[UIServer] Designer component preview for session ${sessionId}: ${options.length} options`);
-
-    // Clear generating state and show preview
-    io.emit('design:generation_complete');
-    io.emit('design:show_preview', { type: 'component', options });
-
-    // Create promise that will resolve when user responds
-    const result = await new Promise<{ selected?: number; feedback?: string }>((resolve) => {
-      pendingDesignerPreviews.set(key, { resolve });
-
-      setTimeout(() => {
-        if (pendingDesignerPreviews.has(key)) {
-          pendingDesignerPreviews.delete(key);
-          resolve({ selected: 0 });
-        }
-      }, 600000);
-    });
-
-    pendingDesignerPreviews.delete(key);
-
-    // Transition based on result
-    if (result.selected !== undefined) {
-      // User selected - move to layout discovery
-      designSessionPhases.set(sessionId, 'layout_discovery');
-    } else if (result.feedback) {
-      // User gave feedback - go back to component discovery for more chat
-      designSessionPhases.set(sessionId, 'component_discovery');
     }
 
     res.send(JSON.stringify(result));
@@ -2381,9 +2258,6 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       switch (type) {
         case 'theme':
           result = await designerAgent.handleSaveSelectedTheme({ html });
-          break;
-        case 'components':
-          result = await designerAgent.handleSaveSelectedComponents({ html });
           break;
         default:
           res.status(400).send(JSON.stringify({ error: `Unknown artifact type: ${type}` }));
@@ -2541,12 +2415,12 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       return;
     }
 
-    if (!['theme', 'component', 'mockup'].includes(type)) {
-      res.status(400).send('Invalid draft type. Must be theme, component, or mockup.');
+    if (!['theme', 'mockup'].includes(type)) {
+      res.status(400).send('Invalid draft type. Must be theme or mockup.');
       return;
     }
 
-    const html = designerAgent.getDraft(type as 'theme' | 'component' | 'mockup', indexNum);
+    const html = designerAgent.getDraft(type as 'theme' | 'mockup', indexNum);
     if (html) {
       res.type('html').send(html);
     } else {

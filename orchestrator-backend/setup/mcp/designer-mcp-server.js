@@ -10,8 +10,6 @@
  * - show_category_selector: Display category selection cards
  * - start_theme_generation: Get paths for theme CSS generation
  * - show_theme_preview: Display theme options, auto-saves on selection
- * - start_component_generation: Get paths for component HTML generation
- * - show_component_preview: Display component options, auto-saves on selection
  * - start_mockup_generation: Get paths for mockup HTML generation
  * - show_mockup_preview: Display mockup options, auto-saves on selection
  *
@@ -24,6 +22,8 @@ const readline = require('readline');
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:3456';
 const SESSION_ID = process.env.DESIGNER_SESSION_ID || 'unknown';
+
+console.error(`[MCP] Designer MCP server started, SESSION_ID: ${SESSION_ID}, ORCHESTRATOR_URL: ${ORCHESTRATOR_URL}`);
 
 // Read JSON-RPC messages from stdin (one per line)
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
@@ -39,6 +39,11 @@ rl.on('line', async (line) => {
 
 async function handleMessage(msg) {
   const { id, method, params } = msg;
+
+  // Log all tool calls
+  if (method === 'tools/call') {
+    console.error(`[MCP] Received tool call: ${params?.name}`);
+  }
 
   if (method === 'initialize') {
     respond(id, {
@@ -134,63 +139,7 @@ When refine is set, use Read(cssPath) to get current CSS, ask user what to chang
         },
 
         // ═══════════════════════════════════════════════════════════════
-        // Component Generation (HTML approach, uses theme CSS)
-        // ═══════════════════════════════════════════════════════════════
-        {
-          name: 'start_component_generation',
-          description: `Start component generation phase. Returns paths for you to use with Read/Write tools.
-
-WORKFLOW:
-1. Call this tool to get paths
-2. Read the saved theme CSS: Read(themePath)
-3. Generate 3 component variations as complete HTML documents
-   - Include the theme CSS variables in each HTML's <style>
-   - Show buttons, inputs, cards, badges, alerts, etc.
-4. Write each to the output directory:
-   - Write(outputDir + "/component-0.html", html1)
-   - Write(outputDir + "/component-1.html", html2)
-   - Write(outputDir + "/component-2.html", html3)
-5. Call show_component_preview() to display options`,
-          inputSchema: {
-            type: 'object',
-            properties: {},
-            required: []
-          }
-        },
-        {
-          name: 'show_component_preview',
-          description: `Display component options to the user. Backend serves HTML directly from drafts dir.
-
-Returns one of:
-- { selected: number, autoSaved: true } - User selected, saved to components.html
-- { refine: number, htmlPath: string } - User wants to refine. Read HTML from htmlPath, ask what to change, update it
-- { feedback: string } - User wants to explain more
-
-When autoSaved=true, just respond conversationally.
-When refine is set, use Read(htmlPath) to get current HTML, ask user what to change, then Write updated HTML back.`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              options: {
-                type: 'array',
-                description: 'Metadata for each component style option',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    name: { type: 'string', description: 'Style name (e.g., "Rounded Modern")' },
-                    description: { type: 'string' }
-                  },
-                  required: ['id', 'name', 'description']
-                }
-              }
-            },
-            required: ['options']
-          }
-        },
-
-        // ═══════════════════════════════════════════════════════════════
-        // Mockup Generation (HTML approach, uses theme + components)
+        // Mockup Generation (HTML approach, uses theme)
         // ═══════════════════════════════════════════════════════════════
         {
           name: 'start_mockup_generation',
@@ -198,7 +147,6 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
 
 RETURNS:
 - themePath: Path to saved theme.css
-- componentsPath: Path to saved components.html
 - outputDir: Directory to write mockup drafts
 - existingPages: Array of previously saved pages (for design consistency)
   Each page has: { name, filename, path }
@@ -206,17 +154,15 @@ RETURNS:
 WORKFLOW:
 1. Call this tool to get paths
 2. Read the saved theme: Read(themePath)
-3. Read the saved components for reference: Read(componentsPath)
-4. If existingPages has items, read them too to match the design style
-5. Generate 3 full-page mockup variations as complete HTML
+3. If existingPages has items, read them too to match the design style
+4. Generate 3 full-page mockup variations as complete HTML
    - Include the theme CSS variables
-   - Use component patterns from components.html
    - Match the style of existing pages if any
-6. Write each to the output directory:
+5. Write each to the output directory:
    - Write(outputDir + "/mockup-0.html", html1)
    - Write(outputDir + "/mockup-1.html", html2)
    - Write(outputDir + "/mockup-2.html", html3)
-7. Call show_mockup_preview() with pageName (what the page IS, e.g., "Dashboard")`,
+6. Call show_mockup_preview() with pageName (what the page IS, e.g., "Dashboard")`,
           inputSchema: {
             type: 'object',
             properties: {},
@@ -286,7 +232,7 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
         // ═══════════════════════════════════════════════════════════════
         {
           name: 'save_design_folder',
-          description: 'Save the completed design to a named folder in the designs library. Copies all artifacts (theme.css, components.html, pages) and generates AGENTS.md.',
+          description: 'Save the completed design to a named folder in the designs library. Copies all artifacts (theme.css, pages) and generates AGENTS.md and components.html catalog.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -345,35 +291,6 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
       return;
     }
     const result = await callDesignerEndpoint('/api/designer/show-theme-preview', {
-      sessionId: SESSION_ID,
-      options
-    });
-    respond(id, { content: [{ type: 'text', text: result }] });
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // Component Generation
-  // ═══════════════════════════════════════════════════════════════
-
-  else if (method === 'tools/call' && params?.name === 'start_component_generation') {
-    const result = await callDesignerEndpoint('/api/designer/start-component-generation', {
-      sessionId: SESSION_ID
-    });
-    respond(id, { content: [{ type: 'text', text: result }] });
-  }
-
-  else if (method === 'tools/call' && params?.name === 'show_component_preview') {
-    let options = params.arguments?.options;
-    if (!Array.isArray(options)) {
-      if (process.env.DEBUG) {
-        console.error('[MCP] show_component_preview invalid options:', typeof options, JSON.stringify(options)?.substring(0, 200));
-      }
-      respond(id, {
-        content: [{ type: 'text', text: 'options must be an array: [{id, name, description}, ...]' }]
-      });
-      return;
-    }
-    const result = await callDesignerEndpoint('/api/designer/show-component-preview', {
       sessionId: SESSION_ID,
       options
     });
@@ -446,6 +363,14 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
     respond(id, { content: [{ type: 'text', text: result }] });
   }
 
+  else if (method === 'tools/call' && id) {
+    // Unknown tool call - return descriptive error
+    const toolName = params?.name || 'unknown';
+    console.error(`[MCP] Unknown tool called: ${toolName}`);
+    respond(id, {
+      content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${toolName}. Available tools: request_user_input, show_category_selector, start_theme_generation, show_theme_preview, start_mockup_generation, show_mockup_preview, show_pages_panel, get_pages, save_design_folder` }) }]
+    });
+  }
   else if (method === 'notifications/initialized') {
     // No response needed for notifications
   }
@@ -485,11 +410,15 @@ function callDesignerEndpoint(endpoint, data) {
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
+        if (res.statusCode >= 400) {
+          console.error(`[MCP] HTTP error ${res.statusCode} from ${endpoint}: ${body.substring(0, 200)}`);
+        }
         resolve(body || JSON.stringify({ error: 'No response from orchestrator' }));
       });
     });
 
     req.on('error', (err) => {
+      console.error(`[MCP] HTTP request error for ${endpoint}: ${err.message}`);
       resolve(JSON.stringify({ error: `Could not reach orchestrator: ${err.message}` }));
     });
 

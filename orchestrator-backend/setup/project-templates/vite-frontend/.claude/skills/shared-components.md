@@ -46,11 +46,15 @@ import { ComponentName } from '../shared-components';
 If this project has a `ui_mockup/` folder, it's the authoritative design.
 
 ### What to Read
-1. **`ui_mockup/AGENTS.md`** - Integration instructions
+1. **`ui_mockup/AGENTS.md`** - Integration instructions and structured markup conventions
 2. **`ui_mockup/theme.css`** - CSS variables
-3. **`ui_mockup/*.html` page mockups** - Layout and component reference
+3. **`ui_mockup/components.html`** - Component catalog with all component patterns
+4. **`ui_mockup/*.html` page mockups** - Layout and component reference
 
 ### Applying Designs
-- Match layouts from page mockups
+- Match layouts from page mockups using `data-section` attributes to identify sections
+- Extract component patterns using `data-component` attributes (e.g., `data-component="button"`)
+- Component CSS uses `oc-*` class prefix (`.oc-button`, `.oc-card__title`)
+- Extract component CSS from between `/* === COMPONENT: {id} === */` markers
 - Extract colors from theme.css into Mantine theme
-- Follow component patterns shown in mockups
+- Use `components.html` as a quick reference for all available component styles

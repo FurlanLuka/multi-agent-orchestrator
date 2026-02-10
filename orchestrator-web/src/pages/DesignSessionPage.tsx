@@ -42,9 +42,8 @@ const availableCategories: Array<{ id: DesignCategory; name: string; description
 // Extended phases including category selection
 type ExtendedPhase = 'category' | DesignPhase;
 
-const generatingMessages: Record<'theme' | 'component' | 'mockup', string> = {
+const generatingMessages: Record<'theme' | 'mockup', string> = {
   theme: 'Generating theme options...',
-  component: 'Generating component styles...',
   mockup: 'Generating mockups...',
 };
 
@@ -435,9 +434,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
               {showGenerating
                 ? designGenerating?.type === 'theme'
                   ? 'Generating theme options...'
-                  : designGenerating?.type === 'component'
-                    ? 'Generating component styles...'
-                    : 'Generating mockups...'
+                  : 'Generating mockups...'
                 : designComplete
                   ? 'Design complete!'
                   : 'Tell me about your vision'}
@@ -640,7 +637,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                 }}
               >
                 <iframe
-                  srcDoc={designRefine.option.previewHtml}
+                  src={`http://localhost:${effectivePort}/api/designer/draft/${designRefine.type}/${designRefine.index}`}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -768,7 +765,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
         options={designPreview?.options || []}
         onSelect={(index, pageName) => selectDesignOption(index, pageName)}
         onRefine={(index) => enterDesignRefine(index)}
-        onBackToDiscovery={() => submitDesignFeedback('I want to go back to chat and explain what I have in mind')}
+        onBackToDiscovery={() => submitDesignFeedback('I want to explain more about what I have in mind before you generate new mockups.')}
         onClose={() => submitDesignFeedback('I want to go back to chat and explain what I have in mind')}
       />
     </>

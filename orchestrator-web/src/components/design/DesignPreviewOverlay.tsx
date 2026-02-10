@@ -9,7 +9,7 @@ import {
   Loader,
 } from '@mantine/core';
 import { IconX, IconMessageCircle, IconCheck, IconWand } from '@tabler/icons-react';
-import type { ThemeOption, ComponentStyleOption, MockupOption } from '@orchy/types';
+import type { ThemeOption, MockupOption } from '@orchy/types';
 import { TabbedCard, GlassTextInput, glass, radii } from '../../theme';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 
@@ -19,8 +19,8 @@ import { useOrchestrator } from '../../context/OrchestratorContext';
  */
 interface DesignPreviewOverlayProps {
   opened: boolean;
-  type: 'theme' | 'component' | 'mockup';
-  options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
+  type: 'theme' | 'mockup';
+  options: ThemeOption[] | MockupOption[];
   onSelect: (index: number, pageName?: string) => void;
   onRefine: (index: number) => void;
   onBackToDiscovery: () => void;
@@ -29,7 +29,6 @@ interface DesignPreviewOverlayProps {
 
 const typeLabels = {
   theme: 'Theme',
-  component: 'Component Style',
   mockup: 'Layout Mockup',
 };
 
@@ -63,10 +62,10 @@ export function DesignPreviewOverlay({
 
   const tabs = options.map((opt, i) => ({
     value: String(i),
-    label: (opt as ThemeOption | ComponentStyleOption | MockupOption).name,
+    label: (opt as ThemeOption | MockupOption).name,
   }));
 
-  const currentOption = options[Number(activeTab)] as ThemeOption | ComponentStyleOption | MockupOption;
+  const currentOption = options[Number(activeTab)] as ThemeOption | MockupOption;
   const currentIndex = Number(activeTab);
 
   return (
@@ -181,7 +180,7 @@ function PreviewFrame({
   port,
   legacyHtml,
 }: {
-  type: 'theme' | 'component' | 'mockup';
+  type: 'theme' | 'mockup';
   index: number;
   port: number | null;
   legacyHtml?: string;
@@ -264,7 +263,7 @@ function PreviewFrame({
     );
   }
 
-  // Theme and component previews (no browser chrome)
+  // Theme previews (no browser chrome)
   return (
     <Box
       style={{

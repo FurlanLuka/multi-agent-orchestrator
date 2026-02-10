@@ -1,6 +1,6 @@
 // Design module exports
 export { DesignerAgentManager } from './designer-agent-manager';
-export { getDesignerSystemPrompt, getThemeTemplate, getComponentGenerationPrompt, getMockupGenerationPrompt } from './design-prompts';
+export { getDesignerSystemPrompt, getThemeTemplate, getMockupGenerationPrompt } from './design-prompts';
 export { designReferences } from './design-references';
 export {
   BASE_ATOMIC_COMPONENTS,

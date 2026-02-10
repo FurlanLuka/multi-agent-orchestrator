@@ -10,7 +10,7 @@ import {
   Stack,
   Button,
 } from '@mantine/core';
-import { IconPalette, IconComponents, IconFile, IconEdit } from '@tabler/icons-react';
+import { IconPalette, IconFile, IconEdit } from '@tabler/icons-react';
 import type { SavedDesignFolderContents } from '@orchy/types';
 import { glass } from '../../theme';
 
@@ -33,15 +33,6 @@ export function DesignDetailModal({ opened, design, onClose, onEdit }: DesignDet
       label: 'Theme',
       icon: <IconPalette size={14} />,
       html: design.themeHtml,
-    });
-  }
-
-  if (design?.hasComponents) {
-    tabs.push({
-      value: 'components',
-      label: 'Components',
-      icon: <IconComponents size={14} />,
-      html: design.componentsHtml,
     });
   }
 

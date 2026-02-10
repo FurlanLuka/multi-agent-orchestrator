@@ -353,9 +353,6 @@ function DesignCard({ design, loading, onClick, onDelete }: DesignCardProps) {
           {design.hasTheme && (
             <Badge size="xs" variant="light" color="peach">Theme</Badge>
           )}
-          {design.hasComponents && (
-            <Badge size="xs" variant="light" color="sage">Components</Badge>
-          )}
           {pageCount > 0 && (
             <Badge size="xs" variant="light" color="gray" leftSection={<IconFile size={10} />}>
               {pageCount} {pageCount === 1 ? 'page' : 'pages'}
