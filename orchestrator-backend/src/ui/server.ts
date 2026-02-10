@@ -1259,10 +1259,11 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       // First check for pending mockup selection (mockups have their own resolver)
       const designerAgent = (io as any).designerAgent;
       if (designerAgent?.pendingMockupSelection) {
-        // For mockups, just pass the index - the page name will be looked up from the option
-        console.log(`[UIServer] Resolving mockup selection with index: ${index}`);
-        designerAgent.pendingMockupSelection({ selected: index });
-        designerAgent.pendingMockupSelection = null;
+        // For mockups, use the user-provided page name, or fall back to agent-suggested name
+        const finalPageName = pageName || designerAgent.getCurrentMockupPageName() || 'New Page';
+        console.log(`[UIServer] Resolving mockup selection with index: ${index}, pageName: ${finalPageName}`);
+        // Call the auto-save method which handles saving and resolving
+        designerAgent.onMockupSelected(index, finalPageName);
         return;
       }
 
@@ -1437,6 +1438,18 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       const designerAgent = (io as any).designerAgent;
       if (designerAgent && designerAgent.deletePage(pageId)) {
         socket.emit('design:page_deleted', { pageId });
+      }
+    });
+
+    // Rename a page in the current design session
+    socket.on('design:rename_page', ({ pageId, newName }: { pageId: string; newName: string }) => {
+      console.log(`[UIServer] Renaming page: ${pageId} to "${newName}"`);
+      const designerAgent = (io as any).designerAgent;
+      if (designerAgent) {
+        const updatedPage = designerAgent.renamePage(pageId, newName);
+        if (updatedPage) {
+          socket.emit('design:page_renamed', { page: updatedPage });
+        }
       }
     });
 

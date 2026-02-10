@@ -74,12 +74,14 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     selectDesignOption,
     enterDesignRefine,
     confirmDesignRefine,
+    clearDesignRefine,
     requestNewDesignOptions,
     submitDesignFeedback,
     finishAddingPages,
     loadDesignForEditing,
     editDesignPage,
     deleteDesignPage,
+    renameDesignPage,
   } = useOrchestrator();
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
@@ -95,6 +97,10 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   const [designName, setDesignName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Page renaming state
+  const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  const [editingPageName, setEditingPageName] = useState('');
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -594,14 +600,24 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
               }
               footer={
                 <Group justify="space-between">
-                  <Button
-                    size="sm"
-                    variant="subtle"
-                    color="gray"
-                    onClick={requestNewDesignOptions}
-                  >
-                    Show 3 new options
-                  </Button>
+                  <Group gap="xs">
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      color="gray"
+                      onClick={clearDesignRefine}
+                    >
+                      Exit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      color="gray"
+                      onClick={requestNewDesignOptions}
+                    >
+                      Show 3 new options
+                    </Button>
+                  </Group>
                   <Button
                     size="sm"
                     variant="filled"
@@ -672,9 +688,44 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                       border: glass.surface.border,
                     }}
                   >
-                    <Group gap="xs">
-                      <IconFile size={14} color="var(--mantine-color-gray-5)" />
-                      <Text size="sm">{page.name}</Text>
+                    <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
+                      <IconFile size={14} color="var(--mantine-color-gray-5)" style={{ flexShrink: 0 }} />
+                      {editingPageId === page.id ? (
+                        <GlassTextInput
+                          size="xs"
+                          value={editingPageName}
+                          onChange={(e) => setEditingPageName(e.currentTarget.value)}
+                          onBlur={() => {
+                            if (editingPageName.trim() && editingPageName !== page.name) {
+                              renameDesignPage(page.id, editingPageName.trim());
+                            }
+                            setEditingPageId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              if (editingPageName.trim() && editingPageName !== page.name) {
+                                renameDesignPage(page.id, editingPageName.trim());
+                              }
+                              setEditingPageId(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingPageId(null);
+                            }
+                          }}
+                          autoFocus
+                          style={{ flex: 1 }}
+                        />
+                      ) : (
+                        <Text
+                          size="sm"
+                          style={{ cursor: 'pointer', flex: 1 }}
+                          onClick={() => {
+                            setEditingPageId(page.id);
+                            setEditingPageName(page.name);
+                          }}
+                        >
+                          {page.name}
+                        </Text>
+                      )}
                     </Group>
                     <Group gap={4}>
                       <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => editDesignPage(page.id)}>
@@ -715,7 +766,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
         opened={!!showPreview && !showGenerating && !designComplete && !designRefine}
         type={designPreview?.type || 'theme'}
         options={designPreview?.options || []}
-        onSelect={(index) => selectDesignOption(index)}
+        onSelect={(index, pageName) => selectDesignOption(index, pageName)}
         onRefine={(index) => enterDesignRefine(index)}
         onBackToDiscovery={() => submitDesignFeedback('I want to go back to chat and explain what I have in mind')}
         onClose={() => submitDesignFeedback('I want to go back to chat and explain what I have in mind')}

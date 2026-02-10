@@ -444,6 +444,23 @@ ${fullCommand}
     // Create ui_mockup directory
     fs.mkdirSync(uiMockupDir, { recursive: true });
 
+    // Clean up old page HTML files before copying (handles re-attach after rename/delete)
+    if (fs.existsSync(uiMockupDir)) {
+      const existingFiles = fs.readdirSync(uiMockupDir);
+      for (const file of existingFiles) {
+        if (file.endsWith('.html') && file !== 'theme.html' && file !== 'components.html') {
+          const oldFilePath = path.join(uiMockupDir, file);
+          fs.unlinkSync(oldFilePath);
+          console.log(`[TemplateManager] Removed old page file: ${file}`);
+        }
+      }
+      // Also remove old design-metadata.json if it exists
+      const oldMetadataPath = path.join(uiMockupDir, 'design-metadata.json');
+      if (fs.existsSync(oldMetadataPath)) {
+        fs.unlinkSync(oldMetadataPath);
+      }
+    }
+
     // Files to copy from design folder
     const filesToCopy = [
       'theme.css',      // CSS variables/tokens
@@ -462,13 +479,23 @@ ${fullCommand}
     }
 
     // Copy all page HTML files (*.html except theme.html and components.html)
+    // Also build a list of pages for metadata
     const entries = fs.readdirSync(designDir);
+    const pages: Array<{ name: string; filename: string }> = [];
     for (const entry of entries) {
       if (entry.endsWith('.html') && entry !== 'theme.html' && entry !== 'components.html') {
         const srcPath = path.join(designDir, entry);
         const destPath = path.join(uiMockupDir, entry);
         fs.copyFileSync(srcPath, destPath);
         console.log(`[TemplateManager] Copied page ${entry} to ui_mockup/`);
+
+        // Convert filename to display name (e.g., "landing-page.html" -> "Landing Page")
+        const displayName = entry
+          .replace('.html', '')
+          .split('-')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        pages.push({ name: displayName, filename: entry });
       }
     }
 
@@ -477,6 +504,16 @@ ${fullCommand}
     const designLinkedAt = fs.existsSync(designTimestampFile)
       ? parseInt(fs.readFileSync(designTimestampFile, 'utf-8').trim(), 10)
       : Date.now();
+
+    // Create design-metadata.json for planning agent to easily discover design structure
+    const metadata = {
+      designName: designName,
+      linkedAt: designLinkedAt,
+      pages: pages,
+    };
+    const metadataPath = path.join(uiMockupDir, 'design-metadata.json');
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+    console.log(`[TemplateManager] Created design-metadata.json with ${pages.length} pages`);
 
     console.log(`[TemplateManager] Attached design "${designName}" to project "${projectName}" (linkedAt: ${designLinkedAt})`);
     this.emit('designAttached', { project: projectName, design: designName, designLinkedAt });

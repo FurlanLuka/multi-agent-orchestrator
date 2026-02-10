@@ -7,6 +7,81 @@ description: Create theme configuration and wrapped base components. Use when us
 
 Wrap Mantine components for consistency across the app.
 
+## Orchy-Generated Design (ui_mockup/)
+
+**If this project has a `ui_mockup/` folder, it contains the authoritative design system.**
+
+### What to Read
+
+1. **`ui_mockup/AGENTS.md`** - Integration instructions
+2. **`ui_mockup/theme.css`** - CSS variables (colors, spacing, typography, effects)
+3. **`ui_mockup/*.html` page mockups** - **THE MAIN REFERENCE** for both layout AND component styles
+
+The page mockups (landing-page.html, docs.html, etc.) are the authoritative source. They show:
+- Page layout structure
+- Component styling (buttons, cards, forms, navigation)
+- Spacing and typography in context
+- Color usage patterns
+
+### Integrating with Mantine Theme
+
+Extract CSS variables from `ui_mockup/theme.css` and map to Mantine theme:
+
+```typescript
+// src/design-system/theme/index.ts
+import { createTheme, MantineColorsTuple } from '@mantine/core';
+
+// Extract color values from ui_mockup/theme.css
+// Look for --primary-50 through --primary-900 (or similar naming)
+const primary: MantineColorsTuple = [
+  // Copy the 10 color values from theme.css primary scale
+  '#...', '#...', '#...', '#...', '#...',
+  '#...', '#...', '#...', '#...', '#...',
+];
+
+export const theme = createTheme({
+  colors: { primary },
+  primaryColor: 'primary',
+  fontFamily: '...', // from --font-family-base in theme.css
+  defaultRadius: 'md', // map from --radius-md in theme.css
+});
+```
+
+### Creating Components
+
+When creating wrapped components, **look at how they're styled in the page mockups**:
+
+1. Open a page mockup (e.g., `ui_mockup/landing-page.html`)
+2. Find the component you need (button, card, input, etc.)
+3. Note its styling (colors, padding, border-radius, shadows)
+4. Implement using Mantine props to match that styling
+
+```tsx
+// Example: If landing-page.html shows buttons with rounded corners and primary color
+export function Button({ children, ...props }: Props) {
+  return (
+    <MantineButton
+      radius="md"  // Match the mockup's border-radius
+      // Apply other styling seen in the mockup
+      {...props}
+    >
+      {children}
+    </MantineButton>
+  );
+}
+```
+
+### Building Pages
+
+When creating a page, use its corresponding mockup as the blueprint:
+- Match the section structure (header, hero, content, footer)
+- Match component placement and spacing
+- Use the same visual hierarchy
+
+**The mockups define the design - translate them to React/Mantine.**
+
+---
+
 ## CRITICAL: No CSS Files
 
 **Never create separate CSS files unless absolutely necessary.** All styling is done through:

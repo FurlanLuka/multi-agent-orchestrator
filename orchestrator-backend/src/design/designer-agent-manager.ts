@@ -87,6 +87,9 @@ export class DesignerAgentManager extends EventEmitter {
   // Draft mockup storage - stores HTML during generation for fast selection
   private currentMockupDrafts: string[] = [];
 
+  // Current mockup page name from show_mockup_preview (agent-suggested)
+  private currentMockupPageName: string | null = null;
+
   // Session timeout
   private static readonly SESSION_TIMEOUT = 3600000; // 1 hour
 
@@ -1025,7 +1028,10 @@ export class DesignerAgentManager extends EventEmitter {
   /**
    * Handle mockup preview result (Select/Refine/Feeling Lucky)
    */
-  async handleShowMockupPreview(options: MockupOption[]): Promise<MockupSelectionResult> {
+  async handleShowMockupPreview(options: MockupOption[], pageName?: string): Promise<MockupSelectionResult> {
+    // Store the agent-suggested page name for fallback
+    this.currentMockupPageName = pageName || (options[0]?.name) || null;
+
     return new Promise((resolve) => {
       this.pendingMockupSelection = resolve;
 
@@ -1035,6 +1041,13 @@ export class DesignerAgentManager extends EventEmitter {
         options
       });
     });
+  }
+
+  /**
+   * Get the current mockup's agent-suggested page name
+   */
+  getCurrentMockupPageName(): string | null {
+    return this.currentMockupPageName;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1402,64 +1415,77 @@ export class DesignerAgentManager extends EventEmitter {
     return `# ${designName} Design System
 
 ## Overview
-This folder contains a complete design system with HTML templates and CSS variables.
+
+This folder contains the authoritative design system for this project. Use these files as the source of truth for all UI implementation.
 
 ## Files
-- **theme.html** - Core design tokens as CSS variables
-- **components.html** - Reusable UI component styles
-- **AGENTS.md** - This file (instructions for AI agents)
-${pageNames && pageNames.length > 0 ? pageNames.map(p => `- **${p}** - Page mockup`).join('\n') : ''}
 
-## Design Tokens
+- **theme.css** - CSS variables (colors, spacing, typography, effects)
+- **AGENTS.md** - This file (integration instructions)
+${pageNames && pageNames.length > 0 ? pageNames.map(p => `- **${p}** - Page mockup (layout + component styles)`).join('\n') : ''}
 
-The following CSS variables are defined in \`theme.html\`. Copy the \`:root { ... }\` block to your stylesheet.
+## How to Use This Design System
+
+### 1. Page Mockups = Main Reference
+
+**The page HTML files are your primary reference.** They show:
+- Complete page layouts (sections, spacing, structure)
+- Component styling in context (buttons, cards, forms, navigation)
+- Color and typography usage
+- Spacing and visual hierarchy
+
+When implementing a page or component:
+1. Find the relevant page mockup
+2. Study how components are styled in that context
+3. Implement using your framework to match the visual design
+
+### 2. Theme Variables
+
+\`theme.css\` contains CSS variables for the design tokens:
 
 ${variablesSection}
 
-## How to Use
+### 3. Available Pages
 
-### 1. Copy CSS Variables
-Extract the \`:root { ... }\` block from \`theme.html\` and add it to your global stylesheet:
-\`\`\`css
-/* In your globals.css or main stylesheet */
-:root {
-  /* Paste variables from theme.html */
-}
-\`\`\`
-
-### 2. Reference Component Patterns
-Use \`components.html\` as a reference for styling:
-- Buttons (primary, secondary, ghost)
-- Form inputs and textareas
-- Cards with hover states
-- Badges and alerts
-
-### 3. Use Page Layouts as Templates
-The page HTML files show complete layouts you can adapt:
 ${pagesSection}
 
-## Integration Examples
+## Integration by Framework
 
-### React / Next.js
-\`\`\`css
-/* globals.css */
-:root {
-  /* Paste CSS variables here */
-}
+### Mantine (React)
+
+Map theme.css variables to Mantine theme config:
+
+\`\`\`typescript
+// Extract color values from theme.css and create color tuples
+const primary: MantineColorsTuple = [
+  // 10 shades from --primary-50 to --primary-900
+];
+
+export const theme = createTheme({
+  colors: { primary },
+  primaryColor: 'primary',
+  fontFamily: '...', // from --font-family-base
+});
 \`\`\`
 
+Then reference page mockups when creating components to match styling.
+
+### Plain CSS / CSS Modules
+
+Copy the \`:root { ... }\` block from theme.css to your global stylesheet, then reference the variables.
+
 ### Tailwind CSS
+
+Map variables to Tailwind config:
+
 \`\`\`js
-// tailwind.config.js
 module.exports = {
   theme: {
     extend: {
       colors: {
         primary: {
           50: 'var(--primary-50)',
-          100: 'var(--primary-100)',
-          // ... etc
-          900: 'var(--primary-900)',
+          // ... map all shades
         }
       }
     }
@@ -1467,13 +1493,11 @@ module.exports = {
 }
 \`\`\`
 
-### Vue / Nuxt
-\`\`\`css
-/* assets/css/main.css */
-:root {
-  /* Paste CSS variables here */
-}
-\`\`\`
+## Key Principles
+
+1. **Page mockups are authoritative** - Match the visual design exactly
+2. **Use theme.css variables** - Never hardcode colors, spacing, or typography
+3. **Adapt to your framework** - The mockups show the design, implement using your stack's patterns
 
 ---
 Generated by Orchy Design System
@@ -1546,6 +1570,21 @@ Generated by Orchy Design System
     const hasComponents = fs.existsSync(componentsSource);
     if (hasComponents) {
       fs.copyFileSync(componentsSource, componentsDest);
+    }
+
+    // Clean up old page files before copying new ones
+    // This handles renamed/deleted pages
+    const existingFiles = fs.readdirSync(designFolderPath);
+    const newPageFilenames = new Set(this.session.pages.map(p => p.filename));
+    for (const file of existingFiles) {
+      if (file.endsWith('.html') &&
+          file !== 'theme.html' &&
+          file !== 'components.html' &&
+          !newPageFilenames.has(file)) {
+        const oldFilePath = path.join(designFolderPath, file);
+        fs.unlinkSync(oldFilePath);
+        console.log(`[DesignerAgent] Removed old page file: ${file}`);
+      }
     }
 
     // Copy all page HTML files
@@ -1856,5 +1895,40 @@ Generated by Orchy Design System
    */
   getPageForEditing(pageId: string): string | null {
     return this.getPageHtml(pageId);
+  }
+
+  /**
+   * Rename a page (updates page.name, generates new filename, renames file on disk)
+   */
+  renamePage(pageId: string, newName: string): DesignPage | null {
+    if (!this.session) return null;
+
+    const page = this.session.pages.find(p => p.id === pageId);
+    if (!page) return null;
+
+    const oldFilename = page.filename;
+    const oldPath = page.path;
+
+    // Generate new filename from new name
+    const newFilename = newName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') + '.html';
+
+    // Update page object
+    page.name = newName;
+    page.filename = newFilename;
+
+    // Rename file on disk if path exists
+    if (oldPath && fs.existsSync(oldPath)) {
+      const sessionDir = path.dirname(oldPath);
+      const newPath = path.join(sessionDir, newFilename);
+      fs.renameSync(oldPath, newPath);
+      page.path = newPath;
+      console.log(`[DesignerAgent] Renamed page file: ${oldFilename} -> ${newFilename}`);
+    }
+
+    console.log(`[DesignerAgent] Renamed page: ${page.id} to "${newName}"`);
+    return page;
   }
 }

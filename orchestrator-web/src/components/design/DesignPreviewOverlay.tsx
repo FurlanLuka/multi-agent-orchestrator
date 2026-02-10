@@ -10,7 +10,7 @@ import {
 } from '@mantine/core';
 import { IconX, IconMessageCircle, IconCheck, IconWand } from '@tabler/icons-react';
 import type { ThemeOption, ComponentStyleOption, MockupOption } from '@orchy/types';
-import { TabbedCard, glass, radii } from '../../theme';
+import { TabbedCard, GlassTextInput, glass, radii } from '../../theme';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 
 /**
@@ -21,7 +21,7 @@ interface DesignPreviewOverlayProps {
   opened: boolean;
   type: 'theme' | 'component' | 'mockup';
   options: ThemeOption[] | ComponentStyleOption[] | MockupOption[];
-  onSelect: (index: number) => void;
+  onSelect: (index: number, pageName?: string) => void;
   onRefine: (index: number) => void;
   onBackToDiscovery: () => void;
   onClose: () => void;
@@ -43,12 +43,21 @@ export function DesignPreviewOverlay({
   onClose,
 }: DesignPreviewOverlayProps) {
   const [activeTab, setActiveTab] = useState('0');
+  const [pageName, setPageName] = useState('');
   const { port } = useOrchestrator();
 
   // Reset tab when options change
   useEffect(() => {
     setActiveTab('0');
   }, [options]);
+
+  // Initialize page name from current mockup option name when tab changes
+  useEffect(() => {
+    if (type === 'mockup' && options.length > 0) {
+      const currentOption = options[Number(activeTab)] as MockupOption;
+      setPageName(currentOption?.name || 'New Page');
+    }
+  }, [type, activeTab, options]);
 
   if (!opened || options.length === 0) return null;
 
@@ -122,6 +131,22 @@ export function DesignPreviewOverlay({
           Let me explain more
         </Button>
         <Group gap="sm">
+          {/* Page name input for mockups */}
+          {type === 'mockup' && (
+            <GlassTextInput
+              placeholder="Page name"
+              value={pageName}
+              onChange={(e) => setPageName(e.currentTarget.value)}
+              style={{ width: 200 }}
+              styles={{
+                input: {
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                  color: 'white',
+                },
+              }}
+            />
+          )}
           <Button
             variant="subtle"
             color="gray"
@@ -135,7 +160,7 @@ export function DesignPreviewOverlay({
             variant="filled"
             color="peach"
             leftSection={<IconCheck size={16} />}
-            onClick={() => onSelect(Number(activeTab))}
+            onClick={() => onSelect(Number(activeTab), type === 'mockup' ? pageName : undefined)}
           >
             Select & continue
           </Button>

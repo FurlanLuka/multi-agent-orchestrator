@@ -980,18 +980,40 @@ This will securely collect and set the secret on GitHub.
       const hasDesign = config?.attachedDesign;
 
       if (hasDesign) {
-        // Frontend project with attached design - emphatic instructions
+        // Frontend project with attached design - MANDATORY design analysis
         return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
-1. Read CLAUDE.md and .claude/skills/*.md - summarize project purpose, conventions, patterns
-2. **Read ui_mockup/ folder for design reference:**
-   - Read ui_mockup/theme.css for CSS variables (colors, spacing, typography)
-   - Read ui_mockup/components.html for component visual styles
-   - Read ui_mockup/AGENTS.md for usage instructions
-   - Read page .html files in ui_mockup/ for layout patterns
-   - Understand the visual language: colors, spacing, typography, component styles
-3. Search for code related to: ${feature}
-4. Find similar existing features or patterns we can learn from
-Return: project overview + **summary of design system (colors, spacing, component styles)** + relevant existing code")`;
+
+**STEP 1: MANDATORY DESIGN ANALYSIS (DO THIS FIRST)**
+
+1. Read ui_mockup/AGENTS.md - understand integration instructions
+2. Read ui_mockup/theme.css - List ALL CSS variable names (colors, spacing, typography, effects)
+3. Read ALL ui_mockup/*.html page mockups - These are the MAIN REFERENCE for:
+   - Page layouts and section structure
+   - Component styles (buttons, cards, forms, navigation)
+   - Color and spacing usage in context
+4. Read .claude/skills/design-system.md - Understand how to integrate with the project's framework
+
+**STEP 2: PROJECT CONTEXT**
+
+5. Read CLAUDE.md and other .claude/skills/*.md - project conventions
+6. Search for code related to: ${feature}
+7. Find similar existing features or patterns
+
+**RETURN FORMAT:**
+
+## Design System Summary
+
+### Theme Variables (from theme.css)
+[List CSS variable names by category]
+
+### Page Mockups (MAIN REFERENCE for layouts + component styles)
+[For each page mockup: filename, purpose, key sections, notable component patterns used]
+
+## Project Overview
+[Framework, conventions, how design system integrates]
+
+## Relevant Code for Feature
+[Existing patterns related to ${feature}]")`;
       } else {
         // Non-frontend or no design attached
         return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
@@ -1142,35 +1164,34 @@ Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
    }
    \`\`\`
 
-3. **For UIs - follow the design system + CODE EXAMPLES:**
-   - Reference ui_mockup/ for visual style (colors, spacing, typography)
-   - Use CSS variables defined in ui_mockup/theme.css
-   - Match component styling patterns from ui_mockup/components.html
-   - Read ui_mockup/AGENTS.md for usage instructions
-   - Follow layout patterns from relevant page mockups
-   - Props interface with types
+3. **For UIs - MANDATORY design reference:**
+
+   **REQUIRED: Reference the page mockup that defines the design:**
+   - **Page mockup:** Which ui_mockup/*.html file to follow (contains both layout AND component styles)
+   - **Theme:** Point to ui_mockup/theme.css for color/spacing variables
+   - **Skill:** Reference .claude/skills/design-system.md for framework integration
+
+   **Also include:**
    - State variables needed
    - API calls to make (which endpoints, when)
    - User interactions and their handlers
-   - **Include code snippets** showing component structure and styling
 
-   Example:
-   \`\`\`tsx
-   // LoginForm.tsx
-   interface LoginFormProps {
-     onSuccess: (user: User) => void;
-   }
+   Example task:
+   ## Create Docs Page
 
-   export function LoginForm({ onSuccess }: LoginFormProps) {
-     const [email, setEmail] = useState('');
-     // Use theme colors from ui_mockup/theme.css
-     return (
-       <form style={{ background: 'var(--color-surface)' }}>
-         <TextInput value={email} onChange={setEmail} />
-       </form>
-     );
-   }
-   \`\`\`
+   **Design Reference:**
+   - Follow ui_mockup/docs.html for layout and component styling
+   - Use variables from ui_mockup/theme.css
+   - See .claude/skills/design-system.md for Mantine integration
+
+   **Requirements:**
+   - Sidebar navigation with section links
+   - Main content area with markdown rendering
+   - Match the visual design shown in the mockup exactly
+
+   **Implementation notes:**
+   - Study the mockup's component styles (buttons, cards, navigation)
+   - All colors/spacing must use theme.css variables
 
 4. **Implementation notes:**
    - Libraries to use (e.g., \\"bcrypt with cost factor 10\\")
@@ -1211,27 +1232,57 @@ After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_
   /**
    * Builds the DESIGN REFERENCE section for Stage 2 planning prompt.
    * Only includes projects that have attached designs.
+   * Makes design mockups the AUTHORITATIVE source for UI implementation.
    */
   private buildDesignReferenceSection(): string {
     const projects = this.pendingPlanContext?.projects || [];
+    const projectPaths = this.pendingPlanContext?.projectPaths || {};
     const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
 
     if (projectsWithDesign.length === 0) {
       return '';
     }
 
+    const designDetails = projectsWithDesign.map(p => {
+      const designName = this.projectConfig[p]?.attachedDesign || 'unknown';
+      const projectPath = projectPaths[p] || 'unknown';
+      return `
+### ${p} (Design: ${designName})
+
+**DESIGN FILES:**
+- \`${projectPath}/ui_mockup/theme.css\` - CSS variables (colors, spacing, typography, effects)
+- \`${projectPath}/ui_mockup/AGENTS.md\` - Integration instructions
+- \`${projectPath}/ui_mockup/*.html\` - **PAGE MOCKUPS (MAIN REFERENCE)**
+
+**PAGE MOCKUPS are the authoritative source for:**
+- Page layouts and section structure
+- Component styling (buttons, cards, forms, navigation)
+- Color and spacing usage in context
+
+Read .claude/skills/design-system.md for framework-specific integration.`;
+    }).join('\n');
+
     return `
-## DESIGN REFERENCE
+## DESIGN REFERENCE (AUTHORITATIVE SOURCE)
 
-The following projects have UI mockups in their ui_mockup/ folder:
-${projectsWithDesign.map(p => `- **${p}**: ui_mockup/theme.css (CSS vars), ui_mockup/components.html (component styles), page HTMLs (layouts)`).join('\n')}
+**CRITICAL:** These are NOT optional guides - they are the AUTHORITATIVE source for all UI implementation.
+Every UI component, page, and style MUST match these mockups exactly.
+${designDetails}
 
-**For UI tasks:** Reference these mockups to match the visual style:
-- Use CSS variables from theme.css for colors and spacing
-- Follow component styling patterns from components.html
-- Match the general layout and visual feel from page mockups
+## DESIGN COMPLIANCE REQUIREMENTS
 
-The mockups are a visual guide - adapt them to the project's framework (React/Mantine), don't copy HTML literally.
+1. **Every UI task MUST reference the relevant page mockup:**
+   - "Follow layout and component styles from ui_mockup/landing-page.html"
+   - Page mockups show both layout AND component styling
+
+2. **Use theme.css variables for all styling:**
+   - Colors, spacing, typography, effects must come from theme.css
+   - Never hardcode values that exist as variables
+
+3. **Read the project's design-system.md skill:**
+   - Located at .claude/skills/design-system.md
+   - Contains framework-specific integration instructions
+   - Shows how to map CSS variables to the framework's theme system
 `;
   }
 

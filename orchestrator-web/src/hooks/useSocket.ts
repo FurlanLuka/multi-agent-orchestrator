@@ -1101,6 +1101,12 @@ export function useSocket() {
       setDesignPages(prev => prev.filter(p => p.id !== pageId));
     });
 
+    // Page renamed
+    socket.on('design:page_renamed', ({ page }: { page: { id: string; name: string; filename: string } }) => {
+      console.log('[Design] Page renamed:', page.id, '->', page.name);
+      setDesignPages(prev => prev.map(p => p.id === page.id ? { ...p, name: page.name, filename: page.filename } : p));
+    });
+
     // Page editing (enter refine mode)
     socket.on('design:page_editing', ({ pageId, html }: { pageId: string; html: string }) => {
       console.log('[Design] Editing page:', pageId);
@@ -1641,12 +1647,12 @@ export function useSocket() {
   }, []);
 
   // Select an option from preview (palette, component, or mockup) - confirms and moves to next phase
-  const selectDesignOption = useCallback((index: number) => {
+  const selectDesignOption = useCallback((index: number, pageName?: string) => {
     if (socketRef.current) {
-      console.log('[Design] Selecting option:', index);
+      console.log('[Design] Selecting option:', index, pageName ? `with pageName: ${pageName}` : '');
       setDesignPreview(null);
       setDesignRefine(null);
-      socketRef.current.emit('design:option_selected', { index });
+      socketRef.current.emit('design:option_selected', { index, pageName });
     }
   }, []);
 
@@ -1735,6 +1741,14 @@ export function useSocket() {
     if (socketRef.current) {
       console.log('[Design] Delete page:', pageId);
       socketRef.current.emit('design:delete_page', { pageId });
+    }
+  }, []);
+
+  // Rename a page
+  const renameDesignPage = useCallback((pageId: string, newName: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Rename page:', pageId, '->', newName);
+      socketRef.current.emit('design:rename_page', { pageId, newName });
     }
   }, []);
 
@@ -1957,6 +1971,7 @@ export function useSocket() {
     loadDesignForEditing,
     editDesignPage,
     deleteDesignPage,
+    renameDesignPage,
     // Dev server state
     devServers,
     devServerLogs,
