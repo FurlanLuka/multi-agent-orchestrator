@@ -210,6 +210,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
                     style={{
                       flex: 1,
                       minHeight: 0,
+                      maxHeight: 'calc(100vh - 120px)',
                       overflow: 'hidden',
                       display: 'flex',
                       flexDirection: 'column',

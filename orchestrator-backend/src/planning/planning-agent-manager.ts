@@ -973,76 +973,57 @@ This will securely collect and set the secret on GitHub.
 `;
     }
 
-    // Build explicit explore commands for each project - guidelines + feature-related
-    const exploreCommands = projects.map((p) => {
+    // Filter out workspace for feature planning - workspace explore is only for deployment
+    const featureProjects = projects.filter(p => p !== WORKSPACE_ROOT_PROJECT);
+
+    // Build project descriptions for agent to decide which to explore
+    const projectDescriptions = featureProjects.map((p) => {
       const path = projectPaths[p] || 'unknown';
       const config = this.projectConfig[p];
       const hasDesign = config?.attachedDesign;
 
-      if (hasDesign) {
-        // Frontend project with attached design - MANDATORY design analysis
-        return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
+      let description = `- **${p}**: \`${path}\``;
+      if (hasDesign) description += ' (has UI design mockups)';
 
-**STEP 1: MANDATORY DESIGN ANALYSIS (DO THIS FIRST)**
+      return description;
+    }).join('\n');
 
-1. Read ui_mockup/AGENTS.md - understand integration instructions
-2. Read ui_mockup/theme.css - List ALL CSS variable names (colors, spacing, typography, effects)
-3. Read ALL ui_mockup/*.html page mockups - These are the MAIN REFERENCE for:
-   - Page layouts and section structure
-   - Component styles (buttons, cards, forms, navigation)
-   - Color and spacing usage in context
-4. Read .claude/skills/design-system.md - Understand how to integrate with the project's framework
-
-**STEP 2: PROJECT CONTEXT**
-
-5. Read CLAUDE.md and other .claude/skills/*.md - project conventions
-6. Search for code related to: ${feature}
-7. Find similar existing features or patterns
-
-**RETURN FORMAT:**
-
-## Design System Summary
-
-### Theme Variables (from theme.css)
-[List CSS variable names by category]
-
-### Page Mockups (MAIN REFERENCE for layouts + component styles)
-[For each page mockup: filename, purpose, key sections, notable component patterns used]
-
-## Project Overview
-[Framework, conventions, how design system integrates]
-
-## Relevant Code for Feature
-[Existing patterns related to ${feature}]")`;
-      } else {
-        // Non-frontend or no design attached
-        return `Task(subagent_type="Explore", description="Explore ${p} for feature", prompt="In ${path}:
-1. Read CLAUDE.md and .claude/skills/*.md - summarize project purpose, conventions, patterns
-2. Search for code related to: ${feature}
-3. Find similar existing features or patterns we can learn from
-Return: project overview + relevant existing code for this feature")`;
-      }
-    }).join('\n\n');
+    // Build explore templates for each project type
+    const exploreTemplates = this.buildExploreTemplates(featureProjects, projectPaths, feature);
 
     return `You are a planning agent conducting Stage 1: Feature Refinement.
 
 ## Feature Request
 ${feature}
 
-## Projects
-${projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n')}
+## Available Projects
+${projectDescriptions}
 ${githubSection}
-## STEP 1: EXPLORE PROJECTS + FEATURE CONTEXT (MANDATORY)
+## CRITICAL: YOUR ROLE IN THIS STAGE
 
-Launch Explore agents in parallel - one per project. Each agent explores:
-- Project guidelines (CLAUDE.md, skills)
-- Code related to the requested feature
+You are an ORCHESTRATOR in this stage. Your job is to:
+1. **Analyze which projects this feature actually needs**
+2. Launch Explore sub-agents only for relevant projects
+3. Wait for their results
+4. Use their summaries to ask questions and refine the feature
 
-**Launch ALL of these in a SINGLE message:**
+**DO NOT read files directly yourself.** The Explore agents will read all necessary files
+and return comprehensive summaries. Reading files yourself duplicates their work and
+wastes time. Trust the Explore agents to gather the information you need.
 
-${exploreCommands}
+## STEP 1: ANALYZE & EXPLORE RELEVANT PROJECTS
 
-**DO NOT proceed until you have explored ALL projects.**
+**First, decide which projects this feature actually touches:**
+- UI-only features → frontend only
+- API-only features → backend only
+- Full-stack features → frontend + backend
+- Features mentioning specific pages → focus on those pages
+
+**Then launch Explore agents ONLY for relevant projects:**
+
+${exploreTemplates}
+
+**Skip projects the feature doesn't touch. Wait for Explore agents to complete.**
 
 ## DEPLOYMENT
 Deployment is handled separately via the Deployment tab. If the user asks about
@@ -1052,7 +1033,8 @@ Do NOT include deployment tasks in the feature plan.
 
 ## STEP 2: ASK CLARIFYING QUESTIONS
 
-After exploring, ask 1-5 clarifying questions about PRODUCT requirements:
+After the Explore agents return their summaries, use that information to ask
+1-5 clarifying questions about PRODUCT requirements:
 - What user problem does this solve?
 - What's the expected user flow?
 - Any edge cases or error handling preferences?
@@ -1065,15 +1047,81 @@ Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
 - refinedDescription: 1-2 paragraph summary
 - keyRequirements: Array of user-facing requirements
 
-[PLANNER_STATUS] {"phase": "exploring", "message": "Launching project exploration..."}
+[PLANNER_STATUS] {"phase": "exploring", "message": "Analyzing feature scope..."}
 
-**START NOW: Launch the Explore agents for all projects in a single message.**`;
+**START NOW: Analyze which projects this feature needs, then launch Explore agents for relevant ones only.**`;
+  }
+
+  /**
+   * Builds explore templates for each project type.
+   * Agent uses these templates to explore only the projects relevant to the feature.
+   *
+   * Key optimizations:
+   * - Frontend with design: Read only RELEVANT mockups, not all
+   * - Feature-aware: Focus exploration on what the feature needs
+   * - Agent decides based on exploration if code search is worthwhile
+   */
+  private buildExploreTemplates(
+    projects: string[],
+    projectPaths: Record<string, string>,
+    feature: string
+  ): string {
+    const templates = projects.map((p) => {
+      const path = projectPaths[p] || 'unknown';
+      const config = this.projectConfig[p];
+      const hasDesign = config?.attachedDesign;
+
+      if (hasDesign) {
+        // Frontend project with attached design - feature-aware mockup reading
+        return `### ${p} (Frontend with Design)
+\`\`\`
+Task(subagent_type="Explore", description="Explore ${p}", prompt="In ${path}:
+
+**DESIGN ANALYSIS (feature: ${feature})**
+
+1. Read ui_mockup/AGENTS.md - integration instructions
+2. Read ui_mockup/theme.css - List CSS variable names by category
+3. Read RELEVANT mockups for this feature:
+   - First, list ui_mockup/*.html filenames
+   - Read mockups that match the feature (e.g., 'docs' feature → docs*.html)
+   - Skip unrelated mockups to save time
+4. Read .claude/skills/design-system.md
+
+**PROJECT CONTEXT**
+
+5. Read CLAUDE.md and .claude/skills/*.md
+6. Search for existing code related to: ${feature}
+   - If no relevant code exists, note that this is a new feature
+7. Find similar existing patterns if any
+
+**RETURN:** Theme variables + relevant mockup details + existing code patterns (if any)")
+\`\`\``;
+      } else {
+        // Backend or other project without design
+        return `### ${p} (Backend/Other)
+\`\`\`
+Task(subagent_type="Explore", description="Explore ${p}", prompt="In ${path}:
+1. Read CLAUDE.md and .claude/skills/*.md
+2. Search for existing code related to: ${feature}
+   - If no relevant code exists, note that this is a new feature
+3. Find similar existing patterns if any
+
+**RETURN:** Project overview + relevant existing code for this feature (if any)")
+\`\`\``;
+      }
+    }).join('\n\n');
+
+    return templates;
   }
 
   /**
    * Generates the Stage 2 prompt for Implementation Planning.
    * Called when submit_refined_feature is approved.
-   * Uses Plan tool directly (skips manual technical spec).
+   *
+   * OPTIMIZATION: Main agent generates the plan directly (no Plan sub-agent).
+   * The main agent already has all Stage 1 exploration context, so re-exploring
+   * in a sub-agent would waste ~50% of tool calls. Instead, we instruct the
+   * main agent to use its accumulated context to generate the plan JSON.
    */
   generateExplorationPlanningPrompt(refinedDescription: string, requirements: string[]): string {
     const projects = this.pendingPlanContext?.projects || [];
@@ -1081,6 +1129,9 @@ Call \`mcp__orchestrator-planning__submit_refined_feature\` with:
 
     const projectList = projects.map(p => `- ${p}: ${projectPaths[p]}`).join('\n');
     const requirementsList = requirements.map((r, i) => `${i + 1}. ${r}`).join('\n');
+
+    // Build skill reading instructions for projects with designs
+    const skillReadingSection = this.buildSkillReadingInstructions();
 
     return `## Stage 2: Generate Implementation Plan
 
@@ -1091,50 +1142,37 @@ ${requirementsList}
 
 **Projects:**
 ${projectList}
-
-## YOUR TASK: Call the Plan tool
-
-Use the Task tool with subagent_type="Plan" to generate the implementation plan.
-
-Task(subagent_type="Plan", description="Plan ${refinedDescription.slice(0, 30)}", prompt="
-Create implementation plan for this feature:
-
-**Feature:** ${refinedDescription}
-
-**Requirements:**
-${requirementsList}
-
-**Projects:**
-${projectList}
 ${this.buildDesignReferenceSection()}
-## YOUR STEPS:
+## YOUR TASK: Generate the implementation plan directly
 
-1. EXPLORE each project to understand:
-   - Existing patterns related to this feature
-   - Where new code should be added
-   - API patterns, database models, component structure
-   - How similar features are implemented
-${this.buildSkillReadingInstructions()}
-2. GENERATE implementation plan with tasks for each project
+**IMPORTANT:** You already have all the exploration context from Stage 1.
+Use the information gathered by the Explore agents to generate the plan.
+DO NOT re-explore the projects - use the context you already have.
 
-## OUTPUT FORMAT:
+${skillReadingSection ? `**If you need additional details about project skills/conventions:**
+Read specific skill files only if the Explore agents didn't cover them.
+${skillReadingSection}` : ''}
+
+## PLAN OUTPUT FORMAT:
+
+Generate a JSON plan with this structure:
 
 {
-  \\"feature\\": \\"User Authentication\\",
-  \\"description\\": \\"Login/logout with JWT tokens\\",
-  \\"overview\\": \\"Backend handles auth logic, frontend stores token in localStorage\\",
-  \\"architecture\\": \\"flowchart LR\\\\n    ui[Login Form] --> api[POST /auth/login]\\\\n    api --> db[(Users Table)]\\",
-  \\"tasks\\": [
+  "feature": "User Authentication",
+  "description": "Login/logout with JWT tokens",
+  "overview": "Backend handles auth logic, frontend stores token in localStorage",
+  "architecture": "flowchart LR\\n    ui[Login Form] --> api[POST /auth/login]\\n    api --> db[(Users Table)]",
+  "tasks": [
     {
-      \\"project\\": \\"backend\\",
-      \\"name\\": \\"Create login endpoint\\",
-      \\"task\\": \\"## Create POST /auth/login endpoint\\\\n\\\\n**Files to create:**\\\\n- src/auth/auth.controller.ts\\\\n- src/auth/auth.service.ts\\\\n- src/auth/dto/login.dto.ts\\\\n\\\\n**API Contract:**\\\\n\\\\n### POST /auth/login\\\\n**Request Body:**\\\\n\`\`\`json\\\\n{\\\\n  \\\\\\"email\\\\\\": \\\\\\"string (required, valid email)\\\\\\",\\\\n  \\\\\\"password\\\\\\": \\\\\\"string (required, min 8 chars)\\\\\\"\\\\n}\\\\n\`\`\`\\\\n\\\\n**Success Response (200):**\\\\n\`\`\`json\\\\n{\\\\n  \\\\\\"token\\\\\\": \\\\\\"string (JWT)\\\\\\",\\\\n  \\\\\\"user\\\\\\": {\\\\n    \\\\\\"id\\\\\\": \\\\\\"number\\\\\\",\\\\n    \\\\\\"email\\\\\\": \\\\\\"string\\\\\\",\\\\n    \\\\\\"name\\\\\\": \\\\\\"string\\\\\\"\\\\n  }\\\\n}\\\\n\`\`\`\\\\n\\\\n**Error Responses:**\\\\n- 400: \`{ \\\\\\"message\\\\\\": \\\\\\"Email and password required\\\\\\" }\`\\\\n- 401: \`{ \\\\\\"message\\\\\\": \\\\\\"Invalid credentials\\\\\\" }\`\\\\n\\\\n**Implementation:**\\\\n1. Create LoginDto with class-validator decorators\\\\n2. AuthService.login() - find user by email, verify password with bcrypt\\\\n3. Generate JWT with 24h expiry using @nestjs/jwt\\\\n4. Return token and user (without password)\\"
+      "project": "backend",
+      "name": "Create login endpoint",
+      "task": "## Create POST /auth/login endpoint\\n\\n**Files to create:**\\n- src/auth/auth.controller.ts\\n- src/auth/auth.service.ts\\n- src/auth/dto/login.dto.ts\\n\\n**API Contract:**\\n\\n### POST /auth/login\\n**Request Body:**\\n\`\`\`json\\n{\\n  \\"email\\": \\"string (required, valid email)\\",\\n  \\"password\\": \\"string (required, min 8 chars)\\"\\n}\\n\`\`\`\\n\\n**Success Response (200):**\\n\`\`\`json\\n{\\n  \\"token\\": \\"string (JWT)\\",\\n  \\"user\\": {\\n    \\"id\\": \\"number\\",\\n    \\"email\\": \\"string\\",\\n    \\"name\\": \\"string\\"\\n  }\\n}\\n\`\`\`\\n\\n**Error Responses:**\\n- 400: \`{ \\"message\\": \\"Email and password required\\" }\`\\n- 401: \`{ \\"message\\": \\"Invalid credentials\\" }\`\\n\\n**Implementation:**\\n1. Create LoginDto with class-validator decorators\\n2. AuthService.login() - find user by email, verify password with bcrypt\\n3. Generate JWT with 24h expiry using @nestjs/jwt\\n4. Return token and user (without password)"
     }
   ],
-  \\"testPlan\\": {
-    \\"backend\\": [\\"Login with valid credentials returns token\\", \\"Login with wrong password returns 401\\"]
+  "testPlan": {
+    "backend": ["Login with valid credentials returns token", "Login with wrong password returns 401"]
   },
-  \\"e2eDependencies\\": {}
+  "e2eDependencies": {}
 }
 
 ## TASK REQUIREMENTS:
@@ -1152,9 +1190,9 @@ Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
 
    Example:
    ### POST /users
-   **Request:** \`{ \\"email\\": \\"string (required)\\", \\"name\\": \\"string (optional)\\" }\`
-   **201:** \`{ \\"id\\": 1, \\"email\\": \\"...\\", \\"createdAt\\": \\"...\\" }\`
-   **400:** \`{ \\"message\\": \\"Email already exists\\" }\`
+   **Request:** \`{ "email": "string (required)", "name": "string (optional)" }\`
+   **201:** \`{ "id": 1, "email": "...", "createdAt": "..." }\`
+   **400:** \`{ "message": "Email already exists" }\`
 
    \`\`\`typescript
    // users.controller.ts
@@ -1197,8 +1235,8 @@ Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
    - All colors/spacing must use theme.css variables
 
 4. **Implementation notes:**
-   - Libraries to use (e.g., \\"bcrypt with cost factor 10\\")
-   - Patterns to follow (e.g., \\"use existing UserService pattern from src/users/\\")
+   - Libraries to use (e.g., "bcrypt with cost factor 10")
+   - Patterns to follow (e.g., "use existing UserService pattern from src/users/")
    - Edge cases to handle
 
 5. **For secrets/credentials:** If the task requires API keys, secrets, or credentials:
@@ -1223,13 +1261,14 @@ ${this.buildUIImplementationOrderSection()}
   - CI/CD configurations
   - Root-level configs (turbo.json, root package.json scripts)
   - DO NOT use ${WORKSPACE_ROOT_PROJECT} for project code changes or E2E tests
-")
 
-After the Plan tool returns the JSON, call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the plan.
+## FINAL STEP:
+
+After generating the plan JSON, call \`mcp__orchestrator-planning__submit_plan_for_approval\` with the plan.
 
 [PLANNER_STATUS] {"phase": "planning", "message": "Generating implementation plan..."}
 
-**Call the Plan tool now.**`;
+**Generate the plan now using your exploration context, then submit it for approval.**`;
   }
 
   /**
