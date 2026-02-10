@@ -1431,6 +1431,41 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       }
     });
 
+    // Generate a component catalog for a page (triggers agent via pending input)
+    socket.on('design:generate_catalog', ({ pageId }: { pageId: string }) => {
+      console.log(`[UIServer] Generate catalog requested for page: ${pageId}`);
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return;
+
+      const page = designerAgent.getPage(pageId);
+      if (!page) return;
+
+      // Resolve the pending request_user_input with a system instruction
+      const pendingInputs = (io as any).pendingDesignerInputs as Map<string, { resolve: (msg: string) => void }>;
+      if (pendingInputs && pendingInputs.size > 0) {
+        const [key, pending] = Array.from(pendingInputs.entries()).pop()!;
+        pending.resolve(`[SYSTEM: Generate a component catalog for the page "${page.name}". Read the page HTML, extract all data-component elements and their oc-* CSS, and create a clean catalog document. Write it to the session directory as "${page.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-components.html", then call mcp__designer__show_catalog_preview with pageId "${pageId}" and the catalog filename. After that, respond conversationally and call mcp__designer__request_user_input() so the user can continue.]`);
+        pendingInputs.delete(key);
+      }
+    });
+
+    // View an existing catalog for a page
+    socket.on('design:view_catalog', ({ pageId }: { pageId: string }) => {
+      console.log(`[UIServer] View catalog requested for page: ${pageId}`);
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return;
+
+      const catalogHtml = designerAgent.getPageCatalogHtml(pageId);
+      const page = designerAgent.getPage(pageId);
+      if (catalogHtml && page) {
+        socket.emit('design:show_catalog', {
+          pageId,
+          catalogName: page.catalogFilename || 'Component Catalog',
+          catalogHtml,
+        });
+      }
+    });
+
     // Delete a page from the current design session
     socket.on('design:delete_page', ({ pageId }: { pageId: string }) => {
       console.log(`[UIServer] Deleting page: ${pageId}`);
@@ -2381,6 +2416,41 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     }
 
     res.send(JSON.stringify({ html }));
+  });
+
+  // Designer: show catalog preview (called by MCP tool after agent writes catalog)
+  app.post('/api/designer/show-catalog-preview', async (req: Request, res: Response) => {
+    const { sessionId, pageId, catalogName } = req.body;
+
+    console.log(`[UIServer] Show catalog preview for page ${pageId}: ${catalogName}`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    // Update the page's catalogFilename
+    const updatedPage = designerAgent.updatePageCatalog(pageId, catalogName);
+    if (!updatedPage) {
+      res.status(404).json({ error: 'Page not found' });
+      return;
+    }
+
+    // Read the catalog HTML
+    const catalogHtml = designerAgent.getPageCatalogHtml(pageId);
+    if (!catalogHtml) {
+      res.status(404).json({ error: 'Catalog file not found' });
+      return;
+    }
+
+    // Emit to frontend to show the catalog preview
+    io.emit('design:show_catalog', { pageId, catalogName, catalogHtml });
+
+    // Also emit catalog_generated so frontend updates the page's catalogFilename
+    io.emit('design:catalog_generated', { pageId, catalogFilename: catalogName });
+
+    res.json({ status: 'ok' });
   });
 
   // Designer: save mockup draft (for performance optimization)

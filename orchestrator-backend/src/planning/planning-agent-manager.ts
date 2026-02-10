@@ -1114,7 +1114,7 @@ ${this.buildDesignReferenceSection()}
    - Where new code should be added
    - API patterns, database models, component structure
    - How similar features are implemented
-
+${this.buildSkillReadingInstructions()}
 2. GENERATE implementation plan with tasks for each project
 
 ## OUTPUT FORMAT:
@@ -1394,6 +1394,40 @@ interface StatusBadgeProps {
 - This order ensures shared components exist before pages use them
 - API integration is last so UI can be visually validated first
 - Framework-specific details come from .claude/skills/design-system.md
+`;
+  }
+
+  /**
+   * Builds explicit skill-reading instructions for the Plan agent.
+   * Ensures the Plan agent actually reads design-system.md and other skills
+   * before generating tasks, so framework-specific details are incorporated.
+   */
+  private buildSkillReadingInstructions(): string {
+    const projects = this.pendingPlanContext?.projects || [];
+    const projectPaths = this.pendingPlanContext?.projectPaths || {};
+    const projectsWithDesign = projects.filter(p => this.projectConfig[p]?.attachedDesign);
+
+    if (projectsWithDesign.length === 0) {
+      return '';
+    }
+
+    const readInstructions = projectsWithDesign.map(p => {
+      const projectPath = projectPaths[p] || 'unknown';
+      return `   - ${p}: READ \`${projectPath}/.claude/skills/design-system.md\` to understand:
+     * Which UI framework is used (Mantine, MUI, Chakra, Tailwind, etc.)
+     * How to map theme.css variables to framework theme tokens
+     * Component patterns and conventions for this project
+     * Layout primitives and styling approach`;
+    }).join('\n');
+
+    return `
+1b. **MANDATORY: READ UI FRAMEWORK SKILLS** (for projects with designs):
+${readInstructions}
+
+   **You MUST read these skills BEFORE generating UI tasks.** The skill files contain:
+   - The exact UI framework/library the project uses
+   - How to translate CSS variables to framework theme
+   - Component patterns that UI tasks must follow
 `;
   }
 

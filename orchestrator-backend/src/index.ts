@@ -106,7 +106,7 @@ console.log(`argv: ${process.argv.join(' ')}`);
 console.log(`HOME: ${os.homedir()}`);
 console.log(`SHELL: ${process.env.SHELL}`);
 
-import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig, WORKSPACE_ROOT_PROJECT, GitHubConfig } from '@orchy/types';
+import { Config, Plan, LogEntry, TaskDefinition, StreamingMessage, ContentBlock, StuckState, RequestFlow, FlowStep, TaskCompleteRequest, TaskCompleteResponse, WorkspaceProjectConfig, ProjectConfig, WORKSPACE_ROOT_PROJECT, GitHubConfig, TaskStatus } from '@orchy/types';
 import { SessionManager } from './core/session-manager';
 import { SessionStore } from './core/session-store';
 import { ProcessManager } from './core/process-manager';
@@ -2921,7 +2921,13 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         statusMonitor.restoreStatuses(fullData.session.statuses);
 
         // Restore task states (important: preserve completed task statuses)
-        statusMonitor.restoreTaskStates(fullData.session.taskStates || []);
+        // Reset failed/working tasks back to pending so they re-run
+        const resetTaskStates = (fullData.session.taskStates || []).map(t =>
+          t.status === 'failed' || t.status === 'working' || t.status === 'fixing'
+            ? { ...t, status: 'pending' as TaskStatus }
+            : t
+        );
+        statusMonitor.restoreTaskStates(resetTaskStates);
 
         // Initialize log aggregator for each project (starts fresh, no old logs)
         for (const project of fullData.session.projects) {

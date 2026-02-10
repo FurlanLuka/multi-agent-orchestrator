@@ -231,6 +231,25 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
         // Design Completion
         // ═══════════════════════════════════════════════════════════════
         {
+          name: 'show_catalog_preview',
+          description: 'Tell the frontend to show a catalog preview for a page. Call this after writing a component catalog HTML file for a specific page.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              pageId: {
+                type: 'string',
+                description: 'The page ID to show the catalog for'
+              },
+              catalogName: {
+                type: 'string',
+                description: 'The catalog filename (e.g., "landing-page-components.html")'
+              }
+            },
+            required: ['pageId', 'catalogName']
+          }
+        },
+
+        {
           name: 'save_design_folder',
           description: 'Save the completed design to a named folder in the designs library. Copies all artifacts (theme.css, pages) and generates AGENTS.md and components.html catalog.',
           inputSchema: {
@@ -348,6 +367,22 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
   // Design Completion
   // ═══════════════════════════════════════════════════════════════
 
+  else if (method === 'tools/call' && params?.name === 'show_catalog_preview') {
+    const { pageId, catalogName } = params.arguments || {};
+    if (!pageId || !catalogName) {
+      respond(id, {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing required fields: pageId, catalogName' }) }]
+      });
+      return;
+    }
+    const result = await callDesignerEndpoint('/api/designer/show-catalog-preview', {
+      sessionId: SESSION_ID,
+      pageId,
+      catalogName
+    });
+    respond(id, { content: [{ type: 'text', text: result }] });
+  }
+
   else if (method === 'tools/call' && params?.name === 'save_design_folder') {
     const { name } = params.arguments || {};
     if (!name) {
@@ -368,7 +403,7 @@ When refine is set, use Read(htmlPath) to get current HTML, ask user what to cha
     const toolName = params?.name || 'unknown';
     console.error(`[MCP] Unknown tool called: ${toolName}`);
     respond(id, {
-      content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${toolName}. Available tools: request_user_input, show_category_selector, start_theme_generation, show_theme_preview, start_mockup_generation, show_mockup_preview, show_pages_panel, get_pages, save_design_folder` }) }]
+      content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${toolName}. Available tools: request_user_input, show_category_selector, start_theme_generation, show_theme_preview, start_mockup_generation, show_mockup_preview, show_pages_panel, get_pages, show_catalog_preview, save_design_folder` }) }]
     });
   }
   else if (method === 'notifications/initialized') {

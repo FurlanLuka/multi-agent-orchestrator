@@ -22,6 +22,7 @@ export interface DesignPage {
   name: string;            // Display name (e.g., "Landing Page", "About")
   filename: string;        // File name (e.g., "landing-page.html", "about.html")
   path?: string;           // Full path to saved file
+  catalogFilename?: string; // Component catalog file (e.g., "landing-page-components.html")
   createdAt: number;       // Timestamp
 }
 

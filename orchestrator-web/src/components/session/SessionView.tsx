@@ -172,7 +172,7 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
   }, [startNewSession, navigateToWorkspace]);
 
   return (
-    <Box style={{ height: '100vh', overflow: 'hidden' }}>
+    <Box style={{ minHeight: '100vh' }}>
       <Container size="100%" py="md" h="100%">
         <Stack gap="md" h="100%">
           {/* Simple Header Row */}

@@ -13,8 +13,10 @@ import {
   Alert,
   Loader,
   Button,
+  Menu,
+  Tooltip,
 } from '@mantine/core';
-import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile, IconPencil, IconTrash } from '@tabler/icons-react';
+import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile, IconPencil, IconTrash, IconBook, IconX, IconEye } from '@tabler/icons-react';
 import type { DesignPhase, DesignCategory } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextarea, GlassTextInput, glass, radii } from '../theme';
 import { DesignPreviewOverlay } from '../components/design/DesignPreviewOverlay';
@@ -78,9 +80,16 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
     submitDesignFeedback,
     finishAddingPages,
     loadDesignForEditing,
+    viewDesignPage,
     editDesignPage,
     deleteDesignPage,
     renameDesignPage,
+    catalogPreview,
+    generatePageCatalog,
+    viewPageCatalog,
+    closeCatalogPreview,
+    pagePreview,
+    closePagePreview,
   } = useOrchestrator();
 
   const effectivePort = port ?? (window as unknown as { __ORCHESTRATOR_PORT__?: number }).__ORCHESTRATOR_PORT__ ?? 3456;
@@ -725,12 +734,52 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                       )}
                     </Group>
                     <Group gap={4}>
-                      <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => editDesignPage(page.id)}>
-                        <IconPencil size={12} />
-                      </ActionIcon>
-                      <ActionIcon variant="subtle" color="red" size="sm" onClick={() => deleteDesignPage(page.id)}>
-                        <IconTrash size={12} />
-                      </ActionIcon>
+                      <Tooltip label="View page" withArrow position="top">
+                        <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => viewDesignPage(page.id)}>
+                          <IconEye size={12} />
+                        </ActionIcon>
+                      </Tooltip>
+                      {page.catalogFilename ? (
+                        <Menu shadow="md" width={140} position="bottom-end">
+                          <Menu.Target>
+                            <Tooltip label="Component catalog" withArrow position="top">
+                              <ActionIcon variant="subtle" color="peach" size="sm">
+                                <IconBook size={12} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Item
+                              leftSection={<IconBook size={14} />}
+                              onClick={() => viewPageCatalog(page.id)}
+                            >
+                              View
+                            </Menu.Item>
+                            <Menu.Item
+                              leftSection={<IconSparkles size={14} />}
+                              onClick={() => generatePageCatalog(page.id)}
+                            >
+                              Regenerate
+                            </Menu.Item>
+                          </Menu.Dropdown>
+                        </Menu>
+                      ) : (
+                        <Tooltip label="Generate catalog" withArrow position="top">
+                          <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => generatePageCatalog(page.id)}>
+                            <IconBook size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                      <Tooltip label="Edit page" withArrow position="top">
+                        <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => editDesignPage(page.id)}>
+                          <IconPencil size={12} />
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Delete page" withArrow position="top">
+                        <ActionIcon variant="subtle" color="red" size="sm" onClick={() => deleteDesignPage(page.id)}>
+                          <IconTrash size={12} />
+                        </ActionIcon>
+                      </Tooltip>
                     </Group>
                   </Group>
                 ))}
@@ -768,6 +817,115 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
         onBackToDiscovery={() => submitDesignFeedback('I want to explain more about what I have in mind before you generate new mockups.')}
         onClose={() => submitDesignFeedback('I want to go back to chat and explain what I have in mind')}
       />
+
+      {/* Page Preview Overlay */}
+      {pagePreview && (
+        <Box
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Group
+            justify="space-between"
+            px="lg"
+            py="sm"
+            style={{
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.3)',
+            }}
+          >
+            <Group gap="sm">
+              <IconFile size={18} color="var(--mantine-color-peach-5)" />
+              <Text fw={600} c="white" size="sm">
+                {pagePreview.page.name}
+              </Text>
+            </Group>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="lg"
+              onClick={closePagePreview}
+            >
+              <IconX size={18} color="white" />
+            </ActionIcon>
+          </Group>
+          <Box style={{ flex: 1, padding: 16 }}>
+            <iframe
+              srcDoc={pagePreview.html}
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                borderRadius: 8,
+                background: 'white',
+              }}
+              title={`${pagePreview.page.name} Preview`}
+            />
+          </Box>
+        </Box>
+      )}
+
+      {/* Catalog Preview Overlay */}
+      {catalogPreview && (
+        <Box
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Header */}
+          <Group
+            justify="space-between"
+            px="lg"
+            py="sm"
+            style={{
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.3)',
+            }}
+          >
+            <Group gap="sm">
+              <IconBook size={18} color="var(--mantine-color-peach-5)" />
+              <Text fw={600} c="white" size="sm">
+                {catalogPreview.catalogName}
+              </Text>
+            </Group>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="lg"
+              onClick={closeCatalogPreview}
+            >
+              <IconX size={18} color="white" />
+            </ActionIcon>
+          </Group>
+
+          {/* Body */}
+          <Box style={{ flex: 1, padding: 16 }}>
+            <iframe
+              srcDoc={catalogPreview.catalogHtml}
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                borderRadius: 8,
+                background: 'white',
+              }}
+              title="Component Catalog Preview"
+            />
+          </Box>
+        </Box>
+      )}
     </>
   );
 }

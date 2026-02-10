@@ -225,9 +225,21 @@ export function useSocket() {
     id: string;
     name: string;
     filename: string;
+    catalogFilename?: string;
   }>>([]);
   // Ref to designPages for event handlers
-  const designPagesRef = useRef<Array<{ id: string; name: string; filename: string }>>([]);
+  const designPagesRef = useRef<Array<{ id: string; name: string; filename: string; catalogFilename?: string }>>([]);
+  // Catalog preview overlay state
+  const [catalogPreview, setCatalogPreview] = useState<{
+    pageId: string;
+    catalogName: string;
+    catalogHtml: string;
+  } | null>(null);
+  // Page preview overlay state
+  const [pagePreview, setPagePreview] = useState<{
+    page: { id: string; name: string; filename: string };
+    html: string;
+  } | null>(null);
   // Track editing design name (prefixed with _ to indicate it's for future use)
   const [_editingDesignName, setEditingDesignName] = useState<string | null>(null);
 
@@ -1106,6 +1118,24 @@ export function useSocket() {
       setDesignPages(prev => prev.map(p => p.id === page.id ? { ...p, name: page.name, filename: page.filename } : p));
     });
 
+    // Catalog generated for a page (update page's catalogFilename)
+    socket.on('design:catalog_generated', ({ pageId, catalogFilename }: { pageId: string; catalogFilename: string }) => {
+      console.log('[Design] Catalog generated for page:', pageId, catalogFilename);
+      setDesignPages(prev => prev.map(p => p.id === pageId ? { ...p, catalogFilename } : p));
+    });
+
+    // Show catalog preview overlay
+    socket.on('design:show_catalog', ({ pageId, catalogName, catalogHtml }: { pageId: string; catalogName: string; catalogHtml: string }) => {
+      console.log('[Design] Show catalog preview for page:', pageId);
+      setCatalogPreview({ pageId, catalogName, catalogHtml });
+    });
+
+    // Show page preview modal
+    socket.on('design:show_page_modal', ({ page, html }: { page: { id: string; name: string; filename: string }; html: string }) => {
+      console.log('[Design] Show page preview:', page.name);
+      setPagePreview({ page, html });
+    });
+
     // Page editing (enter refine mode)
     socket.on('design:page_editing', ({ pageId, html }: { pageId: string; html: string }) => {
       console.log('[Design] Editing page:', pageId);
@@ -1727,6 +1757,14 @@ export function useSocket() {
     }
   }, []);
 
+  // View a page (open page modal)
+  const viewDesignPage = useCallback((pageId: string) => {
+    if (socketRef.current) {
+      console.log('[Design] View page:', pageId);
+      socketRef.current.emit('design:view_page', { pageId });
+    }
+  }, []);
+
   // Edit a page (enter refine mode)
   const editDesignPage = useCallback((pageId: string) => {
     if (socketRef.current) {
@@ -1749,6 +1787,32 @@ export function useSocket() {
       console.log('[Design] Rename page:', pageId, '->', newName);
       socketRef.current.emit('design:rename_page', { pageId, newName });
     }
+  }, []);
+
+  // Generate a component catalog for a page
+  const generatePageCatalog = useCallback((pageId: string) => {
+    if (socketRef.current) {
+      console.log('[Design] Generate catalog for page:', pageId);
+      socketRef.current.emit('design:generate_catalog', { pageId });
+    }
+  }, []);
+
+  // View an existing catalog for a page
+  const viewPageCatalog = useCallback((pageId: string) => {
+    if (socketRef.current) {
+      console.log('[Design] View catalog for page:', pageId);
+      socketRef.current.emit('design:view_catalog', { pageId });
+    }
+  }, []);
+
+  // Close the catalog preview overlay
+  const closeCatalogPreview = useCallback(() => {
+    setCatalogPreview(null);
+  }, []);
+
+  // Close the page preview overlay
+  const closePagePreview = useCallback(() => {
+    setPagePreview(null);
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
@@ -1968,9 +2032,16 @@ export function useSocket() {
     clearDesignRefine,
     finishAddingPages,
     loadDesignForEditing,
+    viewDesignPage,
     editDesignPage,
     deleteDesignPage,
     renameDesignPage,
+    catalogPreview,
+    generatePageCatalog,
+    viewPageCatalog,
+    closeCatalogPreview,
+    pagePreview,
+    closePagePreview,
     // Dev server state
     devServers,
     devServerLogs,

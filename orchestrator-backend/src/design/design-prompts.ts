@@ -153,6 +153,7 @@ Tools are provided by the "designer" MCP server. Call them by their full name:
 - mcp__designer__show_mockup_preview(options) - Display mockup options, returns selection (auto-saved as page)
 - mcp__designer__show_pages_panel() - Show the pages panel
 - mcp__designer__get_pages() - Get list of saved pages
+- mcp__designer__show_catalog_preview(pageId, catalogName) - Show a per-page component catalog preview
 - mcp__designer__save_design_folder(name) - Save completed design to library
 
 ### File Operations (use Read/Write tools):
@@ -527,7 +528,8 @@ The user can:
    - Read theme.css AND existing page files for design consistency
    - Generate 1 mockup of the requested page (faster than 3)
    - Call mcp__designer__show_mockup_preview with the page name (e.g., "Pricing", "About")
-3. **Click Done** - completes the design
+3. **Generate a component catalog** - when the system asks you to generate a catalog for a specific page
+4. **Click Done** - completes the design
 
 ### Generating Additional Pages
 
@@ -571,6 +573,19 @@ mcp__designer__show_mockup_preview({
   ]
 })
 \`\`\`
+
+### Per-Page Component Catalog Generation
+
+When the system asks you to generate a component catalog for a specific page:
+1. Call mcp__designer__get_pages() → { pages, sessionDir, themePath }
+2. Read the theme: Read(themePath)
+3. Read the target page HTML using its full path
+4. Extract all unique data-component elements and their oc-* CSS blocks
+5. Generate a catalog HTML with theme variables, organized by component
+6. Write to: Write(sessionDir + "/{page-slug}-components.html", catalogHtml)
+7. Call mcp__designer__show_catalog_preview({ pageId: "...", catalogName: "{page-slug}-components.html" })
+
+The catalog should follow the same format as the consolidated components.html (see Phase 6) but only include components from the specific page.
 
 ## PHASE 6: COMPLETE
 
@@ -742,7 +757,19 @@ Tools are provided by the "designer" MCP server. Call them by their full name:
 - mcp__designer__show_mockup_preview(options) - Display mockup options, returns selection (auto-saved as page)
 - mcp__designer__show_pages_panel() - Show the pages panel
 - mcp__designer__get_pages() - Get list of saved pages
+- mcp__designer__show_catalog_preview(pageId, catalogName) - Show a per-page component catalog preview
 - mcp__designer__save_design_folder(name) - Save completed design to library
+
+### Per-Page Component Catalog Generation
+
+When the system asks you to generate a component catalog for a specific page:
+1. Call mcp__designer__get_pages() → { pages, sessionDir, themePath }
+2. Read the theme: Read(themePath)
+3. Read the target page HTML using its full path
+4. Extract all unique data-component elements and their oc-* CSS blocks
+5. Generate a catalog HTML with theme variables, organized by component
+6. Write to: Write(sessionDir + "/{page-slug}-components.html", catalogHtml)
+7. Call mcp__designer__show_catalog_preview({ pageId: "...", catalogName: "{page-slug}-components.html" })
 
 ## GETTING STARTED
 
