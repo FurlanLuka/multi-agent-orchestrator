@@ -1183,10 +1183,13 @@ Each task MUST include implementation-ready detail WITH CODE EXAMPLES:
    - Follow ui_mockup/docs.html for layout and component styling
    - Use variables from ui_mockup/theme.css
    - See .claude/skills/design-system.md for Mantine integration
+   - Follow project's page structure and component placement skills
 
    **Requirements:**
-   - Sidebar navigation with section links
-   - Main content area with markdown rendering
+   - DocsPage.tsx composes sections only — no inline section definitions
+   - DocsSidebarSection — sidebar navigation with section links
+   - DocsContentSection — main content area with markdown rendering
+   - Domain components (DocsSidebar, DocsHeader) stay in features/docs/
    - Match the visual design shown in the mockup exactly
 
    **Implementation notes:**
@@ -1311,20 +1314,24 @@ When implementing UI from design mockups, generate tasks in this EXACT order:
 - Map CSS custom properties to framework theme tokens
 
 ### 2. Shared Components (SECOND)
+- **Follow the project's shared-components skill if it exists** — it defines what belongs in shared-components/ vs features/
 - Read ui_mockup/components.html for the full component catalog
 - Find components by \`data-component\` attributes and \`oc-*\` CSS classes
 - Extract CSS from \`/* === COMPONENT: {id} === */\` markers
-- Create in shared-components/ with consistent styling
+- Only place truly generic, domain-agnostic UI primitives in shared-components/
+- Domain-specific components belong in their feature folder
 - **Each reusable component = one task**
-- Focus on components that appear in multiple pages
 
 ### 3. Feature Structure (THIRD)
+- **Follow the project's page/feature skill if it exists** — it defines folder structure and composition rules
 - Create feature folders: src/features/<name>/
 - Identify feature-specific components from mockups
 - Build components that are only used within one feature
+- Domain-specific components stay in their feature folder, even if shared with related features
 
 ### 4. Pages (FOURTH)
-- Pages are composition only - arrange components from steps 2-3
+- Pages are composition only — they import and arrange child components, never define UI inline
+- Each visual section should be its own component file — the page only composes them
 - Reference which mockup file to follow
 - **Do NOT include API integration in page tasks**
 - Focus on layout, navigation, and static structure
@@ -1375,7 +1382,7 @@ interface StatusBadgeProps {
 {
   "project": "frontend",
   "name": "Create StatusBadge shared component",
-  "task": "## shared-components/StatusBadge.tsx\\n\\n**Design source:** \`data-component=\\"badge\\"\` with \`.oc-badge\` CSS from components.html\\n\\nUsed in: users page, tasks page\\n\\n**Props:**\\n\`\`\`tsx\\ninterface StatusBadgeProps {\\n  status: 'active' | 'inactive' | 'pending';\\n  size?: 'sm' | 'md';\\n}\\n\`\`\`\\n\\n**Implementation:**\\nSee .claude/skills/design-system.md for the UI framework.\\nUse the framework's Badge component with colors from .oc-badge--success, .oc-badge--neutral, .oc-badge--warning"
+  "task": "## shared-components/StatusBadge.tsx\\n\\n**Placement:** Generic UI primitive used by 2+ unrelated features (users, tasks). Follows project's shared-components rules.\\n\\n**Design source:** \`data-component=\\"badge\\"\` with \`.oc-badge\` CSS from components.html\\n\\nUsed in: users page, tasks page\\n\\n**Props:**\\n\`\`\`tsx\\ninterface StatusBadgeProps {\\n  status: 'active' | 'inactive' | 'pending';\\n  size?: 'sm' | 'md';\\n}\\n\`\`\`\\n\\n**Implementation:**\\nSee .claude/skills/design-system.md for the UI framework.\\nUse the framework's Badge component with colors from .oc-badge--success, .oc-badge--neutral, .oc-badge--warning"
 }
 \`\`\`
 
@@ -1384,7 +1391,7 @@ interface StatusBadgeProps {
 {
   "project": "frontend",
   "name": "Create UsersPage layout",
-  "task": "## features/users/UsersPage.tsx\\n\\n**Design source:** ui_mockup/users.html\\n- Use \`data-section\` attributes for layout structure\\n- Match components from \`data-component\` attributes\\n\\n**Layout:**\\n- Container with page title and action button in header row\\n- UsersTable component below\\n- Use framework layout primitives (see design-system.md)\\n\\n**Note:** No API calls here - data fetching is in integration step"
+  "task": "## features/users/UsersPage.tsx\\n\\n**Design source:** ui_mockup/users.html\\n- Follow project's page structure skill for composition rules\\n- Use \`data-section\` attributes for layout structure\\n- Match components from \`data-component\` attributes\\n\\n**Layout (composition only — page imports sections):**\\n- UsersHeaderSection — page title + action button\\n- UsersTableSection — data table\\n- Use framework layout primitives (see design-system.md)\\n\\n**Note:** No API calls here - data fetching is in integration step"
 }
 \`\`\`
 
@@ -1417,17 +1424,22 @@ interface StatusBadgeProps {
      * Which UI framework is used (Mantine, MUI, Chakra, Tailwind, etc.)
      * How to map theme.css variables to framework theme tokens
      * Component patterns and conventions for this project
-     * Layout primitives and styling approach`;
+     * Layout primitives and styling approach
+   - ${p}: READ ALL other \`${projectPath}/.claude/skills/*.md\` files — they contain project-specific rules for page structure, component placement, shared components, etc. Follow these rules when generating tasks.`;
     }).join('\n');
 
     return `
 1b. **MANDATORY: READ UI FRAMEWORK SKILLS** (for projects with designs):
 ${readInstructions}
 
-   **You MUST read these skills BEFORE generating UI tasks.** The skill files contain:
+   **You MUST read ALL skill files BEFORE generating UI tasks.** The skill files contain:
    - The exact UI framework/library the project uses
    - How to translate CSS variables to framework theme
    - Component patterns that UI tasks must follow
+   - Page structure and composition rules
+   - Component placement rules (what goes where)
+
+   **Generated tasks MUST follow the project's skill file rules.** Do not contradict them.
 `;
   }
 

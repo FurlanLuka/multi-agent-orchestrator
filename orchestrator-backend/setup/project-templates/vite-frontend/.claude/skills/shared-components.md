@@ -1,37 +1,88 @@
 ---
 name: shared-components
-description: Create reusable UI components in shared-components/. Use when building UI that's used across multiple features.
+description: Create generic UI primitives in shared-components/. Use ONLY for components reusable across unrelated features (buttons, cards, badges).
 ---
 
 # Shared Components
 
-Reusable UI components with consistent styling.
+Generic UI primitives with consistent styling — shared across **unrelated** features.
+
+## What Belongs
+
+Only generic, domain-agnostic UI primitives. Examples (not exhaustive — any component that passes all 3 conditions in "When to Create" qualifies):
+
+- `Button`, `IconButton` — styled action triggers
+- `Card`, `InfoCard`, `StatCard` — content containers
+- `Badge`, `StatusBadge`, `Tag` — labels and indicators
+- `Input`, `SearchInput`, `Select` — form controls beyond Mantine defaults
+- `DataTable`, `SortableTable` — table components
+- `EmptyState`, `LoadingState`, `ErrorState` — state placeholders
+- `ConfirmationModal`, `AlertDialog` — generic dialogs
+- `Avatar`, `Tooltip`, `Breadcrumb` — utility UI elements
+- `PageHeader`, `SectionHeader` — generic layout headers
+
+**Rule**: If you can imagine the component in a completely different project with zero changes, it belongs here.
+
+## What Does NOT Belong
+
+Domain-specific components — even if used by multiple features. Examples (not exhaustive — any component that fails the 3-condition test does not belong):
+
+- `DocsSidebar`, `DocsHeader`, `DocsBreadcrumb` — docs domain
+- `UserCard`, `UserAvatar` — user domain
+- `OperationDetailsContent`, `MachineStatusCard` — operations domain
+- `OrderSummaryCard`, `CartItemRow` — ecommerce domain
+- `ChatMessageBubble`, `ConversationList` — messaging domain
+
+**Rule**: If the component name contains a feature or domain name, it almost certainly does **NOT** belong in `shared-components/`. It belongs in `features/<domain>/`. Always apply the 3-condition test from "When to Create" — the lists above are examples to illustrate the pattern, not a closed set.
 
 ## When to Create
 
-Create in `shared-components/` when:
-- Component is used by 2+ features
-- Has specific styling beyond Mantine defaults (e.g., styled Button, Card)
-- Combines multiple Mantine components into a reusable unit
+Create in `shared-components/` when **ALL 3** conditions are true:
 
-Keep in `features/<name>/` when:
-- Only used within one feature
-- Feature-specific styling
+1. **Used by 2+ unrelated features** — docs and docs-admin are *related* (doesn't count); docs and settings are *unrelated* (counts)
+2. **Generic UI primitive** — has zero domain knowledge, accepts generic props like `title`, `description`, `onClick`
+3. **Could exist in any project** — the component makes sense without any specific business context
+
+If any condition is false, the component belongs in a feature folder.
+
+## Related Features Pattern
+
+When related features (e.g., `docs` + `docs-admin`) share components, those components live in the **primary** feature folder — not in `shared-components/`. The secondary feature imports via relative path.
+
+```
+features/docs/
+├── DocsPage.tsx
+├── DocsSidebar.tsx         # shared with docs-admin — lives here
+├── DocsHeader.tsx          # shared with docs-admin — lives here
+├── DocsBreadcrumb.tsx      # docs only
+features/docs-admin/
+├── DocsAdminPage.tsx
+├── DocsTreeNav.tsx         # docs-admin only
+├── DocsEditorPanel.tsx     # imports DocsSidebar from ../docs/DocsSidebar
+```
+
+Import pattern for related features:
+```tsx
+// In features/docs-admin/DocsAdminPage.tsx
+import { DocsSidebar } from '../docs/DocsSidebar';
+```
 
 ## Structure
 
 ```
 shared-components/
 ├── index.ts              # Barrel export
-└── <Component>.tsx       # Each component
+└── <Component>.tsx       # Each component — one file per component
 ```
 
 ## Conventions
 
 1. **Export from index.ts** for clean imports
 2. **TypeScript interfaces** for all props
-3. **Use Mantine props** for styling - don't create CSS
-4. **Keep focused** - one responsibility per component
+3. **Use Mantine props** for styling — don't create CSS
+4. **Styles always inline** — write `style` props directly on elements, never extract to a `const styles` object. If the same style repeats, that's a sign the styled element should be its own shared component.
+5. **Keep focused** — one responsibility per component
+6. **No feature imports** — shared-components must NOT import from `features/`
 
 ## Import Pattern
 
