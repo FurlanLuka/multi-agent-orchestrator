@@ -38,14 +38,12 @@ Orchy starts a local server (default port: 3456) and automatically opens the web
 | `--no-browser` | Start without opening the browser |
 | `--help` | Show help |
 
-You can also set the port via the `ORCHESTRATOR_PORT` environment variable. See [CLI Reference](cli-reference.md) for all options.
+You can also set the port via the `ORCHESTRATOR_PORT` environment variable.
+
+Orchy also ships as a **desktop application** (via Tauri) that wraps the same functionality in a native window.
 
 ## First Launch
 
 On first launch, Orchy checks that the Claude CLI is installed and available. If it's not found, you'll see installation instructions. Once dependencies are verified, you'll land on the **Mode Selection** screen.
 
-From here you can choose between [Build Mode and Design Mode](modes.md), or create your first [workspace](workspaces.md).
-
----
-
-← [Home](README.md) | [Modes →](modes.md)
+From here you can choose between [Build Mode, Design Mode, and Deployment Mode](modes.md), or create your first [workspace](workspaces.md).

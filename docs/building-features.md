@@ -27,10 +27,8 @@ If issues are found, a modal appears with options:
 
 ## Dev Server Warning
 
-If [dev servers](dev-servers.md) are running, Orchy will prompt you to stop them before starting a new session (they'll be managed by the session).
+If dev servers are running, Orchy will prompt you to stop them before starting a new session (they'll be managed by the session).
 
 ---
 
 Once you click **Start Planning**, you enter the [Planning & Sessions](planning-and-sessions.md) workflow.
-
-← [Projects](projects.md) | [Planning & Sessions →](planning-and-sessions.md)

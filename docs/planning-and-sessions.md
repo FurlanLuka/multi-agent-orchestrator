@@ -11,15 +11,11 @@ The Planning Agent asks clarifying questions about your feature through an inter
 - **Approve** — Move to the next stage
 - **Reject / Refine** — Provide feedback and iterate
 
-## Stage 2: Exploration & Technical Planning
+The agent also has access to your **workspace context** — any architectural decisions, coding standards, or guidelines you've documented in the workspace settings are included automatically.
 
-The Planning Agent explores your codebase, analyzes the architecture, and creates a technical specification including:
+## Stage 2: Codebase Exploration
 
-- API contracts
-- Architecture decisions
-- Execution order across projects
-
-This stage is presented for your approval before proceeding.
+The Planning Agent explores your codebase to understand the existing architecture, patterns, and conventions. It analyzes project structure, dependencies, and relevant code to inform its plan.
 
 ## Stage 3: Task Generation
 
@@ -29,6 +25,7 @@ The agent generates a detailed implementation plan:
 - **Architecture** — Visual diagram of components and data flow
 - **Tasks** — Ordered list of implementation tasks per project
 - **Test Plan** — E2E test scenarios per project
+- **E2E Dependencies** — Execution order for cross-project test dependencies
 
 ## Plan Approval
 
@@ -39,6 +36,11 @@ The complete plan is shown for your review:
 
 You remain in control throughout. No code is written until you approve the plan.
 
----
+## During Execution
 
-← [Building Features](building-features.md) | [Session Execution →](session-execution.md)
+The Planning Agent remains active during execution. It:
+
+- Analyzes task results as agents complete their work
+- Sends fix prompts when verification fails (build errors, test failures)
+- Coordinates E2E test execution across projects based on dependency order
+- Responds to your messages if you need to guide the process

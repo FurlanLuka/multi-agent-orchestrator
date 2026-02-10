@@ -56,7 +56,7 @@ After each task, Orchy automatically verifies the work:
 
 1. Installs dependencies (if configured)
 2. Runs the build command
-3. Restarts the [dev server](dev-servers.md)
+3. Restarts the dev server
 4. Checks for errors
 
 If verification fails, the Planning Agent analyzes the error and sends a fix prompt to the agent. This can repeat up to 3 times before escalating.
@@ -78,11 +78,20 @@ The agent may request information from you during execution:
 - **Text input** — Free-form text field
 - **Confirmation** — Yes/no decision
 - **CLI verification** — Verify a command-line tool is installed
-- **GitHub secret** — Provide a secret value (see [Credentials](credentials.md))
+- **GitHub secret** — Provide a secret value for CI/CD
+
+## Notifications
+
+Click the **notification bell** icon in the session header to enable:
+
+- **Desktop notifications** — Browser push notifications for status changes
+- **Audio notifications** — Sound alerts for important events
+
+Useful when Orchy is running in the background — you'll be alerted when the agent needs input or tasks complete.
 
 ## Session Completion
 
-When all tasks complete, a summary panel appears showing what was accomplished. You can start a new session or navigate away.
+When all tasks complete, a summary panel appears showing what was accomplished. You can start a new session or navigate back to the workspace.
 
 ## Session History
 
@@ -90,7 +99,3 @@ Previous sessions are listed on the workspace screen. You can:
 
 - **Resume** an interrupted session
 - **View** a completed session's history (read-only replay of the session timeline)
-
----
-
-← [Planning & Sessions](planning-and-sessions.md) | [Design Mode →](design-mode.md)

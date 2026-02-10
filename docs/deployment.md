@@ -45,11 +45,6 @@ The agent provisions your server:
 - Validates the infrastructure
 - Stores GitHub secrets for CI/CD
 
-**You'll be asked to:**
-- Verify CLI tools are installed (see [CLI Verification](credentials.md#cli-verification))
-- Provide your cloud provider API token (see [Credentials](credentials.md))
-- Confirm you want to proceed (infrastructure incurs costs)
-
 ### Phase 2: CI/CD Setup
 
 The agent creates a GitHub Actions workflow that:
@@ -57,6 +52,16 @@ The agent creates a GitHub Actions workflow that:
 - Builds Docker images from your projects
 - Pushes images to GitHub Container Registry (GHCR)
 - Deploys to your server automatically on push to main
+
+## Credentials & Prompts During Deployment
+
+During deployment, Orchy may ask you for credentials or confirmations through overlay prompts:
+
+- **CLI verification** — Confirms required tools are installed (e.g., `hcloud`, `docker`). If a tool is missing, you'll see installation instructions and a **Verify** button to re-check.
+- **API token** — Your cloud provider API token. Used locally by the agent during provisioning and stored as a GitHub secret for CI/CD.
+- **Confirmation** — Yes/no prompt before actions that incur costs (e.g., provisioning a server).
+
+Orchy never stores credentials locally beyond the current session. GitHub secrets are set via the `gh` CLI. SSH keys generated during deployment are stored as GitHub secrets for CI/CD use.
 
 ## Existing Deployments
 
@@ -67,7 +72,3 @@ Once deployed, the Deploy tab shows your current infrastructure:
 - Provider information
 
 You can start a **Modification** session to make changes to existing infrastructure (upgrade server, add DNS, configure firewall, etc.).
-
----
-
-← [Design Mode](design-mode.md) | [Git Integration →](git-integration.md)

@@ -6,9 +6,9 @@ Common issues and how to resolve them.
 
 ## Orchy won't start
 
-- **Port in use**: Orchy automatically finds an available port. If you need a specific port, use `--port`. See [CLI Reference](cli-reference.md).
+- **Port in use**: Orchy automatically finds an available port. If you need a specific port, use `orchy --port <number>`.
 - **Claude CLI not found**: Install the Claude Code CLI and ensure it's in your PATH. See [Getting Started](getting-started.md#prerequisites).
-- **Backend connection error**: Check the application log at `~/.orchy-config/logs/orchestrator.log`. See [Configuration](configuration.md#storage-location).
+- **Backend connection error**: Check the application log at `~/.orchy-config/logs/orchestrator.log`.
 
 ## Agent isn't doing anything
 
@@ -29,7 +29,7 @@ Common issues and how to resolve them.
 - Check that the **ready pattern** regex matches your server's startup output.
 - Look at the Dev Server log tab for error output.
 - Check for **port conflicts** — another process may be using the same port.
-- See [Dev Servers](dev-servers.md) for configuration details.
+- See [Projects](projects.md#dev-server-configuration) for configuration details.
 
 ## Session stuck or unresponsive
 
@@ -43,7 +43,3 @@ Common issues and how to resolve them.
 - Review the project's [permission settings](permissions.md) in edit mode.
 - Some operations are [always blocked](permissions.md#always-blocked-operations) for safety.
 - When prompted, approve the specific operation the agent needs.
-
----
-
-← [CLI Reference](cli-reference.md) | [Home](README.md)

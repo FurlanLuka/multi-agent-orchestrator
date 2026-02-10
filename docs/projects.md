@@ -9,7 +9,7 @@ Projects are the individual codebases within a workspace. Each project maps to a
 | Setting | Description |
 |---------|-------------|
 | **Path** | Absolute path to the project directory |
-| **Dev Server** | Command to start the development server, ready pattern (regex to detect when the server is ready), environment variables, and URL. See [Dev Servers](dev-servers.md). |
+| **Dev Server** | Command, ready pattern, environment variables, and URL (see below) |
 | **Build Command** | Command to build the project (e.g., `npm run build`) |
 | **Install Command** | Command to install dependencies (e.g., `npm install`) |
 | **Setup Command** | One-time setup command run during project initialization |
@@ -31,6 +31,25 @@ Projects display badges indicating their capabilities:
 - **Build** — Build command configured
 - **E2E** — End-to-end tests enabled
 
----
+## Dev Server Configuration
 
-← [Workspaces](workspaces.md) | [Building Features →](building-features.md)
+Each project can have a development server that Orchy manages during sessions.
+
+| Field | Description |
+|-------|-------------|
+| **Command** | The shell command to start the server (e.g., `npm run dev`) |
+| **Ready Pattern** | A regex pattern to detect when the server is ready (matched against stdout, e.g., `Local:.*http`) |
+| **Environment Variables** | Key-value pairs passed to the server process |
+| **URL** | The server's URL (e.g., `http://localhost:5173`) |
+
+### During Sessions
+
+- Dev servers start automatically when execution begins
+- Logs are streamed in real-time to the session view (under the **Dev Server** log tab)
+- Servers restart automatically after tasks complete (to pick up code changes)
+- Port conflicts are detected and resolved with a prompt
+
+### Outside Sessions
+
+- **Run Dev Servers** button on the workspace screen lets you start servers manually
+- A **floating dev server panel** provides quick access to server status and logs

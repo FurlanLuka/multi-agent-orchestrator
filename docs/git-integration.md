@@ -27,7 +27,3 @@ Options when issues are found:
 | **Cancel** | Return to the workspace screen |
 
 See also: [Building Features](building-features.md#branch-check) for how this fits into the feature workflow.
-
----
-
-← [Deployment](deployment.md) | [GitHub Integration →](github-integration.md)

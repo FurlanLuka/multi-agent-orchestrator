@@ -1,6 +1,6 @@
 # Modes
 
-Orchy offers two primary modes of operation.
+Orchy offers three primary modes of operation.
 
 ---
 
@@ -20,10 +20,16 @@ Create a complete design system before writing any code. Generates color palette
 
 See [Design Mode](design-mode.md) for the full workflow.
 
+## Deployment Mode
+
+Provision cloud infrastructure, set up CI/CD pipelines, and deploy your projects — all managed through an AI agent.
+
+**Use when:** Your feature work is done and you want to deploy to production, or you need to modify existing infrastructure (upgrade servers, configure DNS, add monitoring, etc.).
+
+Requires an **Orchy Managed** workspace with [GitHub integration](github-integration.md) enabled.
+
+See [Deployment](deployment.md) for the full workflow.
+
 ## Resuming
 
 If you have an active session, a **Resume** button appears on the mode selection screen to return to your in-progress work.
-
----
-
-← [Getting Started](getting-started.md) | [Workspaces →](workspaces.md)

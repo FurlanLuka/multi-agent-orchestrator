@@ -13,7 +13,7 @@ Orchy lets you describe what you want to build and handles the rest: an AI plann
 3. Create a workspace from a template or add existing projects
 4. Describe a feature and let the planning agent build it
 
-See [Getting Started](getting-started.md) for the full setup guide.
+See [Getting Started](getting-started.md) for the full setup guide, or follow the [Quick Guide](quick-guide.md) for a complete walkthrough from design to implementation.
 
 ---
 
@@ -21,22 +21,23 @@ See [Getting Started](getting-started.md) for the full setup guide.
 
 ### Setup
 - [Getting Started](getting-started.md) — Prerequisites, installation, first launch
+- [Quick Guide](quick-guide.md) — Design to implementation walkthrough
 
 ### Core Concepts
-- [Modes](modes.md) — Build vs Design mode
+- [Modes](modes.md) — Build, Design, and Deployment modes
 - [Workspaces](workspaces.md) — Creating, configuring, managing workspaces
-- [Projects](projects.md) — Project settings, adding, feature badges
+- [Projects](projects.md) — Project settings, dev servers, adding projects
 
 ### Building
 - [Building Features](building-features.md) — Starting features, branch checks, dev server warnings
-- [Planning & Sessions](planning-and-sessions.md) — 3-stage planning workflow, plan approval
-- [Session Execution](session-execution.md) — Monitoring, agent statuses, verification, interactive actions
+- [Planning & Sessions](planning-and-sessions.md) — Planning workflow, plan approval
+- [Session Execution](session-execution.md) — Monitoring, agent statuses, verification, notifications
 
 ### Design
 - [Design Mode](design-mode.md) — Full design workflow, design library, attaching designs
 
 ### Deployment
-- [Deployment](deployment.md) — Providers, deployment workflow, existing deployments
+- [Deployment](deployment.md) — Providers, deployment workflow, credentials, existing deployments
 
 ### Integrations
 - [Git Integration](git-integration.md) — Branch management, pre-session checks
@@ -44,12 +45,7 @@ See [Getting Started](getting-started.md) for the full setup guide.
 
 ### Configuration & Security
 - [Permissions](permissions.md) — Permission categories, groups, always-blocked, defaults
-- [Credentials](credentials.md) — Credential requests, types, CLI verification, security
-- [Dev Servers](dev-servers.md) — Configuration, session behavior, manual control
-- [Project Templates](project-templates.md) — vite-frontend, nestjs-backend details
-- [Notifications](notifications.md) — Desktop and audio notification settings
-- [Configuration](configuration.md) — Storage locations, environment variables
+- [Project Templates](project-templates.md) — Built-in templates, making your own projects work with Orchy
 
 ### Reference
-- [CLI Reference](cli-reference.md) — CLI flags and options
 - [Troubleshooting](troubleshooting.md) — Common issues and solutions

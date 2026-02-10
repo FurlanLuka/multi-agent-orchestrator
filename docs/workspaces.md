@@ -41,7 +41,3 @@ Each workspace has:
 
 - **Edit**: Click on a workspace card, then use the **Edit** button to modify projects, context, and settings
 - **Delete**: Click the delete button on a workspace card (confirmation required)
-
----
-
-← [Modes](modes.md) | [Projects →](projects.md)

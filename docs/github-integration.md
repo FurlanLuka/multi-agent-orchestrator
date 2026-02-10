@@ -29,7 +29,3 @@ The workspace screen shows GitHub connection status:
 - **Access issue** — Cannot access the configured repository
 
 See also: [Deployment](deployment.md) for how GitHub integration enables CI/CD.
-
----
-
-← [Git Integration](git-integration.md) | [Permissions →](permissions.md)

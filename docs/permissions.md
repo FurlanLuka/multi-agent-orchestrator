@@ -86,7 +86,3 @@ The following operations are **always denied** regardless of permission settings
 | **nestjs-backend** | All file ops, all npm commands, curl, no browser automation |
 
 See also: [Session Execution](session-execution.md#permission-prompts) for how permission prompts appear during execution.
-
----
-
-← [GitHub Integration](github-integration.md) | [Credentials →](credentials.md)

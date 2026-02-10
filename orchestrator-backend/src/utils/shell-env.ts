@@ -200,10 +200,21 @@ export async function spawnWithShellEnv(
   const shellEnv = await getShellEnv();
   const shell = shellEnv.SHELL || getDefaultShell();
 
+  // Propagate CLAUDE_CONFIG_DIR from parent process if set
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+
   const env = {
     ...shellEnv,
+    ...(claudeConfigDir && { CLAUDE_CONFIG_DIR: claudeConfigDir }),
     ...options.extraEnv,
   };
+
+  // Log which CLAUDE_CONFIG_DIR is being used
+  if (claudeConfigDir) {
+    console.log(`[Shell] Spawning ${command} with CLAUDE_CONFIG_DIR=${claudeConfigDir}`);
+  } else {
+    console.log(`[Shell] Spawning ${command} (no CLAUDE_CONFIG_DIR set)`);
+  }
 
   let proc: ChildProcess;
 
