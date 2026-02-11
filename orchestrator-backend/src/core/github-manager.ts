@@ -334,11 +334,26 @@ export class GitHubManager {
         };
       }
 
-      // Check for "already exists" error
+      // Handle "already exists" as success — the repo is usable
       if (result.stderr.includes('already exists')) {
+        let fullRepo = repoName;
+        // If repoName doesn't include owner, infer it
+        if (!repoName.includes('/')) {
+          if (options.ownerType === 'org' && options.owner) {
+            fullRepo = `${options.owner}/${repoName}`;
+          } else {
+            // For user-owned repos, look up the authenticated username
+            const userInfo = await this.getAuthenticatedUser();
+            if (userInfo.username) {
+              fullRepo = `${userInfo.username}/${repoName}`;
+            }
+          }
+        }
+        console.log(`[GitHubManager] Repository already exists, treating as success: ${fullRepo}`);
         return {
-          success: false,
-          error: `Repository '${repoName}' already exists`,
+          success: true,
+          repo: fullRepo,
+          cloneUrl: `https://github.com/${fullRepo}.git`,
         };
       }
 

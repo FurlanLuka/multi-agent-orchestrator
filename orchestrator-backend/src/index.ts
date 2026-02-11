@@ -377,6 +377,79 @@ async function main() {
   // Set deployment manager on UI server for deployment API endpoints
   ui.setDeploymentManager(deploymentManager);
 
+  /**
+   * Auto-creates a GitHub repo for a workspace if github is enabled but repo is missing.
+   * Returns the repo name on success, or undefined on failure/skip.
+   */
+  async function ensureGitHubRepo(
+    workspaceId: string,
+    opts?: { workspaceRootPath?: string; push?: boolean; description?: string }
+  ): Promise<string | undefined> {
+    const ws = workspaceManager.getWorkspace(workspaceId);
+    if (!ws?.github?.enabled || ws.github.repo) return ws?.github?.repo;
+
+    console.log(`[Orchestrator] Creating GitHub repo for workspace: ${ws.name}`);
+
+    const repoResult = await githubManager.createRepoOnly({
+      name: ws.name,
+      visibility: ws.github.visibility || 'private',
+      ownerType: ws.github.ownerType || 'user',
+      owner: ws.github.owner,
+      description: opts?.description,
+    });
+
+    if (!repoResult.success || !repoResult.repo) {
+      console.error(`[Orchestrator] Failed to create GitHub repo: ${repoResult.error}`);
+      return undefined;
+    }
+
+    console.log(`[Orchestrator] GitHub repo created: ${repoResult.repo}`);
+
+    // Resolve workspace root path if not provided
+    let rootPath = opts?.workspaceRootPath;
+    if (!rootPath) {
+      const projectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
+      const firstConfig = Object.values(projectConfigs)[0];
+      if (firstConfig) {
+        rootPath = firstConfig.path;
+        if (rootPath.startsWith('~')) {
+          rootPath = rootPath.replace('~', process.env.HOME || '');
+        }
+        rootPath = path.dirname(rootPath);
+      }
+    }
+
+    // Add remote
+    if (rootPath) {
+      const addRemoteResult = await githubManager.addRemote(rootPath, repoResult.repo);
+      if (addRemoteResult.success) {
+        console.log(`[Orchestrator] Added GitHub remote to workspace`);
+        // Push if requested
+        if (opts?.push) {
+          const pushResult = await githubManager.pushToRemote(rootPath, ws.mainBranch || 'main', repoResult.repo);
+          if (pushResult.success) {
+            console.log(`[Orchestrator] Pushed to GitHub`);
+          } else {
+            console.warn(`[Orchestrator] Failed to push: ${pushResult.error}`);
+          }
+        }
+      } else {
+        console.warn(`[Orchestrator] Failed to add GitHub remote: ${addRemoteResult.error}`);
+      }
+    }
+
+    // Update workspace config
+    workspaceManager.updateWorkspace(workspaceId, {
+      github: {
+        ...ws.github,
+        repo: repoResult.repo,
+      },
+    });
+    ui.io.emit('workspaces', workspaceManager.getWorkspaces());
+
+    return repoResult.repo;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // Set up kill planning agent handler (called when plan is approved)
   // This prevents the planning agent from making any more MCP calls
@@ -2207,43 +2280,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               }
 
               // Auto-create GitHub repo if enabled but not yet created
-              const workspace = workspaceManager.getWorkspace(workspaceId);
-              if (workspace?.github?.enabled && !workspace.github.repo) {
-                console.log(`[Orchestrator] Creating GitHub repo for workspace: ${workspace.name}`);
-                chatHandler.systemMessage(`Creating GitHub repository for ${workspace.name}...`);
-
-                const repoResult = await githubManager.createRepoOnly({
-                  name: workspace.name,
-                  visibility: workspace.github.visibility || 'private',
-                  ownerType: workspace.github.ownerType || 'user',
-                  owner: workspace.github.owner,
-                });
-
-                if (repoResult.success && repoResult.repo) {
-                  console.log(`[Orchestrator] GitHub repo created: ${repoResult.repo}`);
-                  chatHandler.systemMessage(`GitHub repository created: ${repoResult.repo}`);
-
-                  // Add remote to the workspace
-                  const addRemoteResult = await githubManager.addRemote(workspaceRootPath, repoResult.repo);
-                  if (addRemoteResult.success) {
-                    console.log(`[Orchestrator] Added GitHub remote to workspace`);
-                  } else {
-                    console.warn(`[Orchestrator] Failed to add GitHub remote: ${addRemoteResult.error}`);
-                  }
-
-                  // Update workspace config with the repo
-                  workspaceManager.updateWorkspace(workspaceId, {
-                    github: {
-                      ...workspace.github,
-                      repo: repoResult.repo,
-                    },
-                  });
-                  // Emit updated workspaces
-                  ui.io.emit('workspaces', workspaceManager.getWorkspaces());
-                } else {
-                  console.error(`[Orchestrator] Failed to create GitHub repo: ${repoResult.error}`);
-                  chatHandler.systemMessage(`Failed to create GitHub repository: ${repoResult.error}`);
-                }
+              const repoName = await ensureGitHubRepo(workspaceId, { workspaceRootPath });
+              if (repoName) {
+                chatHandler.systemMessage(`GitHub repository ready: ${repoName}`);
+              } else if (workspaceManager.getWorkspace(workspaceId)?.github?.enabled) {
+                chatHandler.systemMessage(`Failed to create GitHub repository. Session will continue.`);
               }
 
               // Note: We don't restore the stash here - the stashed changes are from a previous session
@@ -2314,6 +2355,17 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         if (!workspace) {
           chatHandler.systemMessage(`Workspace not found: ${workspaceId}`);
           return;
+        }
+
+        // Auto-create GitHub repo if enabled but not yet created (before deployment check)
+        if (workspace.github?.enabled && !workspace.github.repo) {
+          chatHandler.systemMessage(`Creating GitHub repository for ${workspace.name}...`);
+          const repoName = await ensureGitHubRepo(workspaceId);
+          if (repoName) {
+            chatHandler.systemMessage(`GitHub repository ready: ${repoName}`);
+          } else {
+            chatHandler.systemMessage(`Failed to create GitHub repository. Deployment may not work.`);
+          }
         }
 
         // Verify deployment is available
@@ -3988,51 +4040,26 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
               // Create GitHub repository if enabled
               if (github?.enabled) {
                 try {
-                  console.log(`[Orchestrator] Creating GitHub repository for ${appName}...`);
-                  const repoResult = await githubManager.createRepoOnly({
-                    name: appName,
-                    visibility: github.visibility || 'private',
-                    ownerType: github.ownerType || 'user',
-                    owner: github.owner,
+                  const repoName = await ensureGitHubRepo(workspace.id, {
+                    workspaceRootPath: expandedTargetPath,
+                    push: true,
                     description: `${appName} workspace created by Orchy`,
                   });
-
-                  if (repoResult.success && repoResult.repo) {
-                    console.log(`[Orchestrator] GitHub repository created: ${repoResult.repo}`);
+                  if (repoName) {
                     githubRepoCreated = true;
-                    githubRepoName = repoResult.repo;
-
-                    // Add remote origin
-                    const remoteResult = await githubManager.addRemote(expandedTargetPath, repoResult.repo);
-                    if (remoteResult.success) {
-                      console.log(`[Orchestrator] Added remote origin: ${repoResult.repo}`);
-
-                      // Push initial commit
-                      const pushResult = await githubManager.pushToRemote(expandedTargetPath, 'main', repoResult.repo);
-                      if (pushResult.success) {
-                        console.log(`[Orchestrator] Pushed initial commit to GitHub`);
-                      } else {
-                        console.warn(`[Orchestrator] Failed to push initial commit: ${pushResult.error}`);
-                      }
-                    } else {
-                      console.warn(`[Orchestrator] Failed to add remote: ${remoteResult.error}`);
-                    }
-
-                    // Update workspace with actual repo name
-                    workspaceManager.updateWorkspace(workspace.id, {
-                      github: {
-                        enabled: true,
-                        repo: repoResult.repo,
-                        visibility: github.visibility || 'private',
-                        ownerType: github.ownerType || 'user',
-                        owner: github.owner,
-                      },
-                    });
+                    githubRepoName = repoName;
                   } else {
-                    console.warn(`[Orchestrator] Failed to create GitHub repo: ${repoResult.error}`);
+                    socket.emit('workspaceFromTemplateError', {
+                      type: 'github',
+                      message: `Failed to create GitHub repository`,
+                    });
                   }
                 } catch (ghErr) {
                   console.error(`[Orchestrator] GitHub repository creation error:`, ghErr);
+                  socket.emit('workspaceFromTemplateError', {
+                    type: 'github',
+                    message: `GitHub repository creation error: ${ghErr instanceof Error ? ghErr.message : ghErr}`,
+                  });
                   // Don't fail workspace creation - GitHub is optional
                 }
               }
