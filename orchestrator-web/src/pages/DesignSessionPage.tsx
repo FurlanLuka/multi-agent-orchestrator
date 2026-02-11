@@ -39,6 +39,7 @@ const availableCategories: Array<{ id: DesignCategory; name: string; description
   { id: 'portfolio', name: 'Portfolio', description: 'Personal sites, project showcases' },
   { id: 'chat_messaging', name: 'Chat / Messaging', description: 'Chat apps, support widgets' },
   { id: 'saas_marketing', name: 'SaaS Marketing', description: 'B2B software, pricing pages' },
+  { id: 'jam', name: 'Jam', description: 'Freeform - describe everything yourself' },
 ];
 
 // Extended phases including category selection
@@ -462,7 +463,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
           {/* Chat Card */}
           <FormCard
             style={{ flex: 1, minWidth: 0 }}
-            title={<Box style={{ height: 8 }} />}
+            title="Chat"
             footer={!designComplete ? (
               <Group gap="sm" align="flex-end">
                 <GlassTextarea
@@ -542,7 +543,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                       }}
                     >
                       <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                        {msg.content}
+                        {msg.content.trim()}
                       </Text>
                     </Box>
                   </Box>
@@ -664,8 +665,8 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
               style={{ width: 280, flexShrink: 0 }}
               title={
                 <Group gap="xs">
-                  <IconFile size={16} color="var(--mantine-color-peach-6)" />
-                  <Text fw={600} size="lg">Pages</Text>
+                  <IconFile size={14} color="var(--mantine-color-peach-6)" />
+                  <Text fw={600} size="sm">Pages</Text>
                 </Group>
               }
               footer={

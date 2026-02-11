@@ -101,6 +101,7 @@ export const CATEGORY_ATOMIC_COMPONENTS: Record<DesignCategory, AtomicComponent[
     { id: 'project_thumbnail', name: 'Project Thumbnail', description: 'Project preview with hover effect' },
     { id: 'skill_tag', name: 'Skill Tag', description: 'Technology/skill badge' },
   ],
+  jam: [],
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -181,6 +182,7 @@ export const CATEGORY_PAGE_SECTIONS: Record<DesignCategory, PageSection[]> = {
     { id: 'contact_form', name: 'Contact Form', description: 'Get in touch form' },
     { id: 'footer', name: 'Footer', description: 'Social links, copyright' },
   ],
+  jam: [],
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -521,6 +523,7 @@ export const CATEGORY_DESIGN_APPROACHES: Record<DesignCategory, DesignApproach[]
       navPlacement: 'top-bar',
     },
   ],
+  jam: [],
 };
 
 // ═══════════════════════════════════════════════════════════════

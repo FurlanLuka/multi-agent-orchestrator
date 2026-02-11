@@ -31,9 +31,7 @@
 #     backend-data:
 #
 # Running Migrations:
-#   Before starting the app for the first time (or after schema changes):
-#     docker exec <container> npx prisma migrate deploy
-#   Or add an entrypoint script that runs migrations on startup.
+#   Migrations run automatically on container startup via docker-entrypoint.sh
 #
 # Environment Variables:
 #   - DATABASE_URL: SQLite file path (default: file:/app/data/production.db)
@@ -104,6 +102,10 @@ COPY --from=builder --chown=nodejs:nodejs /app/prisma ./prisma/
 COPY --from=builder --chown=nodejs:nodejs /app/prisma.config.ts ./
 COPY --from=builder --chown=nodejs:nodejs /app/src/generated ./src/generated/
 
+# Copy entrypoint script
+COPY --chown=nodejs:nodejs docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # Data directory for SQLite - MUST be mounted as volume in production
 RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
 
@@ -122,4 +124,4 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
 
-CMD ["node", "dist/src/main"]
+CMD ["./docker-entrypoint.sh", "node", "dist/src/main"]

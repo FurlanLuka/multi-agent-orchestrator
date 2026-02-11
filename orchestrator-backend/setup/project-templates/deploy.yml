@@ -1,0 +1,82 @@
+# =============================================================================
+# GitHub Actions Deploy Workflow (Reference Template)
+# =============================================================================
+#
+# This is a reference example based on a real deployment. The orchestrator's
+# deployment system generates this dynamically from the workflowTemplate in
+# the provider config, but this file serves as a concrete example.
+#
+# Placeholders to replace:
+#   <owner>       - GitHub username or org (e.g., furlanluka)
+#   <project>     - Project name (e.g., orchyv3)
+#   <DEPLOY_PATH> - Server deploy path (e.g., /opt/orchyv3)
+#
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/<owner>/<project>-backend:latest,ghcr.io/<owner>/<project>-backend:${{ github.sha }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ghcr.io/<owner>/<project>-frontend:latest,ghcr.io/<owner>/<project>-frontend:${{ github.sha }}
+
+      - name: Deploy to server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App-specific secrets (add your own)
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Login to GHCR on server so it can pull private images
+          ssh -i ~/.ssh/deploy_key root@$SERVER_IP "echo $GHCR_TOKEN | docker login ghcr.io -u ${{ github.actor }} --password-stdin"
+
+          # Write .env from GitHub secrets (local temp file + scp avoids shell escaping issues)
+          cat > /tmp/.env.deploy << EOF
+          DATABASE_URL=file:/app/data/production.db
+          PORT=3000
+          ADMIN_USERNAME=$ADMIN_USERNAME
+          ADMIN_PASSWORD=$ADMIN_PASSWORD
+          JWT_SECRET=$JWT_SECRET
+          JWT_EXPIRATION=24h
+          EOF
+          scp -i ~/.ssh/deploy_key /tmp/.env.deploy root@$SERVER_IP:<DEPLOY_PATH>/.env
+
+          ssh -i ~/.ssh/deploy_key root@$SERVER_IP "cd <DEPLOY_PATH> && docker compose down --remove-orphans && docker compose pull && docker compose up -d"

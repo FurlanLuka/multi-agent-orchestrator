@@ -83,22 +83,30 @@ export function PermissionOverlay({
         )}
 
         {/* Command display */}
-        <Text
-          size={textSize}
-          c="white"
-          ff="monospace"
-          ta="center"
-          {...(compact ? { lineClamp: 3 } : {})}
+        <Box
           style={{
-            wordBreak: 'break-all',
+            width: '100%',
+            maxHeight: compact ? undefined : 200,
+            overflow: compact ? undefined : 'auto',
             padding: compact ? '6px 10px' : '10px 14px',
             backgroundColor: 'rgba(255, 255, 255, 0.1)',
             borderRadius: compact ? '4px' : '6px',
-            width: '100%',
           }}
         >
-          {actualCommand || toolName}
-        </Text>
+          <Text
+            size={textSize}
+            c="white"
+            ff="monospace"
+            ta="left"
+            {...(compact ? { lineClamp: 3 } : {})}
+            style={{
+              wordBreak: 'break-all',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {actualCommand || toolName}
+          </Text>
+        </Box>
 
         {/* Action buttons */}
         <Group justify="center" gap={buttonGap} {...(compact ? { mt: 'xs' } : {})}>

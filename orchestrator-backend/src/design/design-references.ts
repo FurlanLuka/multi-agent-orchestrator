@@ -278,6 +278,10 @@ export const designReferences: DesignReferenceLibrary = {
           ]
         }
       ]
+    },
+    jam: {
+      description: "Freeform design - user describes everything from scratch",
+      styles: []
     }
   }
 };

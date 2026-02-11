@@ -203,12 +203,13 @@ ${this.formatConfigJson(provider.requiredConfig)}
 **CRITICAL: YOU (the agent) must execute all commands directly — do NOT ask the user to run them manually.**
 
 The deployment has two clear phases with no overlap:
-- **Phase 1 (Local CLI):** Provision infrastructure, copy docker-compose.yml + .env to server.
-  Validate infra works. No app images built or deployed yet.
+- **Phase 1 (Local CLI):** Provision infrastructure, copy docker-compose.yml + nginx.conf to server.
+  Set app secrets as GitHub secrets. Validate infra works. No app images built or deployed yet.
 - **Phase 2 (GitHub Actions):** Build Docker images → push to GHCR → SSH to server →
-  \`docker compose pull && docker compose up -d\`. This is the ONLY way apps get deployed.
+  write .env from secrets → \`docker compose down --remove-orphans && docker compose pull && docker compose up -d\`.
+  This is the ONLY way apps get deployed.
 
-**The server never has source code.** Only: docker-compose.yml, .env, and optionally nginx config.
+**The server never has source code.** Only: docker-compose.yml, .env (written by CI), and nginx config.
 
 ### Phase 1: Provision Infrastructure
 
@@ -234,9 +235,10 @@ The deployment has two clear phases with no overlap:
    - Wait for cloud-init, validate Docker is running
    - Create deploy directory on server
    - Create docker-compose.yml with \`image: ghcr.io/...\` refs (NOT \`build:\`) and copy to server
-   - Create .env on server with production secrets
+   - Create nginx.conf and copy to server
+   - Set app secrets as GitHub secrets (the CI/CD workflow writes .env from these on every deploy)
    - Validate infrastructure: \`docker info\`, confirm Docker is working
-   - Set GitHub secrets (DEPLOY_SSH_KEY + SERVER_IP)
+   - Set deploy secrets as GitHub secrets (DEPLOY_SSH_KEY + SERVER_IP)
    - Save deployment state via \`save_deployment_state\` (includes deployPath)
 
    Do NOT deploy the app yet — that happens exclusively through CI/CD.
@@ -245,17 +247,18 @@ The deployment has two clear phases with no overlap:
 
 5. **Create \`.github/workflows/deploy.yml\`** — use the workflowTemplate from provider requirements
    - Determine which services have Dockerfiles in the project
-   - Replace \`<owner>\`, \`<service>\`, \`<DEPLOY_PATH>\` placeholders with actual values
-   - Workflow builds + pushes each service to GHCR, then SSHs to login to GHCR on server + pull + restart
+   - Replace \`<owner>\`, \`<service>\`, \`<DEPLOY_PATH>\`, \`<ENV_VARS>\` placeholders with actual values
+   - Add app-specific secrets to the \`env:\` block of the deploy step
+   - Workflow builds + pushes each service to GHCR, then SSHs to server:
+     login to GHCR → write .env from secrets → \`docker compose down --remove-orphans && docker compose pull && docker compose up -d\`
    - Uses \`permissions: contents: read, packages: write\` for automatic GHCR auth in CI and on server
    - GHCR login on the server uses the ephemeral \`GITHUB_TOKEN\` — no persistent PAT needed
-   - The server is already provisioned — CI/CD does NOT set up infrastructure, create .env, or install anything
+   - .env is written from GitHub secrets on every deploy — secrets can be rotated without SSH
 
 **The CI/CD workflow must NOT:**
 - Copy source code to the server — server only has docker-compose.yml + .env
 - Run npm install or npm build outside of Docker — all building happens in Docker images
-- Create or overwrite .env — it was set up during provisioning
-- Regenerate secrets — that invalidates existing sessions/tokens
+- Hardcode secrets in the workflow file — always use GitHub secrets
 `;
   }
 

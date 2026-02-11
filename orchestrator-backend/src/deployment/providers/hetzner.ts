@@ -183,11 +183,18 @@ Copy to server:
 scp -i /tmp/deploy_key nginx.conf root@$SERVER_IP:/opt/<project-name>/nginx.conf
 \`\`\`
 
-### 10. Create .env on server
-Create the production .env file on the server with all environment variables the
-docker-compose needs (database URLs, secrets, API keys, etc.). Generate secrets
-like JWT_SECRET on the server with \`openssl rand -base64 32\`. This .env is
-created once during provisioning and NOT overwritten on subsequent deploys.
+### 10. Set app secrets as GitHub secrets
+All application secrets (database URLs, JWT secrets, API keys, etc.) must be stored
+as GitHub secrets so the CI/CD workflow can write the .env file on every deploy.
+This ensures secrets can be rotated by updating GitHub secrets — no manual SSH needed.
+
+For each app-specific secret, use \`request_user_input\` with type: "github_secret".
+Generate secrets like JWT_SECRET locally with \`openssl rand -base64 32\` and set them:
+\`\`\`bash
+gh secret set JWT_SECRET --repo <owner/repo> --body "$(openssl rand -base64 32)"
+\`\`\`
+
+The CI/CD workflow will write these to the server's .env on every deploy.
 
 ### 11. Validate infrastructure
 \`\`\`bash
@@ -238,7 +245,12 @@ server to pull and restart. This is the ONLY way apps get deployed.
 **The workflow must:**
 1. Login to GHCR using \`docker/login-action\` with automatic \`GITHUB_TOKEN\`
 2. Build and push each service image using \`docker/build-push-action\`
-3. SSH to server: login to GHCR (using \`GITHUB_TOKEN\`), then \`docker compose pull && docker compose up -d\`
+3. SSH to server: login to GHCR, write .env from GitHub secrets, then \`docker compose down --remove-orphans && docker compose pull && docker compose up -d\`
+
+**Why write .env from GitHub secrets on every deploy?**
+- Secrets can be rotated by updating GitHub secrets — no SSH needed
+- The .env is always in sync with what's configured in GitHub
+- No manual .env management on the server
 
 **Why GHCR login on the server?** GHCR packages inherit private visibility from the repo.
 The CI workflow logs into GHCR on the server each deploy using the ephemeral \`GITHUB_TOKEN\`.
@@ -247,8 +259,7 @@ No persistent PAT is needed — the token is valid for the duration of the workf
 **The workflow must NOT:**
 - Copy source code to the server — server only has docker-compose.yml + .env
 - Run npm install or npm build outside of Docker — all building happens in Docker images
-- Recreate or overwrite the .env file — it was set up during provisioning
-- Regenerate secrets — that would invalidate existing sessions/tokens
+- Hardcode secrets in the workflow file — always use GitHub secrets
 `,
 
   workflowTemplate: `
@@ -290,6 +301,9 @@ jobs:
           SSH_KEY: \${{ secrets.DEPLOY_SSH_KEY }}
           SERVER_IP: \${{ secrets.SERVER_IP }}
           GHCR_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          # Add app-specific secrets here, e.g.:
+          # ADMIN_USERNAME: \${{ secrets.ADMIN_USERNAME }}
+          # JWT_SECRET: \${{ secrets.JWT_SECRET }}
         run: |
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
@@ -299,6 +313,12 @@ jobs:
           # Login to GHCR on server so it can pull private images
           ssh -i ~/.ssh/deploy_key root@$SERVER_IP "echo $GHCR_TOKEN | docker login ghcr.io -u \${{ github.actor }} --password-stdin"
 
-          ssh -i ~/.ssh/deploy_key root@$SERVER_IP "cd <DEPLOY_PATH> && docker compose pull && docker compose up -d"
+          # Write .env from GitHub secrets (always in sync, rotate by updating secrets)
+          cat > /tmp/.env.deploy << EOF
+          <ENV_VARS>
+          EOF
+          scp -i ~/.ssh/deploy_key /tmp/.env.deploy root@$SERVER_IP:<DEPLOY_PATH>/.env
+
+          ssh -i ~/.ssh/deploy_key root@$SERVER_IP "cd <DEPLOY_PATH> && docker compose down --remove-orphans && docker compose pull && docker compose up -d"
 `
 };

@@ -92,6 +92,7 @@ function getCategoryOpeningMessage(category: DesignCategory): string {
     portfolio: "Let's make your work shine! What kind of work do you do - are you a designer, developer, photographer, or something else?",
     saas_marketing: "SaaS pages need to communicate value fast. What does your software do, in a nutshell?",
     chat_messaging: "Chat interfaces need to feel snappy and intuitive. Is this for customer support, team messaging, or more of a social chat thing?",
+    jam: "Let's jam! You've got full creative freedom here - describe whatever you're envisioning. What are you building, what should it look like, and how should it feel?",
   };
   return openings[category];
 }

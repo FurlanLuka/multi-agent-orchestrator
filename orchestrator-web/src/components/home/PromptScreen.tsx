@@ -232,6 +232,7 @@ export function PromptScreen({
   }, [workspace.id, effectivePort]);
 
   // Check design status for all projects with attached designs
+  // Re-check on mount, when projects change, and when switching to feature view
   useEffect(() => {
     if (!workspace.projects) return;
 
@@ -259,7 +260,7 @@ export function PromptScreen({
     };
 
     checkDesignStatus();
-  }, [workspace.projects, effectivePort]);
+  }, [workspace.projects, effectivePort, view]);
 
   // Deploy card is available when workspace is orchyManaged with GitHub enabled and has completed sessions
   const showDeployCard = !!workspace.orchyManaged && !!workspace.github?.enabled && !!onStartDeployment && hasCompletedSession;
@@ -990,7 +991,10 @@ export function PromptScreen({
                 style={{ minHeight: 160, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
               >
                 <Stack gap={4}>
-                  <Text fw={600} size="md">Deploy</Text>
+                  <Group gap="xs">
+                    <Text fw={600} size="md">Deploy</Text>
+                    <Badge size="xs" variant="light" color="yellow">In Development</Badge>
+                  </Group>
                   <Text size="xs" c="dimmed">Set up infrastructure and CI/CD for your application</Text>
                 </Stack>
               </GlassCard>
@@ -1320,9 +1324,12 @@ export function PromptScreen({
         <Stack gap="xl">
           {/* Header */}
           <Stack gap={0}>
-            <Title order={3} style={{ letterSpacing: '-.02em' }}>
-              Deploy
-            </Title>
+            <Group gap="sm" align="center">
+              <Title order={3} style={{ letterSpacing: '-.02em' }}>
+                Deploy
+              </Title>
+              <Badge size="sm" variant="light" color="yellow">In Development</Badge>
+            </Group>
             <Group gap="xs">
               <Text c="dimmed" size="sm">
                 Set up infrastructure and CI/CD for your workspace

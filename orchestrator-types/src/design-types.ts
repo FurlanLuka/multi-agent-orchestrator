@@ -42,7 +42,8 @@ export type DesignCategory =
   | 'chat_messaging'
   | 'documentation'
   | 'saas_marketing'
-  | 'portfolio';
+  | 'portfolio'
+  | 'jam';
 
 /**
  * Design session state
