@@ -233,7 +233,7 @@ export function useNotifications() {
 
     // Only notify if in a design session and preview appeared or changed
     if (designSessionId && curr && curr !== prev && curr.options.length > 0) {
-      const typeLabel = curr.type === 'theme' ? 'Theme' : curr.type === 'component' ? 'Component' : 'Mockup';
+      const typeLabel = curr.type === 'theme' ? 'Theme' : 'Mockup';
       sendNotification({
         sound: 'chime',
         title: `${typeLabel} options ready`,
