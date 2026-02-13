@@ -8,7 +8,7 @@ Orchy lets you describe what you want to build and handles the rest: an AI plann
 
 ## Quick Start
 
-1. Install Orchy via Homebrew: `brew tap FurlanLuka/aio && brew install aio`
+1. Install Orchy via Homebrew: `brew install orchyai/tap/orchy`
 2. Run `orchy` to launch
 3. Create a workspace from a template or add existing projects
 4. Describe a feature and let the planning agent build it

@@ -1,23 +1,23 @@
-class Aio < Formula
+class Orchy < Formula
   desc "Multi-agent orchestrator for Claude Code"
-  homepage "https://github.com/FurlanLuka/multi-agent-orchestrator"
+  homepage "https://github.com/orchyai/homebrew-tap"
   version "1.0.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/FurlanLuka/multi-agent-orchestrator/releases/download/v#{version}/aio-macos-arm64"
+      url "https://github.com/orchyai/homebrew-tap/releases/download/v#{version}/orchy-macos-arm64"
       sha256 "PLACEHOLDER_SHA256_MACOS_ARM64"
     end
     on_intel do
-      url "https://github.com/FurlanLuka/multi-agent-orchestrator/releases/download/v#{version}/aio-macos-x64"
+      url "https://github.com/orchyai/homebrew-tap/releases/download/v#{version}/orchy-macos-x64"
       sha256 "PLACEHOLDER_SHA256_MACOS_X64"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/FurlanLuka/multi-agent-orchestrator/releases/download/v#{version}/aio-linux-x64"
+      url "https://github.com/orchyai/homebrew-tap/releases/download/v#{version}/orchy-linux-x64"
       sha256 "PLACEHOLDER_SHA256_LINUX_X64"
     end
   end
@@ -26,26 +26,26 @@ class Aio < Formula
     # The downloaded file is the binary itself (not a tarball)
     if OS.mac?
       if Hardware::CPU.arm?
-        bin.install "aio-macos-arm64" => "aio"
+        bin.install "orchy-macos-arm64" => "orchy"
       else
-        bin.install "aio-macos-x64" => "aio"
+        bin.install "orchy-macos-x64" => "orchy"
       end
     elsif OS.linux?
-      bin.install "aio-linux-x64" => "aio"
+      bin.install "orchy-linux-x64" => "orchy"
     end
   end
 
   def caveats
     <<~EOS
       To get started, run:
-        aio
+        orchy
 
       This starts the orchestrator and opens http://localhost:3456 in your browser.
 
       Options:
-        aio --port 8080     # Use specific port
-        aio --no-browser    # Don't open browser automatically
-        aio --help          # Show all options
+        orchy --port 8080     # Use specific port
+        orchy --no-browser    # Don't open browser automatically
+        orchy --help          # Show all options
 
       Requirements:
         Claude Code CLI must be installed:
@@ -54,6 +54,6 @@ class Aio < Formula
   end
 
   test do
-    assert_match "AIO Orchestrator", shell_output("#{bin}/aio --help")
+    assert_match "version", shell_output("#{bin}/orchy --help")
   end
 end

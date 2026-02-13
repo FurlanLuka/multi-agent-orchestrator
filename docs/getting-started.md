@@ -16,8 +16,7 @@ Get Orchy up and running on your machine.
 Orchy is distributed as a standalone binary. Install via Homebrew:
 
 ```bash
-brew tap FurlanLuka/aio
-brew install aio
+brew install orchyai/tap/orchy
 ```
 
 Or download the binary for your platform from the GitHub Releases page.

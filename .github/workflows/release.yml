@@ -26,19 +26,19 @@ jobs:
           - platform: macos-latest
             target: macos-arm64
             pkg-target: node18-macos-arm64
-            binary-name: aio-macos-arm64
+            binary-name: orchy-macos-arm64
           - platform: macos-latest
             target: macos-x64
             pkg-target: node18-macos-x64
-            binary-name: aio-macos-x64
+            binary-name: orchy-macos-x64
           - platform: ubuntu-latest
             target: linux-x64
             pkg-target: node18-linux-x64
-            binary-name: aio-linux-x64
+            binary-name: orchy-linux-x64
           - platform: windows-latest
             target: windows-x64
             pkg-target: node18-win-x64
-            binary-name: aio-windows-x64.exe
+            binary-name: orchy-windows-x64.exe
 
     runs-on: ${{ matrix.platform }}
 
@@ -107,12 +107,12 @@ jobs:
         run: |
           mkdir -p release
           # Copy binaries to release folder
-          cp artifacts/aio-macos-arm64/aio-macos-arm64 release/
-          cp artifacts/aio-macos-x64/aio-macos-x64 release/
-          cp artifacts/aio-linux-x64/aio-linux-x64 release/
-          cp artifacts/aio-windows-x64.exe/aio-windows-x64.exe release/
+          cp artifacts/orchy-macos-arm64/orchy-macos-arm64 release/
+          cp artifacts/orchy-macos-x64/orchy-macos-x64 release/
+          cp artifacts/orchy-linux-x64/orchy-linux-x64 release/
+          cp artifacts/orchy-windows-x64.exe/orchy-windows-x64.exe release/
           # Make Unix binaries executable
-          chmod +x release/aio-macos-arm64 release/aio-macos-x64 release/aio-linux-x64
+          chmod +x release/orchy-macos-arm64 release/orchy-macos-x64 release/orchy-linux-x64
           ls -la release/
 
       - name: Get version
@@ -123,16 +123,16 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: AIO Orchestrator ${{ steps.version.outputs.version }}
+          name: Orchy ${{ steps.version.outputs.version }}
           draft: true
           prerelease: false
           files: |
-            release/aio-macos-arm64
-            release/aio-macos-x64
-            release/aio-linux-x64
-            release/aio-windows-x64.exe
+            release/orchy-macos-arm64
+            release/orchy-macos-x64
+            release/orchy-linux-x64
+            release/orchy-windows-x64.exe
           body: |
-            ## AIO Orchestrator ${{ steps.version.outputs.version }}
+            ## Orchy ${{ steps.version.outputs.version }}
 
             Multi-agent orchestrator for Claude Code.
 
@@ -140,39 +140,39 @@ jobs:
 
             **macOS (Apple Silicon):**
             ```bash
-            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-macos-arm64
-            chmod +x aio
-            ./aio
+            curl -L -o orchy https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/orchy-macos-arm64
+            chmod +x orchy
+            ./orchy
             ```
 
             **macOS (Intel):**
             ```bash
-            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-macos-x64
-            chmod +x aio
-            ./aio
+            curl -L -o orchy https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/orchy-macos-x64
+            chmod +x orchy
+            ./orchy
             ```
 
             **Linux (x64):**
             ```bash
-            curl -L -o aio https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/aio-linux-x64
-            chmod +x aio
-            ./aio
+            curl -L -o orchy https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/orchy-linux-x64
+            chmod +x orchy
+            ./orchy
             ```
 
             **Windows (x64):**
-            Download `aio-windows-x64.exe` and run it.
+            Download `orchy-windows-x64.exe` and run it.
 
-            **Homebrew (coming soon):**
+            **Homebrew:**
             ```bash
-            brew install FurlanLuka/tap/aio
+            brew install orchyai/tap/orchy
             ```
 
             ### Usage
 
             ```bash
-            aio                    # Start server, open browser
-            aio --port 8080        # Use specific port
-            aio --no-browser       # Don't open browser
+            orchy                    # Start server, open browser
+            orchy --port 8080        # Use specific port
+            orchy --no-browser       # Don't open browser
             ```
 
             ### Features
@@ -184,7 +184,7 @@ jobs:
             ### Requirements
 
             - Claude Code CLI must be installed: `npm install -g @anthropic-ai/claude-code`
-            - Run `claude auth` to authenticate before using AIO Orchestrator
+            - Run `claude auth` to authenticate before using Orchy
 
             ### Changes
 
@@ -207,23 +207,23 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          cp artifacts/aio-macos-arm64/aio-macos-arm64 release/
-          cp artifacts/aio-macos-x64/aio-macos-x64 release/
-          cp artifacts/aio-linux-x64/aio-linux-x64 release/
+          cp artifacts/orchy-macos-arm64/orchy-macos-arm64 release/
+          cp artifacts/orchy-macos-x64/orchy-macos-x64 release/
+          cp artifacts/orchy-linux-x64/orchy-linux-x64 release/
           chmod +x release/*
           ls -la release/
 
       - name: Calculate SHA256 checksums
         id: sha
         run: |
-          echo "macos_arm64=$(sha256sum release/aio-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "macos_x64=$(sha256sum release/aio-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "linux_x64=$(sha256sum release/aio-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "macos_arm64=$(sha256sum release/orchy-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "macos_x64=$(sha256sum release/orchy-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_x64=$(sha256sum release/orchy-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: FurlanLuka/homebrew-aio
+          repository: orchyai/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -231,16 +231,16 @@ jobs:
         id: version
         run: echo "version=${{ github.event.inputs.version || github.ref_name }}" >> $GITHUB_OUTPUT
 
-      - name: Create release in homebrew-aio repo
+      - name: Create release in homebrew-tap repo
         uses: softprops/action-gh-release@v1
         with:
-          repository: FurlanLuka/homebrew-aio
+          repository: orchyai/homebrew-tap
           tag_name: ${{ steps.version.outputs.version }}
-          name: AIO ${{ steps.version.outputs.version }}
+          name: Orchy ${{ steps.version.outputs.version }}
           files: |
-            release/aio-macos-arm64
-            release/aio-macos-x64
-            release/aio-linux-x64
+            release/orchy-macos-arm64
+            release/orchy-macos-x64
+            release/orchy-linux-x64
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
@@ -251,30 +251,30 @@ jobs:
 
           mkdir -p homebrew-tap/Formula
 
-          cat > homebrew-tap/Formula/aio.rb << 'FORMULA'
-          class Aio < Formula
+          cat > homebrew-tap/Formula/orchy.rb << 'FORMULA'
+          class Orchy < Formula
             desc "Multi-agent orchestrator for Claude Code"
-            homepage "https://github.com/FurlanLuka/homebrew-aio"
+            homepage "https://github.com/orchyai/homebrew-tap"
           FORMULA
 
-          cat >> homebrew-tap/Formula/aio.rb << EOF
+          cat >> homebrew-tap/Formula/orchy.rb << EOF
             version "${VERSION_NUM}"
             license "MIT"
 
             on_macos do
               on_arm do
-                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-macos-arm64"
+                url "https://github.com/orchyai/homebrew-tap/releases/download/${VERSION}/orchy-macos-arm64"
                 sha256 "${{ steps.sha.outputs.macos_arm64 }}"
               end
               on_intel do
-                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-macos-x64"
+                url "https://github.com/orchyai/homebrew-tap/releases/download/${VERSION}/orchy-macos-x64"
                 sha256 "${{ steps.sha.outputs.macos_x64 }}"
               end
             end
 
             on_linux do
               on_intel do
-                url "https://github.com/FurlanLuka/homebrew-aio/releases/download/${VERSION}/aio-linux-x64"
+                url "https://github.com/orchyai/homebrew-tap/releases/download/${VERSION}/orchy-linux-x64"
                 sha256 "${{ steps.sha.outputs.linux_x64 }}"
               end
             end
@@ -282,26 +282,26 @@ jobs:
             def install
               if OS.mac?
                 if Hardware::CPU.arm?
-                  bin.install "aio-macos-arm64" => "aio"
+                  bin.install "orchy-macos-arm64" => "orchy"
                 else
-                  bin.install "aio-macos-x64" => "aio"
+                  bin.install "orchy-macos-x64" => "orchy"
                 end
               elsif OS.linux?
-                bin.install "aio-linux-x64" => "aio"
+                bin.install "orchy-linux-x64" => "orchy"
               end
             end
 
             def caveats
               <<~EOS
                 To get started, run:
-                  aio
+                  orchy
 
                 This starts the orchestrator and opens http://localhost:3456 in your browser.
 
                 Options:
-                  aio --port 8080     # Use specific port
-                  aio --no-browser    # Don't open browser automatically
-                  aio --help          # Show all options
+                  orchy --port 8080     # Use specific port
+                  orchy --no-browser    # Don't open browser automatically
+                  orchy --help          # Show all options
 
                 Requirements:
                   Claude Code CLI must be installed:
@@ -310,7 +310,7 @@ jobs:
             end
 
             test do
-              assert_match "version", shell_output("\#{bin}/aio --help")
+              assert_match "version", shell_output("\#{bin}/orchy --help")
             end
           end
           EOF
@@ -320,6 +320,6 @@ jobs:
           cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/aio.rb
-          git diff --staged --quiet || git commit -m "Update aio to ${{ github.event.inputs.version || github.ref_name }}"
+          git add Formula/orchy.rb
+          git diff --staged --quiet || git commit -m "Update orchy to ${{ github.event.inputs.version || github.ref_name }}"
           git push
