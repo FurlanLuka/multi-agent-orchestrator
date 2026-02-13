@@ -61,9 +61,6 @@ jobs:
       - name: Obfuscate backend code
         run: npm run obfuscate -w orchestrator-backend
 
-      - name: Build web frontend
-        run: npm run build:web
-
       - name: Copy web assets into backend for embedding
         run: cp -r orchestrator-web/dist orchestrator-backend/web-dist
         shell: bash
