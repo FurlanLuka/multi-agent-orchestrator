@@ -1,6 +1,6 @@
 {
   "name": "orchy",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Orchy - Multi-agent orchestrator for Claude Code",
   "private": true,
   "bin": {
