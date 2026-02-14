@@ -212,6 +212,48 @@ or add npm global bin to your PATH.`;
 }
 
 /**
+ * Check if npm is installed
+ */
+async function checkNpm(): Promise<DependencyResult> {
+  try {
+    const { stdout } = await execWithUserPath('npm --version', 5000);
+
+    const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
+    const version = versionMatch ? versionMatch[1] : stdout.trim();
+
+    return {
+      name: 'npm',
+      available: true,
+      version,
+    };
+  } catch (err: any) {
+    return {
+      name: 'npm',
+      available: false,
+      error: err.message || 'npm not found',
+      installGuide: getNpmInstallGuide(),
+    };
+  }
+}
+
+/**
+ * Get platform-specific install guide for npm
+ */
+function getNpmInstallGuide(): string {
+  const platform = os.platform();
+
+  if (platform === 'darwin') {
+    return 'Install npm (included with Node.js):\n  brew install node';
+  }
+
+  if (platform === 'win32') {
+    return 'Install npm (included with Node.js):\n  Download from https://nodejs.org';
+  }
+
+  return 'Install npm:\n  sudo apt install npm  (Debian/Ubuntu)\n  sudo dnf install npm  (Fedora/RHEL)';
+}
+
+/**
  * Get platform-specific install guide for Git
  */
 function getGitInstallGuide(): string {
@@ -256,6 +298,7 @@ export async function checkDependencies(): Promise<DependencyCheckResult> {
         checkNodeJs(),
         checkGit(),
         checkGitHubCLI(),
+        checkNpm(),
       ]);
 
       // gh is optional, so only check critical deps for allAvailable

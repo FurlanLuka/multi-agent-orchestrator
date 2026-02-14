@@ -792,6 +792,7 @@ export interface DependencyCheckResult {
   claude: DependencyStatus;
   git: DependencyStatus;
   gh: DependencyStatus;  // GitHub CLI (optional - for PR creation)
+  npm: DependencyStatus;  // npm (required - for project setup)
 }
 
 // Chat message (legacy - simple text)

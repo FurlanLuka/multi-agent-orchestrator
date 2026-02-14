@@ -92,6 +92,7 @@ export class DesignerAgentManager extends EventEmitter {
 
   // Session timeout
   private static readonly SESSION_TIMEOUT = 3600000; // 1 hour
+  private sessionTimeoutTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
@@ -132,6 +133,13 @@ export class DesignerAgentManager extends EventEmitter {
 
     // Emit session started event
     this.emit('sessionStarted', this.session);
+
+    // Start session timeout
+    this.sessionTimeoutTimer = setTimeout(() => {
+      console.log(`[DesignerAgent] Session ${sessionId} timed out after ${DesignerAgentManager.SESSION_TIMEOUT / 1000}s`);
+      this.emit('error', new Error('Design session timed out'));
+      this.endSession();
+    }, DesignerAgentManager.SESSION_TIMEOUT);
 
     // Start the Claude process with MCP
     await this.spawnDesignerAgent(category);
@@ -187,6 +195,11 @@ export class DesignerAgentManager extends EventEmitter {
   async endSession(): Promise<void> {
     const sessionId = this.session?.id;
     const proc = this.currentProcess;
+
+    if (this.sessionTimeoutTimer) {
+      clearTimeout(this.sessionTimeoutTimer);
+      this.sessionTimeoutTimer = null;
+    }
 
     if (proc) {
       console.log('[DesignerAgent] Ending session, sending SIGTERM');

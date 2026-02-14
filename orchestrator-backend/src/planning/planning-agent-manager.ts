@@ -2353,11 +2353,13 @@ Rules:
     console.log('[PlanningAgent] Stopping...');
 
     if (this.currentProcess) {
-      this.currentProcess.kill('SIGTERM');
+      const proc = this.currentProcess;
+      this.currentProcess = null;
+
+      proc.kill('SIGTERM');
       setTimeout(() => {
-        if (this.currentProcess) {
-          this.currentProcess.kill('SIGKILL');
-          this.currentProcess = null;
+        if (proc.exitCode === null && proc.signalCode === null) {
+          proc.kill('SIGKILL');
         }
       }, 5000);
     }

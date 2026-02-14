@@ -64,6 +64,7 @@ export interface UIServer {
   setKillPlanningAgentHandler: (handler: () => void) => void;
   setGetNextPromptHandler: (handler: GetNextPromptHandler) => void;
   setDeploymentManager: (manager: DeploymentManager) => void;
+  setShutdownHandler: (handler: () => void) => void;
 }
 
 /**
@@ -119,6 +120,7 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
 
   // Single tab enforcement (production only)
   let mainClientId: string | null = null;
+  let shutdownHandler: (() => void) | null = null;
   let mainClientDisconnectTimer: NodeJS.Timeout | null = null;
   const MAIN_CLIENT_GRACE_PERIOD_MS = 5000; // 5 seconds for reconnection
 
@@ -144,7 +146,8 @@ export function createUIServer(port: number = 3456, initialDeps?: Partial<UIServ
     process.stdout.write('\n\x1b[33mShutdown requested by client. Goodbye!\x1b[0m\n');
     // Give time for response to be sent before exiting
     setTimeout(() => {
-      process.exit(0);
+      if (shutdownHandler) shutdownHandler();
+      else process.exit(0);
     }, 500);
   });
 
@@ -1503,6 +1506,15 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
       console.log(`[UIServer] Client disconnected: ${socket.id}`);
       connectedClients.delete(socket.id);
 
+      // If no clients remain, end any active design session
+      if (connectedClients.size === 0) {
+        const designerAgent = (io as any).designerAgent;
+        if (designerAgent?.getSession()) {
+          console.log('[UIServer] All clients disconnected, ending design session');
+          designerAgent.endSession();
+        }
+      }
+
       // In dev mode, don't shutdown - allow multiple tabs
       if (isDev) {
         return;
@@ -1516,7 +1528,8 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         mainClientDisconnectTimer = setTimeout(() => {
           console.log(`[UIServer] Grace period expired, no reconnection - shutting down orchestrator`);
           process.stdout.write('\n\x1b[33mMain UI tab closed. Goodbye!\x1b[0m\n');
-          process.exit(0);
+          if (shutdownHandler) shutdownHandler();
+          else process.exit(0);
         }, MAIN_CLIENT_GRACE_PERIOD_MS);
       }
     });
@@ -2901,6 +2914,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     setDeploymentManager: (manager: DeploymentManager) => {
       deps.deploymentManager = manager;
     },
+    setShutdownHandler: (handler: () => void) => { shutdownHandler = handler; },
     finalize,
   };
 }

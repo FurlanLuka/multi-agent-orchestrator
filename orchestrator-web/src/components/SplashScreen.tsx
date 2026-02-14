@@ -184,6 +184,85 @@ export function SplashScreen({ checking, dependencyCheck, backendError, onRetry 
     );
   }
 
+  // npm not available - error state
+  if (!dependencyCheck.npm.available) {
+    return (
+      <Box
+        style={{
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: pageBg.gradient,
+        }}
+      >
+        <GlassCard p="xl" style={{ maxWidth: 500 }}>
+          <Stack gap="lg">
+            <Group>
+              <ThemeIcon size="xl" radius="md" color="rose" variant="light">
+                <IconAlertCircle size={28} />
+              </ThemeIcon>
+              <Text size="xl" fw={700}>
+                npm Required
+              </Text>
+            </Group>
+
+            <Text c="dimmed">
+              The Multi-Agent Orchestrator requires npm to install project dependencies and run builds.
+            </Text>
+
+            <GlassCard p="md">
+              <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                  npm is included with Node.js:
+                </Text>
+                <Group gap="xs">
+                  <ThemeIcon size="sm" radius="sm" color="gray" variant="light">
+                    <IconTerminal2 size={14} />
+                  </ThemeIcon>
+                  <Code>brew install node</Code>
+                  <Text size="xs" c="dimmed">(macOS)</Text>
+                </Group>
+                <Group gap="xs">
+                  <ThemeIcon size="sm" radius="sm" color="gray" variant="light">
+                    <IconTerminal2 size={14} />
+                  </ThemeIcon>
+                  <Code>sudo apt install npm</Code>
+                  <Text size="xs" c="dimmed">(Debian/Ubuntu)</Text>
+                </Group>
+                <Group gap="xs">
+                  <ThemeIcon size="sm" radius="sm" color="gray" variant="light">
+                    <IconTerminal2 size={14} />
+                  </ThemeIcon>
+                  <Code>sudo dnf install npm</Code>
+                  <Text size="xs" c="dimmed">(Fedora/RHEL)</Text>
+                </Group>
+                <Text size="xs" c="dimmed" mt="xs">
+                  Or download from <Code>https://nodejs.org</Code>
+                </Text>
+              </Stack>
+            </GlassCard>
+
+            {dependencyCheck.npm.error && (
+              <Text size="sm" c="rose">
+                Error: {dependencyCheck.npm.error}
+              </Text>
+            )}
+
+            <Button
+              leftSection={<IconRefresh size={16} />}
+              onClick={onRetry}
+              variant="light"
+              color="peach"
+            >
+              Retry
+            </Button>
+          </Stack>
+        </GlassCard>
+      </Box>
+    );
+  }
+
   // This shouldn't happen, but handle it gracefully
   return null;
 }

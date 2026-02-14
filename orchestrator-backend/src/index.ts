@@ -2081,6 +2081,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         const claudeDep = result.dependencies.find((d) => d.name === 'Claude Code');
         const gitDep = result.dependencies.find((d) => d.name === 'Git');
         const ghDep = result.dependencies.find((d) => d.name === 'GitHub CLI');
+        const npmDep = result.dependencies.find((d) => d.name === 'npm');
 
         socket.emit('dependencyCheck', {
           claude: {
@@ -2101,6 +2102,11 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             version: ghDep?.version ?? null,
             error: ghDep?.error ?? null,
           },
+          npm: {
+            available: npmDep?.available ?? false,
+            version: npmDep?.version ?? null,
+            error: npmDep?.error ?? null,
+          },
           // Include full result for enhanced UI
           fullResult: result,
         });
@@ -2116,6 +2122,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           claude: { available: false, version: null, error: 'Check failed' },
           git: { available: false, version: null, error: 'Check failed' },
           gh: { available: false, version: null, error: 'Check failed' },
+          npm: { available: false, version: null, error: 'Check failed' },
         });
       }
     });
@@ -4605,6 +4612,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Stop Planning Agent
     planningAgent.stop();
 
+    // Stop Designer Agent
+    designerAgent.endSession();
+
     // Stop UI server
     ui.stop();
 
@@ -4614,6 +4624,9 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // Wire shutdown handler so server.ts exit paths go through shutdown()
+  ui.setShutdownHandler(() => shutdown());
 
   // ═══════════════════════════════════════════════════════════════
   // Start the orchestrator
