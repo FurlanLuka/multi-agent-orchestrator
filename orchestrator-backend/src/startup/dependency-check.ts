@@ -169,7 +169,7 @@ function getGitHubCLIInstallGuide(): string {
     return 'Install GitHub CLI:\n  winget install --id GitHub.cli\n\nThen authenticate:\n  gh auth login';
   }
 
-  return 'Install GitHub CLI:\n  See https://github.com/cli/cli#installation\n\nThen authenticate:\n  gh auth login';
+  return 'Install GitHub CLI:\n  sudo apt install gh  (Debian/Ubuntu)\n  sudo dnf install gh  (Fedora/RHEL)\n  See https://github.com/cli/cli#installation for other distros\n\nThen authenticate:\n  gh auth login';
 }
 
 /**

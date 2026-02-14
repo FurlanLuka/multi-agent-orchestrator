@@ -35,6 +35,10 @@ jobs:
             target: linux-x64
             pkg-target: node18-linux-x64
             binary-name: orchy-linux-x64
+          - platform: ubuntu-latest
+            target: linux-arm64
+            pkg-target: node18-linux-arm64
+            binary-name: orchy-linux-arm64
           - platform: windows-latest
             target: windows-x64
             pkg-target: node18-win-x64
@@ -107,9 +111,10 @@ jobs:
           cp artifacts/orchy-macos-arm64/orchy-macos-arm64 release/
           cp artifacts/orchy-macos-x64/orchy-macos-x64 release/
           cp artifacts/orchy-linux-x64/orchy-linux-x64 release/
+          cp artifacts/orchy-linux-arm64/orchy-linux-arm64 release/
           cp artifacts/orchy-windows-x64.exe/orchy-windows-x64.exe release/
           # Make Unix binaries executable
-          chmod +x release/orchy-macos-arm64 release/orchy-macos-x64 release/orchy-linux-x64
+          chmod +x release/orchy-macos-arm64 release/orchy-macos-x64 release/orchy-linux-x64 release/orchy-linux-arm64
           ls -la release/
 
       - name: Get version
@@ -127,6 +132,7 @@ jobs:
             release/orchy-macos-arm64
             release/orchy-macos-x64
             release/orchy-linux-x64
+            release/orchy-linux-arm64
             release/orchy-windows-x64.exe
           body: |
             ## Orchy ${{ steps.version.outputs.version }}
@@ -152,6 +158,13 @@ jobs:
             **Linux (x64):**
             ```bash
             curl -L -o orchy https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/orchy-linux-x64
+            chmod +x orchy
+            ./orchy
+            ```
+
+            **Linux (ARM64):**
+            ```bash
+            curl -L -o orchy https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/orchy-linux-arm64
             chmod +x orchy
             ./orchy
             ```
@@ -207,6 +220,7 @@ jobs:
           cp artifacts/orchy-macos-arm64/orchy-macos-arm64 release/
           cp artifacts/orchy-macos-x64/orchy-macos-x64 release/
           cp artifacts/orchy-linux-x64/orchy-linux-x64 release/
+          cp artifacts/orchy-linux-arm64/orchy-linux-arm64 release/
           chmod +x release/*
           ls -la release/
 
@@ -216,6 +230,7 @@ jobs:
           echo "macos_arm64=$(sha256sum release/orchy-macos-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
           echo "macos_x64=$(sha256sum release/orchy-macos-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
           echo "linux_x64=$(sha256sum release/orchy-linux-x64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(sha256sum release/orchy-linux-arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -238,6 +253,7 @@ jobs:
             release/orchy-macos-arm64
             release/orchy-macos-x64
             release/orchy-linux-x64
+            release/orchy-linux-arm64
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
@@ -274,6 +290,10 @@ jobs:
                 url "https://github.com/orchyai/homebrew-tap/releases/download/${VERSION}/orchy-linux-x64"
                 sha256 "${{ steps.sha.outputs.linux_x64 }}"
               end
+              on_arm do
+                url "https://github.com/orchyai/homebrew-tap/releases/download/${VERSION}/orchy-linux-arm64"
+                sha256 "${{ steps.sha.outputs.linux_arm64 }}"
+              end
             end
 
             def install
@@ -284,7 +304,11 @@ jobs:
                   bin.install "orchy-macos-x64" => "orchy"
                 end
               elsif OS.linux?
-                bin.install "orchy-linux-x64" => "orchy"
+                if Hardware::CPU.arm?
+                  bin.install "orchy-linux-arm64" => "orchy"
+                else
+                  bin.install "orchy-linux-x64" => "orchy"
+                end
               end
             end
 

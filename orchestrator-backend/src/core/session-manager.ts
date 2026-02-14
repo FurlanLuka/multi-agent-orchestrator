@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { Config, Session, Plan, PersistedSession, SessionSummary, FullSessionData, TaskDefinition } from '@orchy/types';
 import { SessionStore } from './session-store';
 import { ensureProjectSessionDir, getProjectSessionDir } from '../config/paths';
+import { expandPath } from '../utils/shell-env';
 
 export class SessionManager {
   private config: Config;
@@ -19,10 +20,7 @@ export class SessionManager {
    * Expands ~ to home directory
    */
   private expandPath(p: string): string {
-    if (p.startsWith('~')) {
-      return p.replace('~', process.env.HOME || '');
-    }
-    return p;
+    return expandPath(p);
   }
 
   /**

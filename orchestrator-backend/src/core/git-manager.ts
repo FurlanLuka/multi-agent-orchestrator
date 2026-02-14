@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execWithShellEnv, spawnWithShellEnv } from '../utils/shell-env';
+import { execWithShellEnv, spawnWithShellEnv, expandPath } from '../utils/shell-env';
 import { parseMarkedResponse, MARKERS } from '../planning/response-parser';
 
 // Entries that should always be in .gitignore for Orchy-managed projects
@@ -19,10 +19,7 @@ export class GitManager {
    * Expands ~ to home directory
    */
   private expandPath(p: string): string {
-    if (p.startsWith('~')) {
-      return p.replace('~', process.env.HOME || '');
-    }
-    return p;
+    return expandPath(p);
   }
 
   /**

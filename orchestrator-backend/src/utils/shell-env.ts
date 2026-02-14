@@ -14,6 +14,18 @@ import * as path from 'path';
 
 const execAsync = promisify(exec);
 
+/**
+ * Expand ~ to the user's home directory.
+ * Uses os.homedir() which is more robust than process.env.HOME
+ * (works even when HOME is unset on Linux via /etc/passwd fallback).
+ */
+export function expandPath(p: string): string {
+  if (p.startsWith('~')) {
+    return p.replace('~', os.homedir());
+  }
+  return p;
+}
+
 const DELIMITER = '_SHELL_ENV_DELIMITER_';
 
 // Cache for shell env (per process lifetime)
@@ -25,7 +37,8 @@ let pendingShellEnvPromise: Promise<Record<string, string>> | null = null;
  * Get the user's default shell
  */
 export function getDefaultShell(): string {
-  return process.env.SHELL || '/bin/zsh';
+  const fallback = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+  return process.env.SHELL || fallback;
 }
 
 /**

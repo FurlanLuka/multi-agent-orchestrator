@@ -8,7 +8,7 @@ import { TemplateManager } from './template-manager';
 import { PlanningAgentManager } from '../planning/planning-agent-manager';
 import { GitManager } from './git-manager';
 import { SessionLogger } from './session-logger';
-import { spawnWithShellEnv } from '../utils/shell-env';
+import { spawnWithShellEnv, expandPath } from '../utils/shell-env';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -253,10 +253,7 @@ Please fix the issue and try again.`;
    * Runs an install command (e.g., npm install, pip install).
    */
   private async runInstallCommand(project: string, command: string): Promise<void> {
-    let projectPath = this.config.projects[project].path;
-    if (projectPath.startsWith('~')) {
-      projectPath = projectPath.replace('~', process.env.HOME || '');
-    }
+    let projectPath = expandPath(this.config.projects[project].path);
 
     console.log(`[TaskExecutor] Running install: ${command} in ${projectPath}`);
 
@@ -316,10 +313,7 @@ Please fix the issue and try again.`;
     error?: string;
   }> {
     // Expand ~ to home directory
-    let projectPath = this.config.projects[project].path;
-    if (projectPath.startsWith('~')) {
-      projectPath = projectPath.replace('~', process.env.HOME || '');
-    }
+    let projectPath = expandPath(this.config.projects[project].path);
 
     console.log(`[TaskExecutor] Running build: ${command} in ${projectPath}`);
 
@@ -384,10 +378,7 @@ Please fix the issue and try again.`;
     }
 
     // Expand ~ to home directory
-    let projectPath = projectConfig.path;
-    if (projectPath.startsWith('~')) {
-      projectPath = projectPath.replace('~', process.env.HOME || '');
-    }
+    let projectPath = expandPath(projectConfig.path);
 
     const envFilePath = path.join(projectPath, '.env');
 
@@ -642,9 +633,7 @@ Please fix the issue and try again.`;
         try {
           const workspaceRoot = this.getWorkspaceRoot();
           if (workspaceRoot) {
-            const gitPath = workspaceRoot.startsWith('~')
-              ? workspaceRoot.replace('~', process.env.HOME || '')
-              : workspaceRoot;
+            const gitPath = expandPath(workspaceRoot);
             console.log(`[TaskExecutor] Orchy Managed: committing at workspace root ${gitPath}`);
 
             const commitMessage = `feat: ${task.name}`;

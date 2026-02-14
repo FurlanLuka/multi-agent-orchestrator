@@ -129,6 +129,7 @@ import { generateBranchName } from './utils/ask-agent';
 import { TEMPLATE_PERMISSIONS } from '@orchy/types';
 import { getPaths, getProjectsConfigPath, getWorkspacesConfigPath, initializeConfigIfNeeded, ensureSetupExtracted, initializePlannerPermissionsIfNeeded } from './config/paths';
 import { checkDependencies, formatDependencyResults, DependencyCheckResult } from './startup/dependency-check';
+import { expandPath } from './utils/shell-env';
 
 // Get orchestrator directory using centralized path resolver
 const paths = getPaths();
@@ -411,10 +412,7 @@ async function main() {
       const projectConfigs = workspaceManager.getWorkspaceProjectConfigs(workspaceId);
       const firstConfig = Object.values(projectConfigs)[0];
       if (firstConfig) {
-        rootPath = firstConfig.path;
-        if (rootPath.startsWith('~')) {
-          rootPath = rootPath.replace('~', process.env.HOME || '');
-        }
+        rootPath = expandPath(firstConfig.path);
         rootPath = path.dirname(rootPath);
       }
     }
@@ -1941,10 +1939,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         return { success: false, error: 'No project configs found for workspace' };
       }
 
-      let workspaceRootPath = firstProjectConfig.path;
-      if (workspaceRootPath.startsWith('~')) {
-        workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
-      }
+      let workspaceRootPath = expandPath(firstProjectConfig.path);
       workspaceRootPath = path.dirname(workspaceRootPath);
 
       // Emit merge session started
@@ -2015,10 +2010,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         }
 
         // Expand path
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         const mainBranch = projectConfig.mainBranch || 'main';
 
@@ -2227,10 +2219,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           // Get workspace root path from first project's parent directory
           const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
           if (firstProjectConfig) {
-            let workspaceRootPath = firstProjectConfig.path;
-            if (workspaceRootPath.startsWith('~')) {
-              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
-            }
+            let workspaceRootPath = expandPath(firstProjectConfig.path);
             workspaceRootPath = path.dirname(workspaceRootPath);
 
             try {
@@ -2405,10 +2394,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         if (isOrchyManaged) {
           const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
           if (firstProjectConfig) {
-            let workspaceRootPath = firstProjectConfig.path;
-            if (workspaceRootPath.startsWith('~')) {
-              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
-            }
+            let workspaceRootPath = expandPath(firstProjectConfig.path);
             workspaceRootPath = path.dirname(workspaceRootPath);
 
             try {
@@ -2591,10 +2577,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
           const workspaceProjectConfigs = workspaceManager.getWorkspaceProjectConfigs(session.workspaceId);
           const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
           if (firstProjectConfig) {
-            workspaceRootPath = firstProjectConfig.path;
-            if (workspaceRootPath.startsWith('~')) {
-              workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
-            }
+            workspaceRootPath = expandPath(firstProjectConfig.path);
             workspaceRootPath = path.dirname(workspaceRootPath);
           }
         }
@@ -2931,10 +2914,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             if (isOrchyManagedResume) {
               const firstProjectConfig = Object.values(workspaceProjectConfigs)[0];
               if (firstProjectConfig) {
-                workspaceRootPathResume = firstProjectConfig.path;
-                if (workspaceRootPathResume.startsWith('~')) {
-                  workspaceRootPathResume = workspaceRootPathResume.replace('~', process.env.HOME || '');
-                }
+                workspaceRootPathResume = expandPath(firstProjectConfig.path);
                 workspaceRootPathResume = path.dirname(workspaceRootPathResume);
               }
             }
@@ -3150,10 +3130,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
       try {
         // Expand path
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         const result = await gitManager.pushBranch(projectPath, branchName);
         if (result.success) {
@@ -3188,10 +3165,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
 
       try {
         // Expand path
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         const targetBranch = projectConfig.mainBranch || 'main';
         const result = await gitManager.mergeBranch(projectPath, branchName, targetBranch);
@@ -3227,10 +3201,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         if (!projectConfig) continue;
 
         try {
-          let projectPath = projectConfig.path;
-          if (projectPath.startsWith('~')) {
-            projectPath = projectPath.replace('~', process.env.HOME || '');
-          }
+          let projectPath = expandPath(projectConfig.path);
 
           // Check if this path has a git repo
           const hasGitRepo = await gitManager.isGitRepo(projectPath);
@@ -3295,10 +3266,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
         if (!projectConfig) continue;
 
         try {
-          let projectPath = projectConfig.path;
-          if (projectPath.startsWith('~')) {
-            projectPath = projectPath.replace('~', process.env.HOME || '');
-          }
+          let projectPath = expandPath(projectConfig.path);
 
           let stashed = false;
 
@@ -3357,10 +3325,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
 
       try {
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         const result = await gitManager.isGitHubProject(projectPath);
         socket.emit('gitHubInfo', { project, ...result });
@@ -3390,10 +3355,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
 
       try {
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         const branches = await gitManager.getRemoteBranches(projectPath);
         socket.emit('branches', { project, branches });
@@ -3435,10 +3397,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       }
 
       try {
-        let projectPath = projectConfig.path;
-        if (projectPath.startsWith('~')) {
-          projectPath = projectPath.replace('~', process.env.HOME || '');
-        }
+        let projectPath = expandPath(projectConfig.path);
 
         // Check if it's a GitHub project
         const ghInfo = await gitManager.isGitHubProject(projectPath);
@@ -3633,10 +3592,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
             // Find workspace root path (parent of any project)
             const firstProject = workspace.projects[0];
             if (firstProject) {
-              let workspaceRootPath = firstProject.path;
-              if (workspaceRootPath.startsWith('~')) {
-                workspaceRootPath = workspaceRootPath.replace('~', process.env.HOME || '');
-              }
+              let workspaceRootPath = expandPath(firstProject.path);
               // Go up one directory level from project path to get workspace root
               workspaceRootPath = path.dirname(workspaceRootPath);
 
@@ -3671,7 +3627,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
     // Quick start with session: create projects, workspace, and start session in one go
     socket.on('quickStartSession', async ({ appName, feature, templateNames, designName }: { appName: string; feature: string; templateNames: string[]; designName?: string }) => {
       const targetPath = `~/orchy/${appName}`;
-      const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+      const expandedTargetPath = expandPath(targetPath);
       const createdProjectConfigs: WorkspaceProjectConfig[] = [];
       let createdParentDir = false;
       let createdWorkspaceId: string | null = null;
@@ -3913,7 +3869,7 @@ At the END, output results using [E2E_RESULTS] marker on ONE LINE:
       };
     }) => {
       const targetPath = `~/orchy/${appName}`;
-      const expandedTargetPath = targetPath.replace('~', process.env.HOME || '');
+      const expandedTargetPath = expandPath(targetPath);
       const createdProjectConfigs: WorkspaceProjectConfig[] = [];
       let createdParentDir = false;
       let createdWorkspaceId: string | null = null;

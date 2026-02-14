@@ -1,9 +1,30 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import obfuscatorPlugin from 'rollup-plugin-obfuscator'
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
-  plugins: [react()],
+  plugins: [
+    react(),
+    ...(command === 'build' ? [obfuscatorPlugin({
+      options: {
+        compact: true,
+        controlFlowFlattening: false,
+        deadCodeInjection: false,
+        debugProtection: false,
+        disableConsoleOutput: true,
+        identifierNamesGenerator: 'hexadecimal',
+        log: false,
+        numbersToExpressions: false,
+        renameGlobals: false,
+        selfDefending: false,
+        simplify: true,
+        stringArray: false,
+        transformObjectKeys: false,
+        unicodeEscapeSequence: false,
+      },
+    })] : []),
+  ],
   server: {
     port: 3555,  // Use unique port to avoid conflicts with project dev servers
     proxy: {

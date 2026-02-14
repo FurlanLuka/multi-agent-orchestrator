@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { Config, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
 import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
-import { spawnWithShellEnv } from '../utils/shell-env';
+import { spawnWithShellEnv, expandPath } from '../utils/shell-env';
 
 interface ManagedProcess {
   process: ChildProcess;
@@ -102,10 +102,7 @@ export class ProcessManager extends EventEmitter {
    * Expands ~ to home directory
    */
   private expandPath(p: string): string {
-    if (p.startsWith('~')) {
-      return p.replace('~', process.env.HOME || '');
-    }
-    return p;
+    return expandPath(p);
   }
 
   /**

@@ -4,7 +4,7 @@ import * as path from 'path';
 import { ProjectConfig, ProjectTemplate, ProjectTemplateConfig } from '@orchy/types';
 import { GitManager } from './git-manager';
 import { getProjectTemplatesDir, getConfigDir } from '../config/paths';
-import { spawnWithShellEnv, getDefaultShell } from '../utils/shell-env';
+import { spawnWithShellEnv, getDefaultShell, expandPath } from '../utils/shell-env';
 
 export interface CreateFromTemplateOptions {
   name: string;
@@ -76,10 +76,7 @@ export class TemplateManager extends EventEmitter {
    * Expands ~ to home directory
    */
   expandPath(p: string): string {
-    if (p.startsWith('~')) {
-      return p.replace('~', process.env.HOME || '');
-    }
-    return p;
+    return expandPath(p);
   }
 
   /**
