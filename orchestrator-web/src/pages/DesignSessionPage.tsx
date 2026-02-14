@@ -16,13 +16,14 @@ import {
   Menu,
   Tooltip,
 } from '@mantine/core';
-import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile, IconPencil, IconTrash, IconBook, IconX, IconEye } from '@tabler/icons-react';
+import { IconArrowLeft, IconSend, IconAlertCircle, IconCheck, IconSparkles, IconWand, IconDeviceFloppy, IconFile, IconPencil, IconTrash, IconBook, IconX, IconEye, IconClock, IconBulb } from '@tabler/icons-react';
 import type { DesignPhase, DesignCategory } from '@orchy/types';
 import { FormCard, GlassCard, GlassTextarea, GlassTextInput, glass, radii } from '../theme';
 import { DesignPreviewOverlay } from '../components/design/DesignPreviewOverlay';
 import { NotificationSettingsPopover } from '../components/settings/NotificationSettingsPopover';
 import { useOrchestrator } from '../context/OrchestratorContext';
 import { useNotifications } from '../hooks/useNotifications';
+import { useElapsedTime } from '../hooks/useElapsedTime';
 
 interface DesignSessionPageProps {
   onBack: () => void;
@@ -48,6 +49,21 @@ type ExtendedPhase = 'category' | DesignPhase;
 const generatingMessages: Record<'theme' | 'mockup', string> = {
   theme: 'Generating theme options...',
   mockup: 'Generating mockups...',
+};
+
+const DESIGN_TIPS: Record<'theme' | 'mockup', string[]> = {
+  theme: [
+    'Analyzing your preferences and category',
+    'Crafting color palettes and typography',
+    'Building cohesive visual identity',
+    'Preparing theme variations for you',
+  ],
+  mockup: [
+    'Structuring layout and content sections',
+    'Applying your selected theme',
+    'Generating responsive component markup',
+    'Assembling full-page mockup',
+  ],
 };
 
 export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps) {
@@ -112,6 +128,32 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
   const [editingPageName, setEditingPageName] = useState('');
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  // Track when generation started for elapsed time display
+  const generatingStartRef = useRef<number | undefined>(undefined);
+  const [tipIndex, setTipIndex] = useState(0);
+
+  useEffect(() => {
+    if (designGenerating) {
+      if (!generatingStartRef.current) {
+        generatingStartRef.current = Date.now();
+        setTipIndex(0);
+      }
+      // Rotate tips every 10 seconds
+      const tips = DESIGN_TIPS[designGenerating.type] || [];
+      if (tips.length > 0) {
+        const interval = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - (generatingStartRef.current || Date.now())) / 1000);
+          setTipIndex(Math.floor(elapsed / 10) % tips.length);
+        }, 1000);
+        return () => clearInterval(interval);
+      }
+    } else {
+      generatingStartRef.current = undefined;
+    }
+  }, [designGenerating]);
+
+  const elapsed = useElapsedTime(generatingStartRef.current);
 
   // Determine the current phase: local 'category' phase or socket-managed phase
   // In edit mode, skip category selection entirely - show loading until socket responds
@@ -564,6 +606,20 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
                       <Text size="sm" style={{ color: 'var(--text-body)' }}>
                         {designGenerating.message || generatingMessages[designGenerating.type]}
                       </Text>
+                    </Group>
+                    <Group gap="md" mt={6} ml={28}>
+                      <Group gap={4}>
+                        <IconClock size={12} style={{ color: 'var(--text-dimmed)', opacity: 0.7 }} />
+                        <Text size="xs" c="dimmed">{elapsed}</Text>
+                      </Group>
+                      {DESIGN_TIPS[designGenerating.type]?.[tipIndex] && (
+                        <Group gap={4}>
+                          <IconBulb size={12} style={{ color: 'var(--color-honey)', opacity: 0.7 }} />
+                          <Text size="xs" c="dimmed" fs="italic">
+                            {DESIGN_TIPS[designGenerating.type][tipIndex]}
+                          </Text>
+                        </Group>
+                      )}
                     </Group>
                   </Box>
                 )}

@@ -127,9 +127,10 @@ export class GitHubManager {
       const result = await this.executeGhCommand(['auth', 'status']);
 
       if (result.exitCode === 0) {
-        // Parse username from output
+        // Parse username from output (gh may write to stdout or stderr depending on version)
         // Format: "Logged in to github.com account username (keyring)"
-        const match = result.stderr.match(/Logged in to github\.com account (\S+)/);
+        const output = result.stdout + '\n' + result.stderr;
+        const match = output.match(/Logged in to github\.com account (\S+)/);
         const username = match ? match[1] : undefined;
 
         // Check for workflow scope (needed for pushing .github/workflows changes)

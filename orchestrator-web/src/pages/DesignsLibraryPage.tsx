@@ -12,7 +12,7 @@ import {
   Box,
   Button,
 } from '@mantine/core';
-import { IconPlus, IconTrash, IconFile, IconPalette } from '@tabler/icons-react';
+import { IconPlus, IconTrash, IconFile, IconPalette, IconDownload } from '@tabler/icons-react';
 import type { SavedDesignFolder, SavedDesignFolderContents } from '@orchy/types';
 import { GlassCard, GlassDashedCard, StyledModal } from '../theme';
 import { DesignDetailModal } from '../components/design/DesignDetailModal';
@@ -82,6 +82,17 @@ export function DesignsLibraryPage({ onAddNew, onEdit }: DesignsLibraryPageProps
     } finally {
       setLoadingDesign(null);
     }
+  };
+
+  // Handle download button click
+  const handleDownloadClick = (design: SavedDesignFolder, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const a = document.createElement('a');
+    a.href = `http://localhost:${effectivePort}/api/designs/${encodeURIComponent(design.name)}/download`;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Handle delete button click - opens confirmation modal
@@ -246,6 +257,7 @@ export function DesignsLibraryPage({ onAddNew, onEdit }: DesignsLibraryPageProps
                   loading={loadingDesign === design.name}
                   onClick={() => handleDesignClick(design)}
                   onDelete={(e) => handleDeleteClick(design, e)}
+                  onDownload={(e) => handleDownloadClick(design, e)}
                 />
               ))}
             </SimpleGrid>
@@ -296,9 +308,10 @@ interface DesignCardProps {
   loading: boolean;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
+  onDownload: (e: React.MouseEvent) => void;
 }
 
-function DesignCard({ design, loading, onClick, onDelete }: DesignCardProps) {
+function DesignCard({ design, loading, onClick, onDelete, onDownload }: DesignCardProps) {
   const pageCount = design.pages.length;
   const createdDate = new Date(design.createdAt).toLocaleDateString();
 
@@ -314,16 +327,25 @@ function DesignCard({ design, loading, onClick, onDelete }: DesignCardProps) {
         position: 'relative',
       }}
     >
-      {/* Delete button */}
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="sm"
-        style={{ position: 'absolute', top: 8, right: 8 }}
-        onClick={onDelete}
-      >
-        <IconTrash size={14} />
-      </ActionIcon>
+      {/* Action buttons */}
+      <Group gap={2} style={{ position: 'absolute', top: 8, right: 8 }}>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={onDownload}
+        >
+          <IconDownload size={14} />
+        </ActionIcon>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={onDelete}
+        >
+          <IconTrash size={14} />
+        </ActionIcon>
+      </Group>
 
       {/* Loading overlay */}
       {loading && (

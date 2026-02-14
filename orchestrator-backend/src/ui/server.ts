@@ -2619,6 +2619,46 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
     }
   });
 
+  // GET /api/designs/:name/download - Download design as ZIP
+  app.get('/api/designs/:name/download', (req: Request, res: Response) => {
+    const { name } = req.params;
+    console.log(`[UIServer] GET /api/designs/${name}/download`);
+
+    const designerAgent = (io as any).designerAgent;
+    if (!designerAgent) {
+      res.status(500).json({ error: 'Designer agent not available' });
+      return;
+    }
+
+    try {
+      const archive = designerAgent.getDesignFolderZip(name);
+      if (!archive) {
+        res.status(404).json({ error: 'Design not found' });
+        return;
+      }
+
+      const sanitizedName = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${sanitizedName}.zip"`);
+
+      archive.pipe(res);
+      archive.on('error', (err: Error) => {
+        console.error(`[UIServer] Archive error: ${err.message}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: err.message });
+        }
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[UIServer] Failed to download design: ${error}`);
+      res.status(500).json({ error });
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // Project Design Attachment API
   // ═══════════════════════════════════════════════════════════════
