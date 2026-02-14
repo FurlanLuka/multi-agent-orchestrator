@@ -5,7 +5,7 @@ import * as path from 'path';
 import { Plan, E2EPromptRequest, ContentBlock, ChatStreamEvent, TaskVerificationContext, TaskAnalysisResult, OrchestratorState, AgentStatus, PlanningPhase, PlanningStatusEvent, AnalysisResultEvent, SessionProjectConfig, GitHubConfig, WORKSPACE_ROOT_PROJECT, DeploymentState } from '@orchy/types';
 import { parseMarkedResponse, extractJSON, extractE2EResult, MARKERS } from './response-parser';
 import { spawnWithShellEnv } from '../utils/shell-env';
-import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
+import { getCacheDir } from '../config/paths';
 
 // Full stream-json message types from Claude CLI
 interface StreamJsonContentBlock {
@@ -690,27 +690,23 @@ User: ${newMessage}`;
   }
 
   /**
-   * Generates MCP config file for planning agent with:
-   * - orchestrator-planning: ask_planning_question and stage submission tools
-   * - orchestrator-permission: permission prompt tool for live approval
-   * Uses ensureMcpServerExtracted() to ensure the MCP server is always up-to-date.
+   * Generates MCP config file for planning agent using HTTP transport.
+   * Claude CLI connects directly to the backend's MCP endpoints.
    */
   private generatePlanningMcpConfig(): string {
     const cacheDir = getCacheDir();
     const configPath = path.join(cacheDir, 'planning-mcp-config.json');
-
-    // Use the extracted MCP server path (ensures it's always up-to-date)
-    const mcpServerPath = ensureMcpServerExtracted();
+    const baseUrl = 'http://localhost:3456';
 
     const config = {
       mcpServers: {
         'orchestrator-planning': {
-          command: 'node',
-          args: [mcpServerPath]
+          type: 'http',
+          url: `${baseUrl}/mcp/orchestrator?project=planner&serverName=orchestrator-planning`
         },
         'orchestrator-permission': {
-          command: 'node',
-          args: [mcpServerPath]
+          type: 'http',
+          url: `${baseUrl}/mcp/orchestrator?project=planner&serverName=orchestrator-permission`
         }
       }
     };

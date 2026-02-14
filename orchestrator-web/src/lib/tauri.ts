@@ -12,10 +12,14 @@
 /**
  * Check if running inside Tauri
  */
+// Cache the result since it never changes at runtime
+let _isTauriCached: boolean | null = null;
+
 export function isTauri(): boolean {
-  const result = typeof window !== 'undefined' && !!window.__TAURI__;
-  console.log('[Tauri] isTauri check:', result, 'window.__TAURI__:', typeof window !== 'undefined' ? window.__TAURI__ : 'undefined');
-  return result;
+  if (_isTauriCached === null) {
+    _isTauriCached = typeof window !== 'undefined' && !!window.__TAURI__;
+  }
+  return _isTauriCached;
 }
 
 /**
@@ -69,16 +73,12 @@ export async function isBackendReady(): Promise<boolean> {
  * Listen for backend ready event from Tauri
  */
 export async function onBackendReady(callback: (port: number) => void): Promise<() => void> {
-  console.log('[Tauri] onBackendReady called, isTauri:', isTauri());
   if (isTauri() && window.__TAURI__) {
-    console.log('[Tauri] Setting up backend-ready listener, __TAURI__.event:', window.__TAURI__.event);
     return window.__TAURI__.event.listen<number>('backend-ready', (event) => {
-      console.log('[Tauri] backend-ready event received:', event);
       callback(event.payload);
     });
   }
 
-  console.log('[Tauri] Not in Tauri mode, returning no-op');
   // No-op cleanup function if not in Tauri
   return () => {};
 }

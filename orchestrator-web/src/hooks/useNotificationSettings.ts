@@ -33,12 +33,10 @@ export function useNotificationSettings() {
 
   // Check permission status on mount and when needed
   const refreshPermissionStatus = useCallback(async (): Promise<BrowserPermissionStatus> => {
-    console.log('[NotificationSettings] refreshPermissionStatus called, isTauri:', isTauri());
     if (isTauri() && window.__TAURI__) {
       try {
         const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
         const granted = await isPermissionGranted();
-        console.log('[NotificationSettings] Tauri isPermissionGranted:', granted);
         const status = granted ? 'granted' : 'default';
         setPermissionStatus(status);
         return status;

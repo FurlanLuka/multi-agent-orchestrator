@@ -47,9 +47,13 @@ class Orchy < Formula
         orchy --no-browser    # Don't open browser automatically
         orchy --help          # Show all options
 
-      Requirements:
-        Claude Code CLI must be installed:
-        npm install -g @anthropic-ai/claude-code
+      Required:
+        Node.js 18+ and npm    brew install node
+        Claude Code CLI        npm install -g @anthropic-ai/claude-code
+        Git                    brew install git
+
+      Optional:
+        GitHub CLI              brew install gh
     EOS
   end
 

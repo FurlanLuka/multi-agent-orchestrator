@@ -228,75 +228,25 @@ export class DesignerAgentManager extends EventEmitter {
   }
 
   /**
-   * Generate MCP config file for the designer agent
+   * Generate MCP config file for the designer agent using HTTP transport.
+   * Claude CLI connects directly to the backend's MCP endpoints.
    */
   private generateDesignerMcpConfig(): string {
     const cacheDir = getCacheDir();
     const configPath = path.join(cacheDir, 'designer-mcp-config.json');
-
-    // Path to designer MCP server
-    const mcpServerPath = this.getDesignerMcpServerPath();
+    const baseUrl = 'http://localhost:3456';
 
     const config = {
       mcpServers: {
         'designer': {
-          command: 'node',
-          args: [mcpServerPath],
-          env: {
-            ORCHESTRATOR_URL: 'http://localhost:3456',
-            DESIGNER_SESSION_ID: this.session!.id,
-          }
+          type: 'http',
+          url: `${baseUrl}/mcp/designer?sessionId=${encodeURIComponent(this.session!.id)}`
         }
       }
     };
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     return configPath;
-  }
-
-  /**
-   * Get path to the designer MCP server
-   */
-  private getDesignerMcpServerPath(): string {
-    // In development, use source directly
-    const isDev = process.env.NODE_ENV === 'development' || process.env.ORCHESTRATOR_DEV === 'true';
-
-    if (isDev) {
-      return path.join(__dirname, '..', '..', 'setup', 'mcp', 'designer-mcp-server.js');
-    }
-
-    // In production, extract to cache
-    const cacheDir = getCacheDir();
-    const mcpDir = path.join(cacheDir, 'mcp');
-    const extractedPath = path.join(mcpDir, 'designer-mcp-server.js');
-
-    // Ensure directory exists
-    if (!fs.existsSync(mcpDir)) {
-      fs.mkdirSync(mcpDir, { recursive: true });
-    }
-
-    // Copy if needed
-    const bundledPath = path.join(__dirname, '..', '..', 'setup', 'mcp', 'designer-mcp-server.js');
-    if (!fs.existsSync(extractedPath) || this.needsUpdate(bundledPath, extractedPath)) {
-      const content = fs.readFileSync(bundledPath, 'utf-8');
-      fs.writeFileSync(extractedPath, content, { mode: 0o755 });
-      console.log(`[DesignerAgent] Copied MCP server to: ${extractedPath}`);
-    }
-
-    return extractedPath;
-  }
-
-  /**
-   * Check if extracted file needs update
-   */
-  private needsUpdate(src: string, dest: string): boolean {
-    try {
-      const srcContent = fs.readFileSync(src, 'utf-8');
-      const destContent = fs.readFileSync(dest, 'utf-8');
-      return srcContent !== destContent;
-    } catch {
-      return true;
-    }
   }
 
   /**

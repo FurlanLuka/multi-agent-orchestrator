@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Config, WORKSPACE_ROOT_PROJECT } from '@orchy/types';
-import { getCacheDir, ensureMcpServerExtracted } from '../config/paths';
+import { getCacheDir } from '../config/paths';
 import { spawnWithShellEnv, expandPath } from '../utils/shell-env';
 
 interface ManagedProcess {
@@ -52,33 +52,24 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Gets the path to the MCP permission server.
-   * Extracts from bundled assets to ~/.orchy-config/mcp/ if needed,
-   * since pkg bundles can't be accessed by external node processes.
+   * Generates a temporary MCP config file using HTTP transport.
+   * Claude CLI connects directly to the backend's MCP endpoints.
+   * Returns the path to the generated config file.
    */
-  private getPermissionServerPath(): string {
-    return ensureMcpServerExtracted();
-  }
-
-  /**
-   * Generates a temporary MCP config file with the correct absolute paths
-   * Returns the path to the generated config file
-   * Config is written to cache dir (writable location)
-   */
-  private generateMcpConfig(): string {
+  private generateMcpConfig(project: string): string {
     const configDir = getCacheDir();
     const configPath = path.join(configDir, 'generated-mcp-config.json');
-    const mcpServerPath = this.getPermissionServerPath();
+    const baseUrl = `http://localhost:${this.orchestratorPort}`;
 
     const config = {
       mcpServers: {
         'orchestrator-permission': {
-          command: 'node',
-          args: [mcpServerPath]
+          type: 'http',
+          url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-permission`
         },
         'orchestrator-planning': {
-          command: 'node',
-          args: [mcpServerPath]
+          type: 'http',
+          url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-planning`
         }
       }
     };
@@ -371,7 +362,7 @@ ${prompt}`;
       args.push('--dangerously-skip-permissions');
     } else {
       // Use MCP permission tool for live permission approval via UI
-      const mcpConfigPath = this.generateMcpConfig();
+      const mcpConfigPath = this.generateMcpConfig(project);
       args.push('--mcp-config', mcpConfigPath);
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
       args.push('--allowedTools', this.getAllowedMcpTools());
@@ -593,7 +584,7 @@ ${prompt}`;
     if (useDangerousMode) {
       args.push('--dangerously-skip-permissions');
     } else {
-      const mcpConfigPath = this.generateMcpConfig();
+      const mcpConfigPath = this.generateMcpConfig(project);
       args.push('--mcp-config', mcpConfigPath);
       args.push('--permission-prompt-tool', 'mcp__orchestrator-permission__orchestrator_permission');
       args.push('--allowedTools', this.getAllowedMcpTools());

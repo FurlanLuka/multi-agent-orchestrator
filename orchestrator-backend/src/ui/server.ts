@@ -16,6 +16,9 @@ import { DeploymentManager } from '../deployment/deployment-manager';
 import { Session, Plan, LogEntry, AgentStatus, ChatStreamEvent, TaskStatusEvent, TaskState, PlanningStatusEvent, PlanApprovalEvent, AnalysisResultEvent, UserInputRequest, UserInputResponse, RequestFlow, FlowStep, FlowStatus, TaskCompleteRequest, TaskCompleteResponse, PlanningSessionState, StageApprovalRequest, RefinedFeatureData, TechnicalSpecData } from '@orchy/types';
 import { AVAILABLE_PERMISSIONS, PERMISSION_GROUPS, TEMPLATE_PERMISSIONS, ALWAYS_DENIED, getEnabledGroups } from '@orchy/types';
 import { getWebDistPath, getPlannerPermissionsPath, getConfigDir } from '../config/paths';
+import { createMcpRoutes } from '../mcp/mcp-routes';
+import { OrchestratorMcpDeps } from '../mcp/orchestrator-mcp-server';
+import { DesignerMcpDeps } from '../mcp/designer-mcp-server';
 
 export interface UIServerDependencies {
   statusMonitor: StatusMonitor;
@@ -2882,6 +2885,503 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
   (io as any).emitFlowUpdate = emitFlowUpdate;
   (io as any).emitInstantFlow = emitInstantFlow;
   (io as any).getCurrentPlanningFlowId = () => currentPlanningFlowId;
+
+  // ═══════════════════════════════════════════════════════════════
+  // MCP Streamable HTTP Routes
+  // Wire the MCP tool deps using the same blocking-promise patterns
+  // as the HTTP endpoints above.
+  // ═══════════════════════════════════════════════════════════════
+
+  const orchestratorMcpDeps: OrchestratorMcpDeps = {
+    onPermissionPrompt: (project: string, toolName: string, toolInput: Record<string, unknown>): Promise<string> => {
+      console.log(`[MCP] Permission prompt for ${project}: ${toolName}`);
+
+      // AUTO-APPROVE: All orchestrator internal MCP tools
+      if (toolName.startsWith('mcp__orchestrator-planning__') ||
+          toolName.startsWith('mcp__orchestrator-permission__')) {
+        console.log(`[MCP] Auto-approved orchestrator MCP tool: ${toolName}`);
+        return Promise.resolve('allow');
+      }
+
+      // Check allow list (same logic as POST /api/permission-prompt)
+      const projectConfig = deps?.config?.projects?.[project];
+      const inputCommand = typeof toolInput?.command === 'string' ? toolInput.command : null;
+      const toolMatch = toolName.match(/^(\w+)\((.+)\)$/s);
+      const toolType = toolMatch ? toolMatch[1] : toolName;
+      const toolNameCommand = toolMatch ? toolMatch[2] : '';
+      const actualCommand = inputCommand || toolNameCommand;
+      const matchString = actualCommand ? `${toolType}(${actualCommand})` : toolName;
+
+      let permissionsConfig = projectConfig?.permissions;
+      if (project === 'planner') {
+        const plannerPermissionsPath = getPlannerPermissionsPath();
+        if (fs.existsSync(plannerPermissionsPath)) {
+          try {
+            permissionsConfig = JSON.parse(fs.readFileSync(plannerPermissionsPath, 'utf-8'));
+          } catch { /* ignore */ }
+        }
+      }
+
+      if (permissionsConfig?.allow) {
+        const allowList = permissionsConfig.allow as string[];
+        const isAllowed = allowList.some((pattern: string) => {
+          if (pattern === matchString || pattern === toolName) return true;
+          const regexPattern = pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '[\\s\\S]*');
+          try {
+            return new RegExp(`^${regexPattern}$`).test(matchString);
+          } catch { return false; }
+        });
+        if (isAllowed) {
+          console.log(`[MCP] Permission auto-approved (in allow list): ${toolName}`);
+          return Promise.resolve('allow');
+        }
+      }
+
+      // Not in allow list — prompt user via socket
+      return new Promise<string>((resolve) => {
+        io.emit('permissionPrompt', { project, toolName, toolInput });
+        const key = `${project}_${Date.now()}`;
+        pendingPermissions.set(key, { resolve, project, toolName, toolInput });
+        setTimeout(() => {
+          if (pendingPermissions.has(key)) {
+            pendingPermissions.delete(key);
+            resolve('deny');
+          }
+        }, 600000);
+      });
+    },
+
+    onTaskComplete: async (request) => {
+      const workingTask = deps.statusMonitor?.getWorkingTaskForProject(request.project);
+      const taskIndex = workingTask?.taskIndex;
+      if (taskIndex === undefined) {
+        return { status: 'escalate', escalationReason: `No working task found for project ${request.project}` } as TaskCompleteResponse;
+      }
+      if (!deps.onTaskComplete) {
+        return { status: 'escalate', escalationReason: 'Task executor not initialized' } as TaskCompleteResponse;
+      }
+      try {
+        return await deps.onTaskComplete({ ...request, taskIndex });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return { status: 'escalate', escalationReason: `Verification error: ${errorMsg}` } as TaskCompleteResponse;
+      }
+    },
+
+    onPlanApproval: async (plan) => {
+      if (typeof plan === 'string') {
+        try { plan = JSON.parse(plan); } catch { /* ignore */ }
+      }
+      plan = normalizePlan(plan);
+      const approvalId = `approval_${Date.now()}`;
+      io.emit('planningStatus', { phase: 'awaiting_approval', message: 'Plan ready for review' });
+      if (currentPlanningFlowId) {
+        emitFlowComplete(currentPlanningFlowId, 'completed', { passed: true, summary: 'Plan ready for review' });
+      }
+      io.emit('planApproval', { approvalId, plan } as PlanApprovalEvent);
+      const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+        pendingPlanApprovals.set(approvalId, { resolve, plan });
+      });
+      pendingPlanApprovals.delete(approvalId);
+      return response;
+    },
+
+    onPlanningQuestions: (project, questions) => {
+      const key = `planning_${project}_${Date.now()}`;
+      return new Promise<string>((resolve) => {
+        pendingPlanningQuestions.set(key, {
+          resolve,
+          questions,
+          answers: [],
+          currentIndex: 0
+        });
+        io.emit('planningQuestion', { questionId: key, questions, currentIndex: 0 });
+        setTimeout(() => {
+          if (pendingPlanningQuestions.has(key)) {
+            const pending = pendingPlanningQuestions.get(key)!;
+            pendingPlanningQuestions.delete(key);
+            const allAnswers = [...pending.answers];
+            for (let i = pending.answers.length; i < pending.questions.length; i++) {
+              allAnswers.push('No response provided');
+            }
+            resolve(allAnswers.map((a, i) => `Q${i + 1}: ${a}`).join('\n\n'));
+          }
+        }, 300000);
+      });
+    },
+
+    onUserInput: async (project, inputs) => {
+      const requestId = `input_${Date.now()}`;
+      const isConfirmation = inputs.length > 0 && inputs[0].type === 'confirmation';
+      const isGitHubSecret = inputs.length > 0 && inputs[0].type === 'github_secret';
+
+      const request: UserInputRequest = { requestId, project, inputs };
+      io.emit('userInputRequired', request);
+
+      const response = await new Promise<UserInputResponse>((resolve) => {
+        pendingUserInputs.set(requestId, { resolve, request });
+      });
+      pendingUserInputs.delete(requestId);
+
+      // Handle GitHub secrets
+      const githubSecretInputs = inputs.filter((input: any) => input.type === 'github_secret');
+      if (githubSecretInputs.length > 0 && deps.onSetGitHubSecret) {
+        const results: any[] = [];
+        for (const secretInput of githubSecretInputs) {
+          const secretName = secretInput.name;
+          const repo = secretInput.repo;
+          const secretValue = response.values[secretName];
+          if (secretName && repo && secretValue) {
+            const result = await deps.onSetGitHubSecret(repo, secretName, secretValue);
+            results.push({ secretName, repo, ...result });
+          } else {
+            results.push({ secretName: secretName || 'unknown', repo: repo || 'unknown', success: false, error: 'Missing name, repo, or value' });
+          }
+        }
+        return {
+          isConfirmation: false,
+          isGitHubSecret: true,
+          response: {
+            success: results.every((r: any) => r.success),
+            secrets: results,
+            values: response.values,
+            totalSet: results.filter((r: any) => r.success).length,
+            totalFailed: results.filter((r: any) => !r.success).length
+          }
+        };
+      }
+
+      if (isConfirmation) {
+        const confirmed = response.values['confirmed'] === 'true';
+        return { isConfirmation: true, isGitHubSecret: false, response: { confirmed } };
+      }
+      return { isConfirmation: false, isGitHubSecret: false, response: response.values };
+    },
+
+    onExplorationComplete: async (_project, summary) => {
+      // exploration_complete doesn't have a backend endpoint — return a simple response
+      return `Exploration summary received: ${summary}\n\nProceed to generate the implementation plan.`;
+    },
+
+    onSubmitRefinedFeature: async (refinedDescription, keyRequirements) => {
+      const stageId = `stage_refined_${Date.now()}`;
+      if (!planningSessionState) initPlanningSession();
+      if (planningSessionState) {
+        planningSessionState.refinedFeature = { description: refinedDescription, requirements: keyRequirements };
+        const stageObj = planningSessionState.stages.find(s => s.stage === 'feature_refinement');
+        if (stageObj) stageObj.status = 'awaiting_approval';
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+      }
+      const data: RefinedFeatureData = { type: 'refined_feature', refinedDescription, keyRequirements };
+      io.emit('stageApproval', { stageId, stage: 'feature_refinement', data } as StageApprovalRequest);
+      const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+        pendingStageApprovals.set(stageId, { resolve, data });
+      });
+      pendingStageApprovals.delete(stageId);
+      if (response.status === 'approved') {
+        io.emit('flowStart', {
+          id: stageId, type: 'planning', status: 'completed',
+          startedAt: Date.now(), completedAt: Date.now(), steps: [],
+          result: { passed: true, summary: `Feature Refinement approved`, details: `**Description:** ${refinedDescription}\n\n**Requirements:**\n${keyRequirements.map((r: string) => `- ${r}`).join('\n')}` }
+        });
+        advanceStage('feature_refinement');
+        const nextPrompt = getNextPromptHandler?.('stage2', { refinedDescription, requirements: keyRequirements });
+        return { ...response, nextPrompt };
+      }
+      if (planningSessionState) {
+        const stageObj = planningSessionState.stages.find(s => s.stage === 'feature_refinement');
+        if (stageObj) stageObj.status = 'active';
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+      }
+      return response;
+    },
+
+    onSubmitTechnicalSpec: async (apiContracts, architectureDecisions, executionOrder) => {
+      const stageId = `stage_techspec_${Date.now()}`;
+      if (planningSessionState) {
+        planningSessionState.technicalSpec = { apiContracts, architectureDecisions, executionOrder };
+        const stageObj = planningSessionState.stages.find(s => s.stage === 'exploration_planning');
+        if (stageObj) stageObj.status = 'awaiting_approval';
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+      }
+      const data: TechnicalSpecData = { type: 'technical_spec', apiContracts, architectureDecisions, executionOrder };
+      io.emit('stageApproval', { stageId, stage: 'exploration_planning', data } as StageApprovalRequest);
+      const response = await new Promise<{ status: 'approved' } | { status: 'refine'; feedback: string }>((resolve) => {
+        pendingStageApprovals.set(stageId, { resolve, data });
+      });
+      pendingStageApprovals.delete(stageId);
+      if (response.status === 'approved') {
+        const apiDetails = apiContracts?.length > 0 ? `**API Contracts (${apiContracts.length}):**\n${apiContracts.map((c: any) => `- \`${c.method} ${c.endpoint}\``).join('\n')}` : '';
+        const archDetails = architectureDecisions?.length > 0 ? `\n\n**Architecture Decisions:**\n${architectureDecisions.map((d: string) => `- ${d}`).join('\n')}` : '';
+        const execDetails = executionOrder?.length > 0 ? `\n\n**Execution Order:**\n${executionOrder.map((e: any, i: number) => `${i + 1}. ${e.project}`).join('\n')}` : '';
+        io.emit('flowStart', {
+          id: stageId, type: 'planning', status: 'completed',
+          startedAt: Date.now(), completedAt: Date.now(), steps: [],
+          result: { passed: true, summary: `Exploration & Planning approved`, details: `${apiDetails}${archDetails}${execDetails}` }
+        });
+        advanceStage('exploration_planning');
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+        const refinedFeature = planningSessionState?.refinedFeature || { description: '', requirements: [] };
+        // Return same large instructions as the HTTP endpoint
+        return {
+          ...response,
+          nextStage: 'task_generation',
+          instructions: `Technical spec approved! Now proceed to Task Generation.\n\nUse mcp__orchestrator-planning__submit_plan_for_approval with the complete plan JSON.`
+        };
+      }
+      if (planningSessionState) {
+        const stageObj = planningSessionState.stages.find(s => s.stage === 'exploration_planning');
+        if (stageObj) stageObj.status = 'active';
+        io.emit('planningSessionState', { sessionState: planningSessionState });
+        persistPlanningState();
+      }
+      return response;
+    },
+
+    onCheckDeploymentAvailable: (project) => {
+      if (!deps.deploymentManager) return { enabled: false, reason: 'Deployment manager not initialized' };
+      const session = deps.sessionManager?.getCurrentSession();
+      if (!session?.workspaceId) return { enabled: false, reason: 'No active workspace' };
+      return deps.deploymentManager.isDeploymentEnabled(session.workspaceId);
+    },
+
+    onListDeploymentProviders: () => {
+      if (!deps.deploymentManager) return { error: 'Deployment manager not initialized' };
+      return deps.deploymentManager.listProviders();
+    },
+
+    onGetProviderRequirements: (providerId) => {
+      if (!deps.deploymentManager) return { error: 'Deployment manager not initialized' };
+      const session = deps.sessionManager?.getCurrentSession();
+      const requirements = deps.deploymentManager.getProviderRequirements(providerId, session?.workspaceId);
+      return requirements || { error: `Provider '${providerId}' not found` };
+    },
+
+    onSaveDeploymentState: (state) => {
+      if (!deps.deploymentManager) return { error: 'Deployment manager not initialized' };
+      const session = deps.sessionManager?.getCurrentSession();
+      if (!session?.workspaceId) return { error: 'No active workspace' };
+      if (!state.provider || !state.serverName || !state.serverIp) return { error: 'Missing required fields' };
+      try {
+        deps.deploymentManager.saveDeploymentState(session.workspaceId, {
+          ...state,
+          sshKeyName: state.sshKeyName || '',
+          instanceType: state.instanceType || '',
+          location: state.location || '',
+          deployPath: state.deployPath || '',
+          provisionedAt: Date.now()
+        });
+        return { success: true, message: 'Deployment state saved' };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
+  const designerMcpDeps: DesignerMcpDeps = {
+    onRequestInput: async (sessionId, placeholder) => {
+      const key = `input_${sessionId}_${Date.now()}`;
+      io.emit('design:unlock_input', { placeholder });
+      const message = await new Promise<string>((resolve) => {
+        pendingDesignerInputs.set(key, { resolve });
+        setTimeout(() => {
+          if (pendingDesignerInputs.has(key)) {
+            pendingDesignerInputs.delete(key);
+            resolve('');
+          }
+        }, 600000);
+      });
+      pendingDesignerInputs.delete(key);
+      io.emit('design:lock_input');
+      return message;
+    },
+
+    onShowCategories: async (sessionId) => {
+      const key = `category_${sessionId}_${Date.now()}`;
+      io.emit('design:show_category_selector', {
+        categories: [
+          { id: 'blog', name: 'Blog', description: 'Personal blogs, company blogs, newsletters' },
+          { id: 'landing_page', name: 'Landing Page', description: 'Product launches, marketing pages' },
+          { id: 'ecommerce', name: 'E-commerce', description: 'Online stores, product catalogs' },
+          { id: 'dashboard', name: 'Dashboard', description: 'Admin panels, analytics, data management' },
+          { id: 'chat_messaging', name: 'Chat / Messaging', description: 'Chat interfaces, support widgets' },
+          { id: 'documentation', name: 'Documentation', description: 'Technical docs, API references' },
+          { id: 'saas_marketing', name: 'SaaS Marketing', description: 'Pricing pages, feature showcases' },
+          { id: 'portfolio', name: 'Portfolio', description: 'Personal portfolios, agency sites' },
+        ]
+      });
+      const category = await new Promise<string>((resolve) => {
+        pendingDesignerCategories.set(key, { resolve });
+        setTimeout(() => {
+          if (pendingDesignerCategories.has(key)) {
+            pendingDesignerCategories.delete(key);
+            resolve('blog');
+          }
+        }, 600000);
+      });
+      pendingDesignerCategories.delete(key);
+      return JSON.stringify({ category });
+    },
+
+    onStartThemeGeneration: (sessionId) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const paths = designerAgent.getSessionPaths();
+      if (!paths) return { error: 'Session paths not initialized' };
+      designSessionPhases.set(sessionId, 'generating_theme');
+      io.emit('design:generating', { type: 'theme', message: 'Generating theme options...' });
+      return { templatePath: paths.themeTemplate, outputDir: paths.drafts, count: 3, instructions: 'Write CSS files: theme-0.css, theme-1.css, theme-2.css to outputDir' };
+    },
+
+    onShowThemePreview: async (sessionId, options) => {
+      const key = `theme_${sessionId}_${Date.now()}`;
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      designSessionPhases.set(sessionId, 'theme_preview');
+      io.emit('design:generation_complete');
+      io.emit('design:show_preview', { type: 'theme', options });
+      const result = await new Promise<{ selected?: number; feedback?: string; refine?: number }>((resolve) => {
+        pendingDesignerPreviews.set(key, { resolve });
+        setTimeout(() => {
+          if (pendingDesignerPreviews.has(key)) {
+            pendingDesignerPreviews.delete(key);
+            resolve({ selected: 0 });
+          }
+        }, 600000);
+      });
+      pendingDesignerPreviews.delete(key);
+      if (result.selected !== undefined) {
+        try {
+          designerAgent.autoSaveSelectedDraft('theme', result.selected);
+          designSessionPhases.set(sessionId, 'layout_discovery');
+          return { selected: result.selected, autoSaved: true };
+        } catch { return { selected: result.selected, autoSaved: false }; }
+      }
+      if (result.refine !== undefined) {
+        const paths = designerAgent.getSessionPaths();
+        if (paths?.drafts && result.refine !== 0) {
+          try {
+            const srcPath = `${paths.drafts}/theme-${result.refine}.css`;
+            const destPath = `${paths.drafts}/theme-0.css`;
+            if (fs.existsSync(srcPath)) fs.copyFileSync(srcPath, destPath);
+          } catch { /* ignore */ }
+        }
+        return { refine: 0, draftsDir: paths?.drafts, cssPath: paths ? `${paths.drafts}/theme-0.css` : undefined };
+      }
+      if (result.feedback) {
+        designSessionPhases.set(sessionId, 'discovery');
+        return { feedback: result.feedback };
+      }
+      return result;
+    },
+
+    onStartMockupGeneration: (sessionId) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const paths = designerAgent.getSessionPaths();
+      if (!paths) return { error: 'Session paths not initialized' };
+      designSessionPhases.set(sessionId, 'generating_mockup');
+      io.emit('design:generating', { type: 'mockup', message: 'Generating mockups...' });
+      const existingPages = designerAgent.getPages() || [];
+      return {
+        themePath: path.join(paths.root, 'theme.css'),
+        pagesDir: paths.root,
+        outputDir: paths.drafts,
+        existingPages: existingPages.map((p: any) => ({ name: p.name, filename: p.filename, path: path.join(paths.root, p.filename) })),
+        count: 3,
+        instructions: 'Read theme.css for design tokens. Write HTML files to outputDir.'
+      };
+    },
+
+    onShowMockupPreview: async (sessionId, options, pageName) => {
+      const key = `mockup_${sessionId}_${Date.now()}`;
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      designSessionPhases.set(sessionId, 'mockup_preview');
+      designerAgent.currentMockupOptions = options;
+      designerAgent.currentMockupPageName = pageName;
+      io.emit('design:generation_complete');
+      io.emit('design:show_preview', { type: 'mockup', options });
+      const result = await new Promise<{ selected?: number; refine?: number; feelingLucky?: boolean; pageName?: string; feedback?: string }>((resolve) => {
+        designerAgent.pendingMockupSelection = resolve;
+        setTimeout(() => {
+          if (designerAgent.pendingMockupSelection === resolve) {
+            designerAgent.pendingMockupSelection = null;
+            resolve({ selected: 0, pageName: 'Page' });
+          }
+        }, 600000);
+      });
+      if (result.selected !== undefined) {
+        try {
+          const existingPages = designerAgent.getPages();
+          const resolvedPageName = designerAgent.currentMockupPageName || result.pageName || `Page ${existingPages.length + 1}`;
+          const { page } = designerAgent.autoSaveSelectedDraft('mockup', result.selected, resolvedPageName);
+          const allPages = designerAgent.getPages();
+          io.emit('design:show_pages_panel', { pages: allPages });
+          return { selected: result.selected, pageName: page?.name || resolvedPageName, autoSaved: true };
+        } catch { return { selected: result.selected, pageName: result.pageName, autoSaved: false }; }
+      }
+      if (result.refine !== undefined) {
+        const paths = designerAgent.getSessionPaths();
+        if (paths?.drafts && result.refine !== 0) {
+          try {
+            const srcPath = `${paths.drafts}/mockup-${result.refine}.html`;
+            const destPath = `${paths.drafts}/mockup-0.html`;
+            if (fs.existsSync(srcPath)) fs.copyFileSync(srcPath, destPath);
+          } catch { /* ignore */ }
+        }
+        return { refine: 0, draftsDir: paths?.drafts, htmlPath: paths ? `${paths.drafts}/mockup-0.html` : undefined };
+      }
+      if (result.feedback) { designSessionPhases.set(sessionId, 'discovery'); return { feedback: result.feedback }; }
+      if (result.feelingLucky) { designSessionPhases.set(sessionId, 'generating_mockup'); return { feelingLucky: true }; }
+      return result;
+    },
+
+    onShowPagesPanel: (sessionId) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const pages = designerAgent.getPages();
+      io.emit('design:show_pages_panel', { pages });
+      return { status: 'ok', pages };
+    },
+
+    onGetPages: (sessionId) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const pages = designerAgent.getPages();
+      const paths = designerAgent.getSessionPaths();
+      return { pages, sessionDir: paths?.root, themePath: paths ? `${paths.root}/theme.css` : undefined };
+    },
+
+    onShowCatalogPreview: (sessionId, pageId, catalogName) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const updatedPage = designerAgent.updatePageCatalog(pageId, catalogName);
+      if (!updatedPage) return { error: 'Page not found' };
+      const catalogHtml = designerAgent.getPageCatalogHtml(pageId);
+      if (!catalogHtml) return { error: 'Catalog file not found' };
+      io.emit('design:show_catalog', { pageId, catalogName, catalogHtml });
+      io.emit('design:catalog_generated', { pageId, catalogFilename: catalogName });
+      return { status: 'ok' };
+    },
+
+    onSaveDesignFolder: async (sessionId, designName) => {
+      const designerAgent = (io as any).designerAgent;
+      if (!designerAgent) return { error: 'Designer agent not available' };
+      const result = await designerAgent.handleSaveDesignFolder(designName);
+      return { status: 'saved', path: result.path, folder: result.folder };
+    },
+  };
+
+  // Mount MCP routes
+  const mcpRouter = createMcpRoutes(orchestratorMcpDeps, designerMcpDeps);
+  app.use(mcpRouter);
 
   return {
     app,

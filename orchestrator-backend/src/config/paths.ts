@@ -502,71 +502,7 @@ export function getProjectTemplatesDir(): string {
   return getPaths().projectTemplatesDir;
 }
 
-export function getMcpDir(): string {
-  return path.join(getPaths().cacheDir, 'mcp');
-}
-
-/**
- * Get the path to the Orchy MCP server in setup directory.
- * The Orchy MCP server provides tools for permission prompts and planning questions.
- */
-export function getBundledMcpServerPath(): string {
-  return path.join(getSetupDir(), 'mcp', 'orchy-mcp-server.js');
-}
-
-/**
- * Get the path where the Orchy MCP server should be copied to
- */
-export function getExtractedMcpServerPath(): string {
-  return path.join(getMcpDir(), 'orchy-mcp-server.js');
-}
-
-/**
- * Ensure the Orchy MCP server is copied to the cache directory.
- * We copy it so that node can execute it (bundled resources may be read-only).
- */
-export function ensureMcpServerExtracted(): string {
-  const bundledPath = getBundledMcpServerPath();
-  const extractedPath = getExtractedMcpServerPath();
-  const mcpDir = getMcpDir();
-
-  // Ensure MCP directory exists
-  if (!fs.existsSync(mcpDir)) {
-    fs.mkdirSync(mcpDir, { recursive: true });
-  }
-
-  // Check if source file exists
-  if (!fs.existsSync(bundledPath)) {
-    throw new Error(`Orchy MCP server not found at: ${bundledPath}. Check that resources are properly bundled.`);
-  }
-
-  // Check if we need to copy/update the file
-  let needsCopy = !fs.existsSync(extractedPath);
-
-  if (!needsCopy) {
-    // Compare file contents to see if update is needed
-    try {
-      const bundledContent = fs.readFileSync(bundledPath, 'utf-8');
-      const extractedContent = fs.readFileSync(extractedPath, 'utf-8');
-      needsCopy = bundledContent !== extractedContent;
-    } catch {
-      needsCopy = true;
-    }
-  }
-
-  if (needsCopy) {
-    try {
-      const content = fs.readFileSync(bundledPath, 'utf-8');
-      fs.writeFileSync(extractedPath, content, { mode: 0o755 });
-      console.log(`[PathResolver] Copied Orchy MCP server to: ${extractedPath}`);
-    } catch (err) {
-      console.error(`[PathResolver] Failed to copy MCP server:`, err);
-      throw new Error(`Failed to copy Orchy MCP server: ${err}`);
-    }
-  }
-
-  return extractedPath;
-}
+// MCP servers now run in-process via HTTP transport — no file extraction needed.
 
 /**
  * Get project session directory for a specific session and project.
