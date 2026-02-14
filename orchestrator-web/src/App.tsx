@@ -63,6 +63,16 @@ function AppRoutes() {
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [gitHubSettingsChecked, setGitHubSettingsChecked] = useState(false);
 
+  // Warn before closing tab when a session is active
+  useEffect(() => {
+    if (!session) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [session]);
+
   // Auto-navigate to session when one starts
   useEffect(() => {
     if (session) {
