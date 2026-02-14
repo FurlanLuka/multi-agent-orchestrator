@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -15,11 +15,16 @@ import {
   Title,
   Modal,
   UnstyledButton,
+  Loader,
 } from '@mantine/core';
 import {
   IconChevronDown,
   IconPlayerStop,
   IconChevronRight,
+  IconGitMerge,
+  IconAlertTriangle,
+  IconRefresh,
+  IconX,
 } from '@tabler/icons-react';
 import { useOrchestrator } from '../../context/OrchestratorContext';
 import { AssistantChat } from '../AssistantChat';
@@ -55,6 +60,10 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     respondToPermission,
     retryProject,
     startNewSession,
+    workspaces,
+    approveChanges,
+    approvingChanges,
+    approveChangesResults,
   } = useOrchestrator();
 
   // Activate notification system
@@ -68,6 +77,16 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
       onBackToHome();
     }
   }, [session?.workspaceId, navigate, onBackToHome]);
+
+  // Derive whether workspace is orchy-managed (same pattern as CompletionPanel)
+  const isOrchyManaged = useMemo(() => {
+    if (session?.workspaceId && workspaces[session.workspaceId]) {
+      return workspaces[session.workspaceId].orchyManaged === true;
+    }
+    return false;
+  }, [session?.workspaceId, workspaces]);
+
+  const hasGitBranches = !!(session?.gitBranches && Object.keys(session.gitBranches).length > 0);
 
   const sessionProjects = session?.projects || Object.keys(statuses);
   const [showInitialPrompt, setShowInitialPrompt] = useState(false);
@@ -170,6 +189,24 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
     navigateToWorkspace();
     setStopModalOpen(false);
   }, [startNewSession, navigateToWorkspace]);
+
+  const handleStopAndSave = useCallback(() => {
+    if (session?.id) {
+      approveChanges(session.id);
+    }
+  }, [session?.id, approveChanges]);
+
+  // Navigate away after save succeeds from stop modal
+  useEffect(() => {
+    if (stopModalOpen && approveChangesResults) {
+      const allSuccess = Object.values(approveChangesResults).every(r => r.success);
+      if (allSuccess) {
+        startNewSession();
+        navigateToWorkspace();
+        setStopModalOpen(false);
+      }
+    }
+  }, [approveChangesResults, stopModalOpen, startNewSession, navigateToWorkspace]);
 
   return (
     <Box style={{ minHeight: '100vh' }}>
@@ -483,10 +520,12 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
       {/* Stop Session Confirmation Modal */}
       <Modal
         opened={stopModalOpen}
-        onClose={() => setStopModalOpen(false)}
+        onClose={() => !approvingChanges && setStopModalOpen(false)}
         title="Stop Session"
         centered
         radius="lg"
+        closeOnClickOutside={!approvingChanges}
+        closeOnEscape={!approvingChanges}
         styles={{
           content: {
             background: 'rgba(255, 255, 255, 0.98)',
@@ -494,19 +533,82 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
           },
         }}
       >
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">
-            Are you sure you want to stop the current session? This will end all running tasks and return you to the home screen.
-          </Text>
-          <Group justify="flex-end" gap="sm">
-            <Button variant="subtle" color="gray" onClick={() => setStopModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button color="rose" leftSection={<IconPlayerStop size={16} />} onClick={handleStopSession}>
-              Stop Session
-            </Button>
-          </Group>
-        </Stack>
+        {approvingChanges ? (
+          <Stack gap="sm" align="center" py="md">
+            <Loader size="md" />
+            <Text fw={500} size="md">Saving your changes...</Text>
+            <Text size="xs" c="dimmed">This will only take a moment</Text>
+          </Stack>
+        ) : approveChangesResults && Object.values(approveChangesResults).some(r => !r.success) ? (
+          <Stack gap="md" align="center" py="sm">
+            <IconAlertTriangle size={32} color="var(--mantine-color-orange-6)" />
+            <Text fw={600} size="md" ta="center">Couldn't save changes</Text>
+            <Text size="sm" c="dimmed" ta="center">
+              Don't worry — your work is safe in a separate branch.
+            </Text>
+            {Object.entries(approveChangesResults)
+              .filter(([, r]) => !r.success)
+              .map(([project, result]) => (
+                <Text key={project} size="xs" c="dimmed" style={{ wordBreak: 'break-word' }}>
+                  {result.message}
+                </Text>
+              ))}
+            <Group gap="sm">
+              <Button
+                color="sage"
+                leftSection={<IconRefresh size={16} />}
+                onClick={handleStopAndSave}
+              >
+                Try Again
+              </Button>
+              <Button
+                variant="subtle"
+                color="rose"
+                leftSection={<IconX size={16} />}
+                onClick={handleStopSession}
+              >
+                Discard & Stop
+              </Button>
+            </Group>
+          </Stack>
+        ) : hasGitBranches && isOrchyManaged ? (
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              Do you want to save your changes before stopping?
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button
+                variant="subtle"
+                color="rose"
+                leftSection={<IconPlayerStop size={16} />}
+                onClick={handleStopSession}
+              >
+                Stop & Discard
+              </Button>
+              <Button
+                color="sage"
+                leftSection={<IconGitMerge size={16} />}
+                onClick={handleStopAndSave}
+              >
+                Stop & Save
+              </Button>
+            </Group>
+          </Stack>
+        ) : (
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              Are you sure you want to stop the current session? This will end all running tasks and return you to the home screen.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="subtle" color="gray" onClick={() => setStopModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button color="rose" leftSection={<IconPlayerStop size={16} />} onClick={handleStopSession}>
+                Stop Session
+              </Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
 
       {/* Permission Overlay - full screen so it's not missed */}
