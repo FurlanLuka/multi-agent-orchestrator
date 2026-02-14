@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as net from 'net';
 import * as os from 'os';
 import { exec } from 'child_process';
+import { VERSION } from './version';
 
 // Setup file logging for GUI app debugging
 const LOG_DIR = path.join(os.homedir(), '.orchy-config', 'logs');
@@ -74,7 +75,6 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Display startup banner (using stdout.write to bypass obfuscator's console stripping)
-const VERSION = '1.0.0';
 const banner = `
 \x1b[36m╔════════════════════════════════════════════════════════════════════════════════════╗
 ║                                                                                    ║

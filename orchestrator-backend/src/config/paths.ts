@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { VERSION } from '../version';
 
 /**
  * Environment detection for development vs production modes
@@ -341,7 +342,7 @@ export class PathResolver {
 
     // Write version file for reference
     const versionFile = path.join(extractedSetupDir, '.version');
-    const currentVersion = process.env.npm_package_version || '1.0.0';
+    const currentVersion = VERSION;
     fs.writeFileSync(versionFile, currentVersion);
 
     console.log(`[PathResolver] Setup files synced successfully`);

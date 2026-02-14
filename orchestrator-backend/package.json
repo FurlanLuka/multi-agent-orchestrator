@@ -6,7 +6,7 @@
   "bin": "dist/index.js",
   "scripts": {
     "dev": "NODE_ENV=development ts-node src/index.ts",
-    "build": "tsc",
+    "build": "node scripts/gen-version.js && tsc",
     "obfuscate": "javascript-obfuscator dist --output dist --config obfuscator.config.json",
     "build:pkg-all": "pkg . --targets node18-macos-arm64,node18-macos-x64,node18-linux-x64,node18-linux-arm64,node18-win-x64 --out-path ../dist",
     "clean": "rm -rf dist web-dist"

@@ -93,6 +93,19 @@ export function ModeSelectionPage({
             </Group>
           </Stack>
 
+          <Box
+            p="sm"
+            style={{
+              background: 'rgba(250, 247, 245, 0.8)',
+              borderRadius: 10,
+              border: '1px solid rgba(160, 130, 110, 0.08)',
+            }}
+          >
+            <Text size="xs" c="dimmed">
+              <Text span fw={600}>Early access</Text> — primarily tested on macOS. You may encounter limited functionality or unexpected behavior across all platforms.
+            </Text>
+          </Box>
+
           <SimpleGrid cols={{ base: 1, xs: 2, sm: 3 }} spacing="md">
             {/* Design Mode Card */}
             <GlassCard
