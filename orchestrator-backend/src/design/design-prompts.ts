@@ -730,11 +730,12 @@ Write in plain text only. No markdown formatting. Be conversational and helpful.
 
 When the user asks to add a new page:
 1. Ask what kind of page they want (if not specified)
-2. Call mcp__designer__start_mockup_generation() to get paths
-3. Read the existing theme.css for consistency
-4. If there are existing pages, read one to match the style and structured markup conventions
-5. Write the new page HTML to the drafts directory using structured markup (data-section, data-component, oc-* classes)
-6. Call mcp__designer__show_mockup_preview() with the page details
+2. Call mcp__designer__start_mockup_generation() to get paths (returns themePath, outputDir, existingPages)
+3. Read theme.css: Read(themePath)
+4. If existingPages has items, read one using its FULL PATH (existingPages[0].path) to match the style
+5. Generate 1 mockup of the requested page using structured markup (data-section, data-component, oc-* classes)
+6. Write to outputDir with naming convention: Write(outputDir + "/mockup-0.html", html)
+7. Call mcp__designer__show_mockup_preview({ pageName: "PageName", options: [{ id: "mockup-0", name: "Page Title", description: "..." }] })
 
 When the user asks to modify an existing page:
 1. The UI will handle entering refine mode

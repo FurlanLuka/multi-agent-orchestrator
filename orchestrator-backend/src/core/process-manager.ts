@@ -61,19 +61,28 @@ export class ProcessManager extends EventEmitter {
     const configPath = path.join(configDir, 'generated-mcp-config.json');
     const baseUrl = `http://localhost:${this.orchestratorPort}`;
 
-    const config = {
-      mcpServers: {
-        'orchestrator-permission': {
-          type: 'http',
-          url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-permission`
-        },
-        'orchestrator-planning': {
-          type: 'http',
-          url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-planning`
-        }
+    const mcpServers: Record<string, any> = {
+      'orchestrator-permission': {
+        type: 'http',
+        url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-permission`
+      },
+      'orchestrator-planning': {
+        type: 'http',
+        url: `${baseUrl}/mcp/orchestrator?project=${encodeURIComponent(project)}&serverName=orchestrator-planning`
       }
     };
 
+    // Add Playwright MCP for projects with E2E browser testing
+    const projectConfig = this.config.projects[project];
+    if (projectConfig?.setupCommand?.includes('playwright')) {
+      mcpServers['playwright'] = {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@playwright/mcp@latest']
+      };
+    }
+
+    const config = { mcpServers };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     return configPath;
   }

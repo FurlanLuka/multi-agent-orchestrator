@@ -149,6 +149,7 @@ export function DesignDetailModal({ opened, design, onClose, onEdit }: DesignDet
                   >
                     <iframe
                       srcDoc={tab.html}
+                      sandbox="allow-scripts"
                       style={{
                         width: '100%',
                         height: '100%',

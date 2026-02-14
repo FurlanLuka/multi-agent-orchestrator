@@ -245,12 +245,14 @@ function PreviewFrame({
         {useLegacyHtml ? (
           <iframe
             srcDoc={legacyHtml}
+            sandbox="allow-scripts"
             style={{ width: '100%', flex: 1, border: 'none' }}
             title="Mockup Preview"
           />
         ) : iframeSrc ? (
           <iframe
             src={iframeSrc}
+            sandbox="allow-scripts"
             style={{ width: '100%', flex: 1, border: 'none' }}
             title="Mockup Preview"
           />
@@ -277,12 +279,14 @@ function PreviewFrame({
       {useLegacyHtml ? (
         <iframe
           srcDoc={legacyHtml}
+          sandbox="allow-scripts"
           style={{ width: '100%', height: '100%', border: 'none' }}
           title="Design Preview"
         />
       ) : iframeSrc ? (
         <iframe
           src={iframeSrc}
+          sandbox="allow-scripts"
           style={{ width: '100%', height: '100%', border: 'none' }}
           title="Design Preview"
         />

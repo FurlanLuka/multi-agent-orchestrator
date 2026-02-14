@@ -44,9 +44,12 @@ export function ModeSelectionPage({
         <Stack gap="xl">
           {/* Header */}
           <Stack gap={0}>
-            <Title order={3} style={{ letterSpacing: '-.02em' }}>
-              Orchy
-            </Title>
+            <Group gap={8} align="center">
+              <img src="/favicon.png" alt="Orchy" width={24} height={24} />
+              <Title order={3} style={{ letterSpacing: '-.02em' }}>
+                Orchy
+              </Title>
+            </Group>
             <Group gap="xs">
               <Text c="dimmed" size="sm">
                 How would you like to start?

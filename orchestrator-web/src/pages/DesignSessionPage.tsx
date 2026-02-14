@@ -704,6 +704,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
               >
                 <iframe
                   src={`http://localhost:${effectivePort}/api/designer/draft/${designRefine.type}/${designRefine.index}`}
+                  sandbox="allow-scripts"
                   style={{
                     width: '100%',
                     height: '100%',
@@ -915,6 +916,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
           <Box style={{ flex: 1, padding: 16 }}>
             <iframe
               srcDoc={pagePreview.html}
+              sandbox="allow-scripts"
               style={{
                 width: '100%',
                 height: '100%',
@@ -971,6 +973,7 @@ export function DesignSessionPage({ onBack, onComplete }: DesignSessionPageProps
           <Box style={{ flex: 1, padding: 16 }}>
             <iframe
               srcDoc={catalogPreview.catalogHtml}
+              sandbox="allow-scripts"
               style={{
                 width: '100%',
                 height: '100%',

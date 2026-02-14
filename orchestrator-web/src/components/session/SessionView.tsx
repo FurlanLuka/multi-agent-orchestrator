@@ -177,9 +177,12 @@ export function SessionView({ onBackToHome }: SessionViewProps) {
         <Stack gap="md" h="100%">
           {/* Simple Header Row */}
           <Group justify="space-between" px="xs">
-            <Title order={3} style={{ fontWeight: 700, color: 'var(--text-heading)' }}>
-              Orchy
-            </Title>
+            <Group gap={8} align="center">
+              <img src="/favicon.png" alt="Orchy" width={24} height={24} />
+              <Title order={3} style={{ fontWeight: 700, color: 'var(--text-heading)' }}>
+                Orchy
+              </Title>
+            </Group>
             <Group gap="xs">
               <NotificationSettingsPopover />
               {/* Hide Stop button when session is complete or failed - use CompletionPanel actions instead */}

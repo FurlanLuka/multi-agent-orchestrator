@@ -2001,7 +2001,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         path: path.join(paths.root, p.filename)
       })),
       count: 3,
-      instructions: 'Read theme.css for design tokens. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir.'
+      instructions: 'Read theme.css for design tokens. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir as mockup-0.html, mockup-1.html, mockup-2.html (or just mockup-0.html for single-page generation).'
     });
   });
 
@@ -2513,7 +2513,8 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
 
     const html = designerAgent.getDraft(type as 'theme' | 'mockup', indexNum);
     if (html) {
-      res.type('html').send(html);
+      const safeHtml = html.replace('</body>', '<script>document.addEventListener("click",function(e){var a=e.target.closest("a");if(a){e.preventDefault()}},true);</script></body>');
+      res.type('html').send(safeHtml);
     } else {
       res.status(404).send('Draft not found');
     }
@@ -2533,7 +2534,8 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
 
     const html = designerAgent.getMockupDraft(index);
     if (html) {
-      res.type('html').send(html);
+      const safeHtml = html.replace('</body>', '<script>document.addEventListener("click",function(e){var a=e.target.closest("a");if(a){e.preventDefault()}},true);</script></body>');
+      res.type('html').send(safeHtml);
     } else {
       res.status(404).send('Draft not found');
     }
@@ -3295,7 +3297,7 @@ If response is \`{ "status": "refine", "feedback": "..." }\`: Revise and resubmi
         outputDir: paths.drafts,
         existingPages: existingPages.map((p: any) => ({ name: p.name, filename: p.filename, path: path.join(paths.root, p.filename) })),
         count: 3,
-        instructions: 'Read theme.css for design tokens. Write HTML files to outputDir.'
+        instructions: 'Read theme.css for design tokens. IMPORTANT: If existingPages has items, read them using their FULL PATH (existingPages[].path) to match the design. Write HTML files to outputDir as mockup-0.html, mockup-1.html, mockup-2.html (or just mockup-0.html for single-page generation).'
       };
     },
 
